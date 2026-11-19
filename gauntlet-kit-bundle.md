@@ -1,4 +1,4 @@
-# Бандл эталонного набора gauntlet (ревизия 4.1 от 2026-10-06)
+# Бандл эталонного набора gauntlet (ревизия 4.2 от 2026-11-19)
 
 Этот файл — самодостаточный источник эталона для протокола `start` из инструкции «Метод Gauntlet». Он
 содержит файлы набора после очистки от имён и примеров эталонного проекта (раздел 8.4 инструкции; ревизия 4 снята с ветки эталона, в которой смержены все правки набора по 2026-10-05): хуки
@@ -114,6 +114,20 @@ ArchUnit-тест, шаблоны, установку и документаци�
   считал все подавления, и путь, который шапка набора отводит человеку, не работал. Встроенные подавления (`//NOPMD`,
   `@SuppressWarnings`) — по-прежнему нарушения. Сверено по PMD 7.27.0 (`ViolationSuppressor`, `XMLRenderer`).
 
+**Изменения против ревизии 4.1 (ревизия 4.2, 2026-11-19).**
+- Защита от петли «пробел спецификации»: процесс, роли и отчёт различают находки «дефект» (поведение
+  против утверждённой спецификации — правится в коде) и «правило» (спецификация не определяет поведение —
+  вопрос владельцу, без нового раунда правок). Причина: правка одного случая неопределённого правила
+  порождает следующий случай новым заворотом, а гейты его не ловят — мутации закаляют тесты против
+  спецификации, а не против ненаписанных правил.
+- `gauntlet/CLAUDE.md`: шаг 2 — таблица решений (тип события × наблюдаемый исход) для задач выбора
+  значения или версии; шаг 3 — дыра-чек перед заморозкой (каждое правило закреплено сценарием или явно
+  «Вне фичи»); шаг 7 — классификация находок и жёсткая остановка после 2 раундов; отчёт — раунды и список
+  находок «правило»; «Когда застрял» — остановка на неопределённом правиле.
+- `.claude/agents/specifier.md`: таблица решений и самопроверка полноты правил, новый пункт итога.
+- `.claude/agents/reviewer.md`: классификация поведенческих находок, тип в формате вердикта.
+- Синхронизировано с универсальной инструкцией ревизии 4.2 (разделы 1.1, 3, 4, 5, 8.3, приложение D).
+
 ## Как распаковать (Claude выполняет это на шаге 2 протокола `start`)
 
 Каждый файл лежит между строками `===== BEGIN FILE <путь> =====` и `===== END FILE <путь> =====`.
@@ -140,12 +154,12 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 ## Манифест
 
 - `.claude/agents/hardener.md` (4210 байт)
-- `.claude/agents/reviewer.md` (6280 байт)
-- `.claude/agents/specifier.md` (4176 байт)
+- `.claude/agents/reviewer.md` (7473 байт)
+- `.claude/agents/specifier.md` (4920 байт)
 - `.claude/settings.json` (1720 байт)
 - `.github/workflows/gauntlet.yml` (1978 байт)
 - `CLAUDE.md` (279 байт)
-- `gauntlet/CLAUDE.md` (57848 байт)
+- `gauntlet/CLAUDE.md` (63625 байт)
 - `gauntlet/INSTALL.md` (11426 байт)
 - `gauntlet/README.md` (29851 байт)
 - `gauntlet/archtest/gauntlet/architecture/ArchitectureTest.java` (7906 байт)
@@ -156,7 +170,7 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 - `gauntlet/config/integrity-allowlist.txt` (445 байт)
 - `gauntlet/config/pit-runerror-allowlist.txt` (1485 байт)
 - `gauntlet/config/pmd-ruleset.xml` (11398 байт)
-- `gauntlet/gauntlet.gradle` (32155 байт)
+- `gauntlet/gauntlet.gradle` (32451 байт)
 - `gauntlet/hooks/guard.py` (26740 байт)
 - `gauntlet/hooks/selftest.py` (41192 байт)
 - `gauntlet/hooks/session_start.sh` (3116 байт)
@@ -266,7 +280,12 @@ coder/reviewer loop of Robert C. Martin's swarm-forge "adversaries" branch.)
 
 ## Look for
 1. **Behaviour vs spec**: cases the scenarios imply but nothing tests; step definitions that ignore a
-   parameter or assert on something weaker than the observable result.
+   parameter or assert on something weaker than the observable result. Classify every behavioural finding:
+   **«дефект»** — the behaviour contradicts the approved spec or an owner decision (fixable in code);
+   **«правило»** — the spec does not define the behaviour the code decides (version selection, ordering,
+   refusal fate, a cleared field versus an absent one). A «правило» finding names the rule, the observable
+   outcomes and the variants with a recommendation; it goes to the human, never into another fix round —
+   patching one case of an undefined rule invites the next case as a new finding.
 2. **Security & data protection**: missing authorisation checks, injection (SQL/JPQL, log, header),
    personal or other sensitive data in logs, errors or test fixtures, secrets in code, unsafe deserialisation,
    SSRF in outbound calls, overly broad CORS.
@@ -312,11 +331,12 @@ coder/reviewer loop of Robert C. Martin's swarm-forge "adversaries" branch.)
 ## Output (exactly this shape)
 ```
 VERDICT: APPROVED | CHANGES REQUESTED
-1. [blocker|major|minor] path/File.java:123 - problem - risk - expected correction
+1. [blocker|major|minor] [дефект|правило] path/File.java:123 - problem - risk - expected correction
 2. ...
 Residual risks: <what you could not verify>
 ```
-Every item must be actionable. No praise, no restating the diff.
+Every item must be actionable. For a «правило» item the expected correction is a spec decision for the
+human, not a code edit. No praise, no restating the diff.
 ===== END FILE .claude/agents/reviewer.md =====
 
 ===== BEGIN FILE .claude/agents/specifier.md =====
@@ -344,6 +364,12 @@ before any code is written; the coder must then make your scenarios pass without
   outcome. Move setup shared by all scenarios of a feature into `Background`.
 - Cover the rules, the boundaries (just below / at / above a limit) and the error cases the request
   implies. Ask instead of inventing business rules.
+- **Selection rules need a decision table.** When the task picks a value or a version among several
+  (row history, echo, redelivery, refusal, deletion, a cleared field versus an absent one), return a
+  decision table: event type × observable outcome (message sent, state saved). Every row becomes a
+  scenario with its values in Examples. Before returning, check completeness: every rule the code must
+  decide is pinned by a scenario or explicitly declared out of scope («Вне фичи») with an accepted risk;
+  a rule neither pinned nor declared is an open question for the human, never a decision left to the code.
 - Business rules come only from the domain sources in gauntlet/CLAUDE.md, section «Источники
   документации» → «Предметная область»: the module's rules (its `CLAUDE.md`) and the project's
   specifications (ТЗ, integration points, data structures; PDFs, read them with the Read tool page by page). Name the
@@ -376,6 +402,7 @@ before any code is written; the coder must then make your scenarios pass without
 1. Files created or changed.
 2. One line per scenario: what it pins down.
 3. Open questions and assumptions the human must confirm before approving.
+4. The decision table for selection rules (event type × observable outcome), or «нет правил выбора».
 ===== END FILE .claude/agents/specifier.md =====
 
 ===== BEGIN FILE .claude/settings.json =====
@@ -582,6 +609,11 @@ Gradle-сборки живут в этих каталогах: `./gradlew …` �
 2. **Спецификация.** Делегируй сабагенту `specifier`: запрос дословно, релевантные фичи, ограничения из
    сообщения. Он вернёт изменённые файлы, по строке на сценарий и открытые вопросы. Спецификации пишутся
    на русском (`# language: ru`); в рабочий контур они не переносятся.
+   Если задача выбирает значение или версию из нескольких (история строк, эхо, повтор, отказ, удаление,
+   очистка поля), specifier дополнительно возвращает **таблицу решений**: тип события × наблюдаемый исход
+   (отправленное сообщение, сохранённое состояние); каждая строка таблицы — сценарий со значениями в
+   Examples. Правило выбора, которое не закреплено ни сценарием, ни явным «Вне фичи», — открытый вопрос
+   владельцу до заморозки, а не место для решения кодом.
 3. **Утверждение — остановись.** Покажи пользователю пути файлов, по одной строке на сценарий, вопросы и
    допущения specifier'а. Спроси, утверждает ли он спецификацию, и закончи ход. До ответа — никакого кода
    и никаких коммитов: незакоммиченные фичи — черновик, который человек ещё может править (Stop-хук их не
@@ -591,6 +623,11 @@ Gradle-сборки живут в этих каталогах: `./gradlew …` �
    нужные от человека, выводи нумерованным списком, чтобы он ответил «1) да 2) да …», и к каждому пункту ставь
    рекомендацию «ответьте здесь» или «переслать координатору» («Правила владельца»). Просят изменений —
    снова к `specifier`.
+   **Дыра-чек перед заморозкой:** каждое правило, которое код должен решать (выбор версии, порядок строк,
+   судьба отказа, явная очистка поля против его отсутствия), закреплено сценарием или явно вынесено
+   «Вне фичи» с принятым риском. Критерий — наблюдаемость приёмкой: меняется хоть одно свойство, которое
+   видит приёмка (ответ, сообщение, сохранённая строка), — правило обязано быть в спецификации. Дыра —
+   вопрос владельцу до заморозки; после заморозки она стоит уже правки спецификации человеком.
    Если в `gauntlet.properties` стоит `spec.approval=pr`, не останавливайся: человек прочитает Gherkin в PR.
 4. **Заморозка.** После «да» закоммить только фичи отдельным коммитом `spec: <что описано>` и сразу
    запушить ветку (`git push -u origin HEAD`): с этого момента спецификация видна человеку на GitHub,
@@ -604,9 +641,16 @@ Gradle-сборки живут в этих каталогах: `./gradlew …` �
    сам, затем снова `gauntletFast`. Если PIT нечего мутировать (правка только конфигурации), ручные мутанты
    hardener предлагает списком, а применяешь, гоняешь тесты и откатываешь их ты — и перед коммитом проверяешь,
    что `src/main` чист.
-7. **Ревью.** Сабагент `reviewer` (базовая ветка, фичи, список изменённых файлов). Исправь все
-   blocker/major, повтори прогон, верни результат ревьюеру. Не больше 2 раундов. Рекомендация
-   противоречит утверждённой спецификации — вопрос человеку.
+7. **Ревью.** Сабагент `reviewer` (базовая ветка, фичи, список изменённых файлов). Каждая находка
+   помечается типом: **«дефект»** — поведение противоречит утверждённой спецификации или решению владельца,
+   правится в коде; **«правило»** — спецификация не определяет поведение, которое код решает (выбор версии,
+   порядок, судьба отказа, очистка против отсутствия). Находки типа «правило» не уходят в новый раунд
+   правок: они идут владельцу нумерованным списком «ответьте здесь», работа над ними останавливается до
+   ответа; после ответа правило закрепляется в спецификации (замороженные фичи правит только человек или
+   его делегат), затем один проход реализации против всего правила. Исправь все blocker/major типа
+   «дефект», повтори прогон, верни результат ревьюеру. **Не больше 2 раундов**; после второго
+   CHANGES REQUESTED с непогашенными находками остановись и опиши остаток, а не начинай третий круг.
+   Рекомендация противоречит утверждённой спецификации — вопрос человеку.
 8. **Финал.** `./gradlew gauntlet --continue` зелёный → коммит → `git push` своей ветки → открой PR
    (`gh pr create`, в описании — отчёт ниже; если не получилось, скажи об этом: пользователь нажмёт
    Create PR сам). Тот же отчёт — в чат. **Никогда не мержи** и не проси мержить за тебя: merge — это
@@ -616,7 +660,8 @@ Gradle-сборки живут в этих каталогах: `./gradlew …` �
 ### Отчёт (в PR и в чат)
 - **Гейты**: каждый со статусом; max CRAP; мутанты — убито / выжило / без покрытия; Gherkin-мутанты.
 - **Спецификация**: файлы и сценарии — то единственное, что человек читает.
-- **Ревьюер**: вердикт, что исправлено.
+- **Ревьюер**: вердикт, раунды, что исправлено; находки типа «правило» — отдельным списком с пометкой,
+  что они ждут решения владельца, и что по ним правок кода не было.
 - **Сверка по документации**: по строке на решение, которое опирается на поведение фреймворка, библиотеки
   или протокола: утверждение → источник (URL или jar и класс) → версия; отдельно — что проверено только
   по байткоду и почему.
@@ -625,7 +670,7 @@ Gradle-сборки живут в этих каталогах: `./gradlew …` �
   по умолчанию (см. «Правила владельца»).
 - **Нужно решение человека** — нумерованным списком, у каждого пункта — «ответьте здесь» или «переслать
   координатору» («Правила владельца»): эквивалентные мутанты, предлагаемые исключения,
-  вопросы к спецификации.
+  вопросы к спецификации, правила выбора вне спецификации (находки типа «правило»).
 - **Оценка**: трудозатраты задачи для Jira против факта, с причиной расхождения.
 - **Остаточные риски**.
 
@@ -873,6 +918,12 @@ PDF читаются инструментом Read (страницами). До�
   исключением класса из PIT и не обходится тегом `no-mutate`.
 - Спецификация противоречит unit-тесту или коду — остановись и спроси; не правь ни одну сторону,
   чтобы «подружить» их.
+- Ревью или координатор нашёл поведение, которое спецификация не определяет (находка типа «правило»), —
+  **остановись и опиши**: какое правило решает код, какие исходы видны приёмке, варианты с рекомендацией.
+  Не подбирай правило по одному случаю за раунд: следующее проявление того же пробела придёт новым
+  заворотом, и гейты его не поймают — мутации закаляют тесты против спецификации, а не против
+  ненаписанных правил. Решение владельца закрепляется в спецификации, затем один проход реализации
+  против всего правила; накопленные регрессионные случаи становятся приёмочным набором.
 - Гейт красный после 3 попыток — Stop-хук отпустит тебя с предупреждением. Работа при этом НЕ сделана:
   так и напиши в отчёте, с причинами.
 ===== END FILE gauntlet/CLAUDE.md =====

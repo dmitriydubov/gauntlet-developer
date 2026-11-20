@@ -83,6 +83,37 @@
       `echo ok; echo done`; `-ccore.hooksPath=…` и два случая с текстом `core.hooksPath` в сообщении).
       `guard_tests` гоняется в трёх раскладках, поэтому +21 проверка (661 → 682). Остаток эвристики не
       изменился (`$(which git)`, переменные, base64).
+12. **guard и инструменты — шесть правок по ревью Kimi (продолжение ревизии 4.3).** Каждая находка
+    подтверждена воспроизведением на базе и на PR; поведение гейтов не ослаблено.
+    - **guard, тела подстановок команды (P1).** Регрессия после правки Codex: `split_shell` учитывает кавычки
+      при сегментации, но тела `$(…)`/`` `…` ``, которые shell исполняет вне одинарных кавычек, не проверялись —
+      `"$(git push --force)"` проходило. Добавлен `command_substitutions`: тела подстановок вне одинарных
+      кавычек рекурсивно проверяются human-only правилами (вложенные подстановки рекурсия разбирает сама).
+      В одинарных кавычках подстановка литеральна и не блокируется — без over-block.
+    - **`GherkinMutator`, Background (P1).** Сценарий без собственных шагов освобождался от проверки пустоты,
+      даже когда Background фичи или правила даёт исполняемые шаги. Теперь освобождение — только когда шагов
+      нет и в Background (`hasBackgroundSteps`); иначе сценарий без «Примеров» помечается `GHERKIN VACUOUS`
+      (exit 1): шаги выполняются, но мутировать нечего.
+    - **`IntegrityCheck`, смешанная строка (P1).** Освобождение «безобидного» блока на одной строке срабатывало
+      по опенеру, даже когда отключение `test` стояло отдельным оператором вне блока:
+      `test.enabled = false; jar { }` и `jar { }; test.enabled = false` проходили. Добавлен `harmlessSingleLine`:
+      однострочный блок освобождается, только если опенер — packaging/doc-задача и каждое отключение стоит
+      внутри его фигурных скобок. Многострочный случай (`harmlessOpener`) не изменился.
+    - **guard, `env -S` (P1).** `env -S 'git push --force'` (и `--split-string`) терял payload: разбор обёртки
+      `env` не раскрывал строку, которую `env -S` расщепляет и исполняет. Теперь значение `-S` расщепляется
+      (`shlex`) и подставляется в начало команды, обёртки снимаются повторно (вложенные `env`/`sudo`).
+    - **guard, push без refspec (P2).** `git push` без refspec сидя на базовой ветке пушит базовую ветку
+      (`push.default=simple`), но проверка ловила только явный `push HEAD`/имя ветки. Теперь push без refspec
+      на базовой ветке блокируется; на своей ветке — разрешён.
+    - **`stop_gate`, окно на весь бюджет прогона (P2).** Окно повторов SubagentStop считалось от таймаута
+      одного модуля, а `run_all` гоняет задачу в каждом изменённом модуле последовательно — бюджет
+      `timeout × число модулей`. Медленный двухмодульный `mutationGate` (до 6600 с) выглядел «новой сессией»
+      и сбрасывал счётчик в 1. Окно расширено до `timeout × max(1, модули) + 10 мин`; таймаут хука в
+      `.claude/settings.json` поднят 3600 → 7200 с под двухмодульный бюджет.
+    - Регрессии: 12 новых сценариев guard (подстановки, `env -S`, push без refspec) × 3 раскладки = +36;
+      5 проверок окна `stop_gate` × 3 раскладки = +15; целевые Java-регрессии `GherkinMutator` (Background)
+      и `IntegrityCheck` (смешанные строки). Итого 682 → 733 проверки самопроверки. README набора обновлён
+      (счётчик 733, таблица лазеек и раздел 8 — новое покрытие).
 
 ### Остаток эвристики guard (честно)
 
@@ -103,8 +134,8 @@ guard — растяжка, а не сейф (это заявлено в наб�
 **`gauntlet-kit-bundle.md`** (встроенные файлы эталона):
 - шапка: ревизия 4.3, дата; блок «Изменения против ревизии 4.2»;
 - `gauntlet/tools/IntegrityCheck.java`, `CrapGate.java`, `GherkinMutator.java`, `PitSummary.java`;
-- `gauntlet/hooks/guard.py`, `stop_gate.py`, `selftest.py` (682 проверка в трёх раскладках);
-- `.claude/settings.json` (deny);
+- `gauntlet/hooks/guard.py`, `stop_gate.py`, `selftest.py` (733 проверки в трёх раскладках);
+- `.claude/settings.json` (deny; таймаут SubagentStop 3600 → 7200 с);
 - `gauntlet/templates/acceptanceTest/resources/features/example_discount.feature`;
 - `gauntlet/README.md` (таблица лазеек, раздел 8, остаток);
 - манифест: пересчитаны байтовые размеры 10 изменённых файлов (см. ниже).
@@ -116,26 +147,28 @@ guard — растяжка, а не сейф (это заявлено в наб�
 | Файл | 4.2 | 4.3 |
 |---|---|---|
 | `.claude/settings.json` | 1720 | 2211 |
-| `gauntlet/README.md` | 29851 | 32776 |
-| `gauntlet/hooks/guard.py` | 26740 | 30210 |
-| `gauntlet/hooks/selftest.py` | 41192 | 45065 |
-| `gauntlet/hooks/stop_gate.py` | 16669 | 17000 |
+| `gauntlet/README.md` | 29851 | 34732 |
+| `gauntlet/hooks/guard.py` | 26740 | 34718 |
+| `gauntlet/hooks/selftest.py` | 41192 | 48771 |
+| `gauntlet/hooks/stop_gate.py` | 16669 | 17174 |
 | `gauntlet/templates/acceptanceTest/resources/features/example_discount.feature` | 928 | 1258 |
 | `gauntlet/tools/CrapGate.java` | 12638 | 13144 |
-| `gauntlet/tools/GherkinMutator.java` | 35990 | 37276 |
-| `gauntlet/tools/IntegrityCheck.java` | 15688 | 16511 |
+| `gauntlet/tools/GherkinMutator.java` | 35990 | 37983 |
+| `gauntlet/tools/IntegrityCheck.java` | 15688 | 17704 |
 | `gauntlet/tools/PitSummary.java` | 11401 | 11633 |
 
 Остальные 20 файлов не правились; их размеры не изменились.
 
 ### Проверено
 
-- `python3 gauntlet/hooks/selftest.py` — 682 проверка, 0 падений, три раскладки (корень; `core/`;
+- `python3 gauntlet/hooks/selftest.py` — 733 проверки, 0 падений, три раскладки (корень; `core/`;
   `core/` + `adapter/`).
 - Компиляция всех single-file инструментов (`javac`): `CrapGate`, `DryGate`, `GherkinMutator`,
   `IntegrityCheck`, `PitSummary` — без ошибок.
-- Целевые регрессии: allowlist `CrapGate` (ключ `Class#method` цел), опенер `IntegrityCheck` (10 случаев),
-  окно `stop_gate` (медленный прогон не сбрасывает счётчик), пример фичи (9 мутантов / 0 эквивалентных).
+- Целевые регрессии: allowlist `CrapGate` (ключ `Class#method` цел), опенер `IntegrityCheck` (10 случаев)
+  и смешанные строки `test.enabled = false; jar { }` (15 случаев), `GherkinMutator` (пустой сценарий при
+  непустом Background фичи/правила), окно `stop_gate` (медленный одномодульный и двухмодульный прогон не
+  сбрасывает счётчик; за пределами бюджета — сброс), пример фичи (9 мутантов / 0 эквивалентных).
 - Round-trip бандла: распаковка 30 файлов побайтово совпадает с исходниками.
 
 ## Ревизия 4.2 — 2026-11-19

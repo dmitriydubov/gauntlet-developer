@@ -48,8 +48,9 @@
    и табы заменяются пробелом).
 4. **guard (C5–C9):** human-only правила рекурсивно применяются внутри обёрток (`sudo`/`env`/`exec`/`command`/
    `nohup`/`time` с опциями и значениями), inline-кода (`-c`/`-e`, включая вложенные строки в кавычках —
-   `os.system`/`subprocess`/`execSync`), `eval`/`source` и pipe в интерпретатор. `;` внутри кавычек больше не
-   режет команду (нейтрализация мета символов в кавычках перед сегментацией, как в `command_violation`).
+   `os.system`/`subprocess`/`execSync`), `eval`/`source` и pipe в интерпретатор. Сегментация внешней команды
+   учитывает кавычки (`split_shell`): разделители внутри кавычек не режут команду, поэтому inline-payload
+   доходит до рекурсивной проверки целым, а уже код рекурсия режет по его настоящим разделителям.
    `.git/` — зона человека. Закрыты `push --mirror`/`--all`, `push HEAD` на базовой ветке (с разрешением
    `push -u origin HEAD` на своей ветке), сокращения `--no-verify` и `core.hooksPath`, регистронезависимые
    пути и `mentions`.
@@ -65,8 +66,23 @@
    UNVERIFIED — тесты прогнались против мутанта и он их зависнул (бесконечный цикл), это настоящее обнаружение
    (`TIMED_OUT(true)`), а не crash, пропустивший тесты. Сверено по семантике PIT.
 9. **Инструкция (F16):** п. 10 — «Blocker и major типа «дефект» исправляются всегда», согласовано с шагом 7.
-10. **README набора:** таблица лазеек и раздел 8 дополнены новым покрытием; счётчик самопроверки 574 → 661;
+10. **README набора:** таблица лазеек и раздел 8 дополнены новым покрытием; счётчик самопроверки 574 → 682;
     честно описан остаток эвристики и настоящая опора (branch protection + CI + diff PR).
+11. **guard — две правки по автоматическому ревью PR (Codex):**
+    - **P1 (сегментация inline-кода).** Первая версия гасила мета символы внутри кавычек перед сегментацией
+      (`QUOTED.sub`), и это стирало `;` внутри `bash -c 'echo ok; git push --force origin main'`: рекурсия
+      видела `echo ok_ git push …` как аргументы `echo` и пропускала force-push. Заменено на `split_shell` —
+      сегментация, учитывающая кавычки: разделители в кавычках не режут внешнюю команду, payload доходит до
+      рекурсии целым и режется уже по своим настоящим разделителям. Закрывает и многострочный inline
+      (`echo ok; git push --force`), и вложенные кавычки (`os.system('…')`).
+    - **P2 (`core.hooksPath` только в конфиге).** `any("core.hookspath" in a.lower() for a in args)` ловил
+      текст сообщения коммита и переблокировал `git commit -m 'Document core.hooksPath behavior'`. Заменено
+      на `hooksPath_override`: проверяются только реальные глобальные `-c`/`-c…` до подкоманды git со
+      значением `core.hooksPath=…`, а не произвольные аргументы (сообщение, trailer).
+    - Регрессии: 7 новых сценариев в `selftest.py` (многострочный inline force-push/amend/gh-merge и безобидный
+      `echo ok; echo done`; `-ccore.hooksPath=…` и два случая с текстом `core.hooksPath` в сообщении).
+      `guard_tests` гоняется в трёх раскладках, поэтому +21 проверка (661 → 682). Остаток эвристики не
+      изменился (`$(which git)`, переменные, base64).
 
 ### Остаток эвристики guard (честно)
 
@@ -87,7 +103,7 @@ guard — растяжка, а не сейф (это заявлено в наб�
 **`gauntlet-kit-bundle.md`** (встроенные файлы эталона):
 - шапка: ревизия 4.3, дата; блок «Изменения против ревизии 4.2»;
 - `gauntlet/tools/IntegrityCheck.java`, `CrapGate.java`, `GherkinMutator.java`, `PitSummary.java`;
-- `gauntlet/hooks/guard.py`, `stop_gate.py`, `selftest.py` (661 проверка в трёх раскладках);
+- `gauntlet/hooks/guard.py`, `stop_gate.py`, `selftest.py` (682 проверка в трёх раскладках);
 - `.claude/settings.json` (deny);
 - `gauntlet/templates/acceptanceTest/resources/features/example_discount.feature`;
 - `gauntlet/README.md` (таблица лазеек, раздел 8, остаток);
@@ -114,7 +130,7 @@ guard — растяжка, а не сейф (это заявлено в наб�
 
 ### Проверено
 
-- `python3 gauntlet/hooks/selftest.py` — 661 проверка, 0 падений, три раскладки (корень; `core/`;
+- `python3 gauntlet/hooks/selftest.py` — 682 проверка, 0 падений, три раскладки (корень; `core/`;
   `core/` + `adapter/`).
 - Компиляция всех single-file инструментов (`javac`): `CrapGate`, `DryGate`, `GherkinMutator`,
   `IntegrityCheck`, `PitSummary` — без ошибок.

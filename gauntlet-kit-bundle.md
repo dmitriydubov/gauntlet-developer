@@ -142,10 +142,13 @@ ArchUnit-тест, шаблоны, установку и документаци�
   (перенос строки в имени не ломает TSV).
 - `hooks/guard.py`: human-only правила действуют внутри обёрток (`sudo`/`env`/`exec`/`command`/`nohup`/`time`
   с их опциями и значениями), inline-кода (`bash -c`, `python3 -c`/`node -e`, включая вложенные
-  `os.system`/`subprocess`/`execSync` в кавычках), `eval`/`source` и текста, передаваемого интерпретатору
-  через pipe; `;` внутри кавычек больше не режет команду на сегменты. `.git/` — зона человека (защита от
+  `os.system`/`subprocess`/`execSync` в кавычках и многострочный `bash -c 'echo ok; git push --force'`),
+  `eval`/`source` и текста, передаваемого интерпретатору через pipe. Сегментация внешней команды учитывает
+  кавычки (`split_shell`): разделители внутри кавычек не режут команду, inline-payload доходит до рекурсивной
+  проверки целым и режется уже по своим настоящим разделителям. `.git/` — зона человека (защита от
   снятия заморозки и подделки `last-green-*`). Закрыты `push --mirror`/`--all`, `push HEAD` на базовой ветке,
-  сокращения `--no-verif` и `core.hooksPath`, пути в другом регистре (`GAUNTLET/…`, `.Claude/…`).
+  сокращения `--no-verif`; `core.hooksPath` ловится только как реальный глобальный `-c`-конфиг до подкоманды
+  git (текст `core.hooksPath` в сообщении коммита не блокируется); пути в другом регистре (`GAUNTLET/…`, `.Claude/…`).
 - `hooks/stop_gate.py`: окно повторов SubagentStop теперь больше таймаута задачи (`timeout + 10 мин`):
   медленный `mutationGate` (до 3300 с) раньше сбрасывал счётчик попыток в 1 и петлял бесконечно.
 - `.claude/settings.json`: `permissions.deny` дополнен прямыми формами human-only команд (`--amend`,
@@ -156,7 +159,7 @@ ArchUnit-тест, шаблоны, установку и документаци�
   изменение любой ячейки «Примеров» меняет исход — 9 мутантов, 0 эквивалентных.
 - `tools/PitSummary.java`: в Javadoc зафиксировано, почему `TIMED_OUT` не входит в UNVERIFIED — тесты
   прогнались против мутанта и он их зависнул (бесконечный цикл), это настоящее обнаружение, а не crash.
-- `README.md`: таблица лазеек и раздел 8 дополнены новым покрытием guard; счётчик самопроверки 574 → 661;
+- `README.md`: таблица лазеек и раздел 8 дополнены новым покрытием guard; счётчик самопроверки 574 → 682;
   честно описан остаток эвристики (подстановка команды `$(which git)`, разворачивание переменной,
   закодированные payload'ы; префиксный deny) и настоящая опора — branch protection + CI + diff PR.
 - Универсальная инструкция, п. 10: «Blocker и major типа «дефект» исправляются всегда» — оговорка типа,
@@ -198,7 +201,7 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 - `CLAUDE.md` (279 байт)
 - `gauntlet/CLAUDE.md` (63625 байт)
 - `gauntlet/INSTALL.md` (11426 байт)
-- `gauntlet/README.md` (32776 байт)
+- `gauntlet/README.md` (32932 байт)
 - `gauntlet/archtest/gauntlet/architecture/ArchitectureTest.java` (7906 байт)
 - `gauntlet/config/architecture.properties` (1420 байт)
 - `gauntlet/config/checkstyle.xml` (4593 байт)
@@ -208,8 +211,8 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 - `gauntlet/config/pit-runerror-allowlist.txt` (1485 байт)
 - `gauntlet/config/pmd-ruleset.xml` (11398 байт)
 - `gauntlet/gauntlet.gradle` (32451 байт)
-- `gauntlet/hooks/guard.py` (30210 байт)
-- `gauntlet/hooks/selftest.py` (45065 байт)
+- `gauntlet/hooks/guard.py` (31834 байт)
+- `gauntlet/hooks/selftest.py` (46056 байт)
 - `gauntlet/hooks/session_start.sh` (3116 байт)
 - `gauntlet/hooks/stop_gate.py` (17000 байт)
 - `gauntlet/install.sh` (4933 байт)
@@ -1154,7 +1157,7 @@ gauntlet/
   archtest/               ArchUnit-тест, читающий config/architecture.properties
   hooks/                  guard.py (PreToolUse), stop_gate.py (Stop; SubagentStop hardener'а — matcher в
                           .claude/settings.json), session_start.sh (SessionStart; в облаке поднимает dockerd),
-                          selftest.py (661 проверка хуков в трёх раскладках: python3 gauntlet/hooks/selftest.py)
+                          selftest.py (682 проверка хуков в трёх раскладках: python3 gauntlet/hooks/selftest.py)
   templates/              конфигурация Cucumber+Spring, пример фичи на русском
   claude/, ci/            только до установки: install.sh переносит их в .claude/ и .github/workflows/
 ```
@@ -1306,7 +1309,7 @@ protection базовой ветки и то, что любая попытка �
 ## 8. Что проверено в этой версии, а что нет
 
 Проверено здесь (Gradle 8.14.3, Java 21):
-- Хуки, `hooks/selftest.py`, 661 проверка в трёх раскладках (сборка в корне; модуль `core/`; два модуля
+- Хуки, `hooks/selftest.py`, 682 проверка в трёх раскладках (сборка в корне; модуль `core/`; два модуля
   `core/` + `adapter/` — Gradle только в изменённом модуле, красный модуль блокирует, коммит
   спецификации одного модуля замораживает фичи другого, чужая незакоммиченная работа не считается)
   на временном git-репозитории с фиктивным `origin/main`:
@@ -1315,11 +1318,12 @@ protection базовой ветки и то, что любая попытка �
   в базовую ветку, detached HEAD, `gh pr merge` (включая `-R` и GraphQL auto-merge), редиректы в кавычках
   и `2>`/`&>`, `rm -rf src` и `rm -rf *`, `cd … && cp`, `git -C`, `$PWD`/`$CLAUDE_PROJECT_DIR`, `xargs rm`,
   `$(…)`, запись в `~/.claude`; human-only правила внутри обёрток (`sudo`/`env`/`exec`/`command`/`nohup`),
-  inline-кода (`bash -c`, `python3 -c`/`node -e` с вложенным `os.system`/`subprocess`/`execSync`), `eval`,
+  inline-кода (`bash -c`, `python3 -c`/`node -e` с вложенным `os.system`/`subprocess`/`execSync`, многострочный
+  `bash -c 'echo ok; git push --force'` — разделители в кавычках не режут payload), `eval`,
   pipe в интерпретатор; защита `.git/` (включая подделку `last-green-*`); `push --mirror`/`--all`/`HEAD`
   на базовой ветке; сокращения `--no-verif` и `core.hooksPath`; регистронезависимые пути (`GAUNTLET/…`,
   `.Claude/…`); и отсутствие ложных срабатываний на `./gradlew gauntletFast`, `git add -A`,
-  `git commit` (в том числе с heredoc-сообщением и словами `--no-verify`/`push --force` в тексте сообщения),
+  `git commit` (в том числе с heredoc-сообщением и словами `--no-verify`/`push --force`/`core.hooksPath` в тексте сообщения),
   `git stash push -m`, `tee build/…`, `rm -rf build`, `git push -u origin HEAD` на своей ветке,
   `sudo ./gradlew`, `bash -c 'echo hello'`, Python-тесты с лямбдами через heredoc; stop_gate — ход только
   со спецификацией не гоняет гейт (и после кодового хода тоже), незакоммиченные фичи исключают приёмку,
@@ -2963,8 +2967,7 @@ def protected_reason(agent, hit, ctx):
 def human_only(command, ctx):
     if HOOK_SWITCH.search(QUOTED.sub("''", command)):
         return "Switching the gauntlet hooks off is reserved for the human."
-    neutral = QUOTED.sub(lambda m: re.sub(r"[>;&|()]", "_", m.group(0)), command)  # ';' inside python -c is code, not a separator
-    for segment in segments(neutral):
+    for segment in split_shell(command):
         words = words_of(segment)
         if len(words) < 2:
             continue
@@ -3077,12 +3080,31 @@ def git_human_only(args, ctx):
     return None
 
 
+def hooksPath_override(args):
+    """`git -c core.hooksPath=…` disables hooks. Only a real config override — the value of a global -c
+    before the subcommand — not a commit message that happens to mention core.hooksPath."""
+    sub = git_subcommand(args)
+    region = args[:args.index(sub)] if sub in args else args
+    i = 0
+    while i < len(region):
+        a = region[i]
+        if a == "-c":
+            if i + 1 < len(region) and region[i + 1].lower().startswith("core.hookspath="):
+                return True
+            i += 2
+            continue
+        if a.startswith("-c") and not a.startswith("--") and a[2:].lower().startswith("core.hookspath="):
+            return True
+        i += 1
+    return False
+
+
 def skips_git_hooks(args):
     if any(a.startswith("--no-v") and "--no-verify".startswith(a) for a in args):
         return True
     if git_subcommand(args) != "commit":
         return False
-    if any("core.hookspath" in a.lower() for a in args):
+    if hooksPath_override(args):
         return True
     skip = False
     for a in args:
@@ -3102,6 +3124,40 @@ def skips_git_hooks(args):
 
 def segments(command):
     return [s for s in re.split(r"\|\||&&|[;|&`\n]|\$\(|[()]", command) if s.strip()]
+
+
+def split_shell(command):
+    """Like segments, but separators inside quotes do not split: `bash -c 'echo ok; git push --force'`
+    stays one segment so the inline code reaches inline_code_strings intact (the ';' is code, not a separator)."""
+    parts, buf = [], []
+    quote, esc, i, n = None, False, 0, len(command)
+    while i < n:
+        c = command[i]
+        if esc:
+            buf.append(c)
+            esc = False
+        elif c == "\\" and quote != "'":
+            buf.append(c)
+            esc = True
+        elif quote:
+            buf.append(c)
+            if c == quote:
+                quote = None
+        elif c in "'\"":
+            quote = c
+            buf.append(c)
+        elif command.startswith(("||", "&&", "$("), i):
+            parts.append("".join(buf))
+            buf = []
+            i += 1
+        elif c in ";|&`\n()":
+            parts.append("".join(buf))
+            buf = []
+        else:
+            buf.append(c)
+        i += 1
+    parts.append("".join(buf))
+    return [s for s in parts if s.strip()]
 
 
 def words_of(segment):
@@ -3551,6 +3607,14 @@ def guard_tests(repo):
                 command="python3 -c \"import subprocess; subprocess.run('gh pr merge 12', shell=True)\"")
     expect_deny(repo, "node child_process nested force push", "main", "Bash",
                 command="node -e \"require('child_process').execSync('git push --force')\"")
+    expect_deny(repo, "bash -c multi-command inline force push", "main", "Bash",
+                command="bash -c 'echo ok; git push --force origin main'")
+    expect_deny(repo, "sh -c inline amend after echo", "main", "Bash",
+                command="sh -c 'echo hi && git commit --amend'")
+    expect_deny(repo, "bash -c multi-command inline gh merge", "main", "Bash",
+                command="bash -c 'echo ok; gh pr merge 12'")
+    expect_allow(repo, "bash -c multi-command harmless", "main", "Bash",
+                 command="bash -c 'echo ok; echo done'")
     expect_allow(repo, "python -c harmless quoted text", "main", "Bash",
                  command="python3 -c \"print('hello; world')\"")
     expect_allow(repo, "bash -c harmless", "main", "Bash", command="bash -c 'echo hello'")
@@ -3572,6 +3636,11 @@ def guard_tests(repo):
     # --- hardening: hook-skipping abbreviations and config
     expect_deny(repo, "no-verify abbreviation", "main", "Bash", command="git commit --no-verif -m x")
     expect_deny(repo, "core.hooksPath off", "main", "Bash", command="git -c core.hooksPath=/dev/null commit -m x")
+    expect_deny(repo, "core.hooksPath attached -c", "main", "Bash", command="git -ccore.hooksPath=/dev/null commit -m x")
+    expect_allow(repo, "core.hooksPath in commit message", "main", "Bash",
+                 command="git commit -m 'Document core.hooksPath behavior'")
+    expect_allow(repo, "core.hooksPath assignment in message", "main", "Bash",
+                 command="git commit -m 'core.hooksPath=/dev/null is bad'")
     expect_allow(repo, "no-verify words in message", "main", "Bash",
                  command='git commit -m "docs: mention --no-verify in the message"')
     # --- hardening: case-insensitive protected paths (macOS/Windows)

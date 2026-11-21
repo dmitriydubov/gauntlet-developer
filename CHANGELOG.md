@@ -223,6 +223,68 @@
       целевые harness'ы `CrapGate` (14), `IntegrityCheck` (24), `GherkinMutator` (52), `install.sh` (29),
       симуляция `gauntlet.gradle`. Итого 808 → 892 проверки самопроверки. README набора обновлён (счётчик 892,
       раздел 8 — покрытие Codex, пункт `install.sh`).
+15. **Инструменты, хуки, установка и сборщик — второй раунд ревью Codex (продолжение ревизии 4.3).** Находки
+    F1–F14 подтверждены воспроизведением на голове PR (`cf7b6d3`); поведение гейтов не ослаблено.
+    - **`GherkinMutator`, сбой подготовки как kill (F1), перенос строки в ячейке (F2), NBSP в отступе (F11).**
+      Gradle пишет `<failure type="java.io.IOException">` (и `AssertionError`) для падения `@Before` до первого
+      шага, а правка V6-a обрабатывала только `<error>` — девять таких сценариев засчитывались как
+      `9 killed, 0 survived` при недоступной БД. Теперь сбой до шага (подготовка/Background) — `MUTANT ERROR`
+      (exit 1), kill только когда упал сам шаг. Замена одной ячейки «Примеров» переписывала весь outline и
+      превращала перенос строки в соседней колонке в два символа `\n` — мутант количества ложно «убивался»
+      падением адреса. Теперь outline сохраняется, меняется одна ячейка, интерполяция Cucumber не ломается.
+      `String.trim()` сохраняет U+00A0, поэтому шаг с неразрывным пробелом в отступе пропадал из `stepCount` и
+      outline давал 0 мутантов вместо одного — теперь NBSP в отступе не теряется. Регрессия: 12 случаев
+      (IOException/AssertionError в `@Before` → ERROR; падение шага → kill; одна ячейка с `\n` в соседней
+      колонке; NBSP-отступ).
+    - **`CrapGate`, sourcefilename ≠ имя файла (F4), уникальность лямбд (F5).** При `debug=false` класс
+      `Selection` из `Selectors.java` давал пустой/несовпадающий `sourcefilename`, `changed` находил 0 методов и
+      молча проходил, хотя `all` выявлял CRAP 12. Теперь имя исходника выводится из имени класса, метод
+      анализируется. Две лямбды `Selection#rules::lambda` отображались одним именем, и единственная запись
+      allowlist освобождала обе — теперь уникальность проверяется и по имени, принятому из allowlist.
+      Регрессия: 8 случаев.
+    - **`gauntlet.gradle`, regex поиска типов (F3).** `@Deprecated final class StandardPrices` в `Prices.java`:
+      Checkstyle проходит, `mutationGate` в режиме `changed` находил 0 целей и проходил, а `all` выявлял двух
+      выживших мутантов. Regex пропускал объявление с аннотацией на той же строке — теперь привязка исходника к
+      типам, которые он действительно объявляет, учитывает аннотации на строке объявления. Регрессия: 15 случаев
+      (аннотация на строке, `non-sealed`, комментарий/Javadoc/строка-литерал/вложенный/record-параметр — не тип).
+    - **`stop_gate`, закоммиченный rename (F6), вложенные сборки (F7), кэш/удалённый файл (F13).** Перенос класса
+      `core` → `adapter`, закоммиченный до Stop, запускал только `adapter` и кэшировал успех (проверка `core`
+      падала) — теперь оба пути берутся из `git diff --name-status -M`. При `module=core,core/adapter` изменение
+      внутри `core/adapter` запускало только родительский `core` (первый совпавший префикс зависел от порядка) —
+      теперь выбирается самый длинный префикс. Время отчёта второго модуля сравнивалось с временем лога первого
+      и сбрасывало кэш собственного прогона — теперь возраст отчётов сравнивается по модулю
+      (`module_report_dirs`); удалённый отслеживаемый `build.gradle` выпадал из набора путей Git и запуск
+      пропускался — теперь `existing` сверяется с индексом и HEAD. Регрессии в `selftest.py`: +42 проверки
+      (rename, вложенные сборки в обоих порядках, per-module кэш, удалённый файл).
+    - **`install.sh`, идентификация команды (F8).** При слиянии `PreToolUse` пользовательская команда
+      `sha256sum …/gauntlet/hooks/guard.py` заменялась на запуск guard (поиск узнавал имя скрипта в любом
+      аргументе); в общей группе `SubagentStop` переписывался `matcher` всей группы, и пользовательский хук
+      переставал запускаться для `reviewer`. Теперь `gkey` узнаёт саму команду запуска (интерпретатор + первый
+      операнд-скрипт `gauntlet/hooks/X.py`, не флаг/inline-код), а `matcher` трогается только когда все хуки в
+      группе gauntlet'овские. Регрессия: 19 случаев (чужой `sha256sum`/`python3 -c`, смешанная группа,
+      идемпотентность, масштабирование таймаута).
+    - **`IntegrityCheck`, параметр замыкания (F9).** В `tasks.named('jar')` формы `it.enabled = false` и
+      `archive -> archive.enabled = false` давали B1, хотя Gradle подтверждал, что отключён только `jar`. Теперь
+      `receiverIsHarmless` принимает `it` и именованный параметр замыкания, если он совпадает с единственным
+      параметром опенера (`closureParam`); `test.enabled` и чужое имя по-прежнему B1. Регрессия: 17 случаев.
+    - **guard, cd в подоболочке (F10), argv echo/python -c (F14).** На ветке `fix/feature` переход в соседнее
+      worktree `main` внутри подоболочки `( cd … && git status )` блокировал последующий push своей ветки из
+      родительской оболочки (cwd утекал) — теперь `human_only`/`command_violation` ведут стек cwd для `( )`/
+      `$( )`, реальный `cd` в базовую ветку по-прежнему блокирует push. `subprocess.run(['echo', 'example; git
+      rebase'])` только печатает текст, но хук склеивал argv и повторно разбирал его как shell — теперь каждый
+      элемент экранируется (`shlex.quote`), данные не становятся командой (реальный `git push --force`/`gh pr
+      merge` в argv по-прежнему блокируется). Регрессии в `selftest.py`: +12 сценариев × 3 раскладки = +36.
+    - **Сборщик бандла, распаковщик нужной версии (F12, §8.4 инструкции).** Скрипт §8.4 брал текст распаковщика
+      из прежнего бандла: при пересборке с новым побайтным форматом старый распаковщик добавлял LF, и все 30
+      файлов расходились с манифестом на байт. Теперь сборщик вкладывает в заголовок канонический распаковщик
+      своей версии (из прежнего бандла берутся только описание и список изменений) и сам сверяет round-trip
+      побайтно, отвергая рассинхрон формата, пустой файл и 0/1/2 завершающих LF. Регрессия: 14 случаев
+      (пересборка со старым заголовком → 30/30 побайтно; старый распаковщик на том же бандле → +1 байт/файл;
+      пустой/0/1/2 LF/nested; встроенный guard отвергает LF-добавляющий распаковщик).
+    - Регрессии: guard F10/F14 +12 × 3 = +36 и `stop_gate` F6/F7/F13 +42; целевые harness'ы `GherkinMutator` (12),
+      `CrapGate` (8), `IntegrityCheck` (17), `stop_gate` (8), `install.sh` (19), guard (17), сборщик (14),
+      regex PIT (15) — 110/110. Итого 892 → 970 проверок самопроверки. README набора обновлён (счётчик 970,
+      раздел 8 — покрытие второго раунда Codex).
 
 ### Остаток эвристики guard (честно)
 
@@ -238,12 +300,14 @@ guard — растяжка, а не сейф (это заявлено в наб�
 ### Где именно (по файлам)
 
 **`gauntlet-method-universal.md`:** шапка (ревизия 4.3, дата, ссылка на бандл 4.3, блок «Ревизия 4.3»);
-раздел 1.1, п. 10 (оговорка типа «дефект»).
+раздел 1.1, п. 10 (оговорка типа «дефект»); раздел 8.4 (сборщик бандла вкладывает канонический распаковщик
+своей версии и сверяет round-trip побайтно — F12).
 
 **`gauntlet-kit-bundle.md`** (встроенные файлы эталона):
-- шапка: ревизия 4.3, дата; блок «Изменения против ревизии 4.2»; блоки правок Kimi, Grok, Codex;
+- шапка: ревизия 4.3, дата; блок «Изменения против ревизии 4.2»; блоки правок Kimi, Grok, Codex (V1–V7 и
+  второй раунд F1–F14);
 - `gauntlet/tools/IntegrityCheck.java`, `CrapGate.java`, `GherkinMutator.java`, `PitSummary.java`;
-- `gauntlet/hooks/guard.py`, `stop_gate.py`, `selftest.py` (892 проверки в трёх раскладках);
+- `gauntlet/hooks/guard.py`, `stop_gate.py`, `selftest.py` (970 проверок в трёх раскладках);
 - `gauntlet/install.sh` (обновление gauntlet-хуков при слиянии, бюджет таймаута по модулям);
 - `gauntlet/gauntlet.gradle` (входы `acceptanceTest`, `mutationGate` source → compiled types);
 - `gauntlet/config/crap-allowlist.txt` (пример записи с сигнатурой перегрузки);
@@ -260,25 +324,27 @@ guard — растяжка, а не сейф (это заявлено в наб�
 | Файл | 4.2 | 4.3 |
 |---|---|---|
 | `.claude/settings.json` | 1720 | 2211 |
-| `gauntlet/README.md` | 29851 | 41749 |
+| `gauntlet/README.md` | 29851 | 45564 |
 | `gauntlet/config/crap-allowlist.txt` | 448 | 924 |
-| `gauntlet/gauntlet.gradle` | 32451 | 33660 |
-| `gauntlet/hooks/guard.py` | 26740 | 40667 |
-| `gauntlet/hooks/selftest.py` | 41192 | 57756 |
-| `gauntlet/hooks/stop_gate.py` | 16669 | 18504 |
-| `gauntlet/install.sh` | 4933 | 7572 |
+| `gauntlet/gauntlet.gradle` | 32451 | 33937 |
+| `gauntlet/hooks/guard.py` | 26740 | 42669 |
+| `gauntlet/hooks/selftest.py` | 41192 | 66559 |
+| `gauntlet/hooks/stop_gate.py` | 16669 | 20530 |
+| `gauntlet/install.sh` | 4933 | 8773 |
 | `gauntlet/templates/acceptanceTest/resources/features/example_discount.feature` | 928 | 1258 |
-| `gauntlet/tools/CrapGate.java` | 12638 | 15713 |
-| `gauntlet/tools/GherkinMutator.java` | 35990 | 40716 |
-| `gauntlet/tools/IntegrityCheck.java` | 15688 | 20640 |
+| `gauntlet/tools/CrapGate.java` | 12638 | 19751 |
+| `gauntlet/tools/GherkinMutator.java` | 35990 | 43410 |
+| `gauntlet/tools/IntegrityCheck.java` | 15688 | 21649 |
 | `gauntlet/tools/PitSummary.java` | 11401 | 11633 |
 
-Остальные 17 файлов не правились; их размеры не изменились.
+Остальные 17 файлов не правились; их размеры не изменились. Во втором раунде Codex (F1–F14) изменены 9 файлов:
+`README.md`, `gauntlet.gradle`, `guard.py`, `selftest.py`, `stop_gate.py`, `install.sh`, `CrapGate.java`,
+`GherkinMutator.java`, `IntegrityCheck.java` (размеры 4.3 выше — итоговые после всех раундов).
 
 ### Проверено
 
-- `python3 gauntlet/hooks/selftest.py` — 892 проверки, 0 падений, три раскладки (корень; `core/`;
-  `core/` + `adapter/`).
+- `python3 gauntlet/hooks/selftest.py` — 970 проверок, 0 падений, три раскладки (корень; `core/`;
+  `core/` + `adapter/`); в том числе из распакованной копии пересобранного бандла.
 - Компиляция всех single-file инструментов (`javac`): `CrapGate`, `DryGate`, `GherkinMutator`,
   `IntegrityCheck`, `PitSummary` — без ошибок (22 class-файла).
 - Целевые регрессии: allowlist `CrapGate` (ключ `Class#method` цел), опенер `IntegrityCheck` (10 случаев),
@@ -294,6 +360,15 @@ guard — растяжка, а не сейф (это заявлено в наб�
   kill, undefined-error → kill, missing dir → exit 1, экранирование `\n` в тексте шага unit-probe и end-to-end);
   `install.sh` — 29 случаев (1/2/3 модуля, upgrade 3600 → 7200, дрейф command, идемпотентность, чужие хуки);
   `gauntlet.gradle` — JVM-симуляция V6-b/V6-e (package-private и вложенные типы, default-package, generics).
+- Целевые регрессии второго раунда Codex (F1–F14) — 110/110: `GherkinMutator` — 12 (IOException/AssertionError в
+  `@Before` → MUTANT ERROR, падение шага → kill, одна ячейка Examples с `\n` в соседней колонке, NBSP-отступ);
+  `CrapGate` — 8 (sourcefilename ≠ имя файла, уникальность лямбд по allowlist); `IntegrityCheck` — 17
+  (`it`/именованный параметр замыкания внутри безобидного блока свободен, `test`/чужое имя → B1); `stop_gate` — 8
+  (закоммиченный rename, вложенные сборки в обоих порядках, per-module кэш, удалённый файл); `install.sh` — 19
+  (чужой `sha256sum`/`python3 -c`, смешанная группа `SubagentStop`, идемпотентность); guard — 17 (cd в `( )`/
+  `$( )` не утекает, argv echo-данные, контроли реального force-push/gh-merge); сборщик — 14 (пересборка со
+  старым заголовком → 30/30 побайтно, старый распаковщик → +1 байт/файл, пустой/0/1/2 LF, guard отвергает
+  рассинхрон); regex PIT — 15 (аннотация на строке объявления, `non-sealed`, не-типы).
 - Семантика Gherkin для G6 сверена по исходникам и прогону gherkin 42.0.1 (cucumber-bom 8.0.1 — дефолт набора):
   `PickleCompiler.compilePickleSteps` при пустом списке шагов сценария возвращает пустой pickle, Background не
   подмешивается (пустой сценарий с Background → steps=0). Целевой harness guard по находкам Grok — 36/36

@@ -266,6 +266,45 @@ ArchUnit-тест, шаблоны, установку и документаци�
   `GherkinMutator` (52), `install.sh` (29), симуляция `gauntlet.gradle` (V6-b/V6-e). Итого 808 → 892 проверки.
   Пороги и правила гейтов не ослаблены.
 
+**Правки по второму раунду ревью Codex (продолжение ревизии 4.3) — находки F1–F14, подтверждены воспроизведением.**
+- `tools/GherkinMutator.java` (F1, F2, F11): сбой подготовки сценария (`<failure>`/`<error>` в `@Before` до
+  первого шага — недоступная БД, `IOException`/`AssertionError`) считается ошибкой мутанта (`MUTANT ERROR`), а не
+  убийством; kill засчитывается только когда упал сам шаг. Замена одной ячейки «Примеров» сохраняет outline
+  (интерполяцию Cucumber) и не портит соседнюю колонку: перенос строки в ячейке не превращается в два символа
+  `\n`. Неразрывный пробел (U+00A0) в отступе шага не теряется при подсчёте (`stepCount`), outline с одним шагом
+  даёт мутанта, а не ноль.
+- `tools/CrapGate.java` (F4, F5): пустой/несовпадающий `sourcefilename` (JaCoCo debug=false) не пропускает метод
+  молча — имя исходника выводится из имени класса; уникальность лямбд проверяется и по имени, принятому из
+  allowlist (две лямбды `Class#method::lambda` не освобождаются одной записью).
+- `gauntlet.gradle` (F3): regex поиска объявленных типов находит тип с аннотацией на той же строке
+  (`@Deprecated final class StandardPrices` в `Prices.java`); `mutationGate` в режиме `changed` не даёт ложный
+  «0 целей» там, где `all` выявляет выживших мутантов.
+- `hooks/stop_gate.py` (F6, F7, F13): закоммиченный rename берёт оба пути из `git diff --name-status -M`
+  (перенос `core` → `adapter` запускает оба модуля, а не только `adapter`); вложенные сборки
+  (`module=core,core/adapter`) — самый длинный совпавший префикс, а не первый по порядку; возраст отчётов
+  сравнивается по модулю (`module_report_dirs`), отчёт второго модуля не сбрасывает кэш первого; удалённый
+  отслеживаемый файл не выпадает из области путей Git (`existing` сверяется с индексом и HEAD).
+- `install.sh` (F8): gauntlet-хук узнаётся по команде запуска (интерпретатор + первый операнд-скрипт
+  `gauntlet/hooks/X.py`), а не по пути в любом аргументе — пользовательский `sha256sum …/guard.py` не
+  перезаписывается; `matcher` группы обновляется только когда все хуки в ней gauntlet'овские, соседний
+  пользовательский хук в общей группе `SubagentStop` не перестаёт запускаться.
+- `tools/IntegrityCheck.java` (F9): получатель отключения `it.enabled`/именованный параметр замыкания
+  (`archive -> archive.enabled = false`) внутри безобидного блока свободен (`closureParam` опенера); `test.enabled`
+  и чужое имя по-прежнему B1.
+- `hooks/guard.py` (F10, F14): `cd` внутри подоболочки `( )`/`$( )` не утекает в родительскую оболочку (стек cwd в
+  `human_only`/`command_violation`) — push своей ветки после `( cd ../main && git status )` разрешён, реальный `cd`
+  в базовую ветку по-прежнему блокирует push; argv-список экранируется (`shlex.quote`), поэтому
+  `subprocess.run(['echo', 'example; git rebase'])` — данные, а не команда (реальный `git push --force`/`gh pr merge`
+  в argv по-прежнему блокируется).
+- Сборщик бандла (универсальная инструкция, §8.4, F12): распаковщик поставляется вместе со сборщиком одной версии
+  (канонический побайтный распаковщик вкладывается в заголовок, а не берётся из прежнего бандла — старый формат
+  добавлял LF); встроенный round-trip сверяет результат побайтно и отвергает рассинхрон формата, пустой файл и
+  0/1/2 завершающих LF.
+- `README.md`: счётчик самопроверки 892 → 970; раздел 8 — покрытие второго раунда Codex (F1–F14).
+- Регрессии: guard F10/F14 (+12 сценариев × 3 раскладки = +36) и `stop_gate` F6/F7/F13 (+42); целевые harness'ы
+  `GherkinMutator` (12), `CrapGate` (8), `IntegrityCheck` (17), `stop_gate` (8), `install.sh` (19), guard (17),
+  сборщик (14), regex PIT (15) — 110/110. Итого 892 → 970 проверок. Пороги и правила гейтов не ослаблены.
+
 ## Как распаковать (Claude выполняет это на шаге 2 протокола `start`)
 
 Каждый файл лежит между строками `===== BEGIN FILE <путь> =====` и `===== END FILE <путь> =====`.
@@ -299,7 +338,7 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 - `CLAUDE.md` (279 байт)
 - `gauntlet/CLAUDE.md` (63625 байт)
 - `gauntlet/INSTALL.md` (11426 байт)
-- `gauntlet/README.md` (41749 байт)
+- `gauntlet/README.md` (45564 байт)
 - `gauntlet/archtest/gauntlet/architecture/ArchitectureTest.java` (7906 байт)
 - `gauntlet/config/architecture.properties` (1420 байт)
 - `gauntlet/config/checkstyle.xml` (4593 байт)
@@ -308,18 +347,18 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 - `gauntlet/config/integrity-allowlist.txt` (445 байт)
 - `gauntlet/config/pit-runerror-allowlist.txt` (1485 байт)
 - `gauntlet/config/pmd-ruleset.xml` (11398 байт)
-- `gauntlet/gauntlet.gradle` (33660 байт)
-- `gauntlet/hooks/guard.py` (40667 байт)
-- `gauntlet/hooks/selftest.py` (57756 байт)
+- `gauntlet/gauntlet.gradle` (33937 байт)
+- `gauntlet/hooks/guard.py` (42669 байт)
+- `gauntlet/hooks/selftest.py` (66559 байт)
 - `gauntlet/hooks/session_start.sh` (3116 байт)
-- `gauntlet/hooks/stop_gate.py` (18504 байт)
-- `gauntlet/install.sh` (7572 байт)
+- `gauntlet/hooks/stop_gate.py` (20530 байт)
+- `gauntlet/install.sh` (8773 байт)
 - `gauntlet/templates/acceptanceTest/java/com/example/service/acceptance/CucumberSpringConfiguration.java` (615 байт)
 - `gauntlet/templates/acceptanceTest/resources/features/example_discount.feature` (1258 байт)
-- `gauntlet/tools/CrapGate.java` (15713 байт)
+- `gauntlet/tools/CrapGate.java` (19751 байт)
 - `gauntlet/tools/DryGate.java` (6538 байт)
-- `gauntlet/tools/GherkinMutator.java` (40716 байт)
-- `gauntlet/tools/IntegrityCheck.java` (20640 байт)
+- `gauntlet/tools/GherkinMutator.java` (43410 байт)
+- `gauntlet/tools/IntegrityCheck.java` (21649 байт)
 - `gauntlet/tools/PitSummary.java` (11633 байт)
 
 ## Файлы
@@ -1263,7 +1302,7 @@ gauntlet/
   archtest/               ArchUnit-тест, читающий config/architecture.properties
   hooks/                  guard.py (PreToolUse), stop_gate.py (Stop; SubagentStop hardener'а — matcher в
                           .claude/settings.json), session_start.sh (SessionStart; в облаке поднимает dockerd),
-                          selftest.py (892 проверки хуков в трёх раскладках: python3 gauntlet/hooks/selftest.py)
+                          selftest.py (970 проверок хуков в трёх раскладках: python3 gauntlet/hooks/selftest.py)
   templates/              конфигурация Cucumber+Spring, пример фичи на русском
   claude/, ci/            только до установки: install.sh переносит их в .claude/ и .github/workflows/
 ```
@@ -1415,7 +1454,7 @@ protection базовой ветки и то, что любая попытка �
 ## 8. Что проверено в этой версии, а что нет
 
 Проверено здесь (Gradle 8.14.3, Java 21):
-- Хуки, `hooks/selftest.py`, 892 проверки в трёх раскладках (сборка в корне; модуль `core/`; два модуля
+- Хуки, `hooks/selftest.py`, 970 проверок в трёх раскладках (сборка в корне; модуль `core/`; два модуля
   `core/` + `adapter/` — Gradle только в изменённом модуле, красный модуль блокирует, коммит
   спецификации одного модуля замораживает фичи другого, чужая незакоммиченная работа не считается)
   на временном git-репозитории с фиктивным `origin/main`:
@@ -1486,6 +1525,29 @@ protection базовой ветки и то, что любая попытка �
   Регрессии: guard print-литерал/stdin (+9) и cd-worktree push (+6) × 3 раскладки = +45; `stop_gate` —
   негативные коды и область модулей (rename/общий config) +13 × 3 = +39; целевые harness'ы `CrapGate` (14),
   `IntegrityCheck` (24), `GherkinMutator` (52), `install.sh` (29). Итого 808 → 892 проверки самопроверки.
+- Второй раунд ревью Codex по PR: находки F1–F14 подтверждены воспроизведением и закрыты; поведение гейтов
+  не ослаблено. `GherkinMutator` — сбой подготовки (`<failure>`/`<error>` в `@Before` до первого шага) считается
+  ошибкой мутанта, а не убийством (kill только когда упал сам шаг); замена одной ячейки «Примеров» сохраняет
+  outline и не портит соседнюю колонку (перенос строки в ячейке не превращается в два символа `\n`); неразрывный
+  пробел (U+00A0) в отступе шага не теряется при подсчёте (`stepCount`). `CrapGate` — пустой/несовпадающий
+  `sourcefilename` не пропускает метод молча; уникальность лямбд проверяется и по имени, принятому из allowlist.
+  `gauntlet.gradle` — regex поиска типов находит объявление с аннотацией на той же строке
+  (`@Deprecated final class X` в `Y.java`), `mutationGate` в режиме `changed` не даёт ложный «0 целей».
+  `stop_gate` — закоммиченный rename берёт оба пути из `git diff --name-status -M`; вложенные сборки
+  (`core,core/adapter`) — самый длинный совпавший префикс, а не первый; возраст отчётов сравнивается по модулю
+  (отчёт второго модуля не сбрасывает кэш первого), удалённый отслеживаемый файл не выпадает из области Git.
+  `install.sh` — команда узнаётся по запуску (интерпретатор + первый операнд-скрипт), а не по пути в любом
+  аргументе (`sha256sum …/guard.py` остаётся пользовательским хуком); `matcher` группы трогается только когда
+  все хуки в ней gauntlet'овские (соседний пользовательский хук не перестаёт запускаться). `IntegrityCheck` —
+  получатель `it.enabled`/именованный параметр замыкания (`archive -> archive.enabled`) внутри безобидного блока
+  свободен; `test.enabled`/чужое имя по-прежнему B1. guard — `cd` внутри подоболочки `( )`/`$( )` не утекает в
+  родительскую оболочку (стек cwd), push своей ветки после `( cd ../main && git status )` разрешён; argv-список
+  экранируется (`shlex.quote`), поэтому `subprocess.run(['echo', 'example; git rebase'])` — данные, а не команда
+  (реальный `git push --force` в argv по-прежнему блокируется). Сборщик бандла (§8.4) — распаковщик поставляется
+  вместе со сборщиком одной версии и встроенный round-trip сверяет побайтно (старый распаковщик добавлял LF).
+  Регрессии: guard F10/F14 (+12 сценариев × 3 раскладки = +36) и stop_gate F6/F7/F13 (+42); целевые harness'ы
+  `GherkinMutator` (12), `CrapGate` (8), `IntegrityCheck` (17), `stop_gate` (8), `install.sh` (19), guard (17),
+  сборщик (14), regex PIT (15) — 110/110. Итого 892 → 970 проверок самопроверки.
 - `install.sh` на демо-проекте: чистая установка; слияние с существующим `.claude/settings.json`
   (хуки и права добавлены, `disableAllHooks=false`); обновление 4.2 → 4.3 освежает поля gauntlet-хуков и
   масштабирует таймауты по модулям, чужие хуки и роль/`CLAUDE.md` не перезаписаны; идемпотентно (без дублей);
@@ -2280,11 +2342,14 @@ def changedClassGlobs = { ->
         def pkg = rel.contains('/') ? rel.substring(0, rel.lastIndexOf('/')).replace('/', '.') : ''
         def globs = [fqcn, fqcn + '$*'] as LinkedHashSet
         // one .java file may declare several top-level types; the package-private ones do not match the
-        // file name, so a file-name glob alone would let PIT skip them. Target every column-0 declaration.
+        // file name, so a file-name glob alone would let PIT skip them. Target every column-0 declaration,
+        // including one prefixed by annotations and/or modifiers on the same line (@Deprecated final class X):
+        // consume leading @Annotation(args) and modifier words before the type keyword, otherwise the real
+        // type is missed and changed-mode PIT finds 0 targets and passes vacuously.
         def src = file(path)
         if (src.isFile()) {
             src.eachLine('UTF-8') { line ->
-                def m = line =~ /^(?:public\s+|final\s+|abstract\s+|sealed\s+|non-sealed\s+|strictfp\s+)*(?:class|interface|enum|record)\s+(\w+)/
+                def m = line =~ /^(?:@[\w.]+(?:\s*\([^)]*\))?\s+|[\w-]+\s+)*?(?:class|interface|enum|record)\s+(\w+)/
                 if (m.find()) {
                     def name = (pkg ? pkg + '.' : '') + m.group(1)
                     globs << name
@@ -3072,7 +3137,15 @@ def command_violation(agent, command, ctx):
     command = strip_heredocs(command)       # a heredoc body is data, not commands
     neutral = QUOTED.sub(lambda m: re.sub(r"[>;&|()]", "_", m.group(0)), command)  # '>' in quotes is text
     cwd = ctx.project
-    for segment in segments(neutral):
+    stack = []                              # subshell cwd scopes: a cd inside ( ... ) must not leak to the parent
+    for segment in segments_scoped(neutral):
+        if segment == "(":
+            stack.append(cwd)
+            continue
+        if segment == ")":
+            if stack:
+                cwd = stack.pop()
+            continue
         words = words_of(segment)
         cwd = follow_cd(words, cwd, ctx.project)
         for target in REDIRECT.findall(segment):
@@ -3158,7 +3231,15 @@ def human_only(command, ctx, cwd=None):
         cwd = ctx.project
     if HOOK_SWITCH.search(QUOTED.sub("''", command)):
         return "Switching the gauntlet hooks off is reserved for the human."
+    stack = []                              # subshell cwd scopes: a cd inside ( ... ) must not leak to the parent
     for segment in split_shell(command):
+        if segment == "(":
+            stack.append(cwd)
+            continue
+        if segment == ")":
+            if stack:
+                cwd = stack.pop()
+            continue
         words = words_of(segment)
         cwd = follow_cd(words, cwd, ctx.project)   # `cd worktree && git push`: judge the branch of that worktree
         if len(words) < 2:
@@ -3205,14 +3286,16 @@ def is_interpreter(cmd):
 
 
 def argv_commands(codes):
-    """`subprocess.run(['git','push','--force'])`: the quoted argv is one command, not separate strings.
+    """`subprocess.run(['git','push','--force'])`: the argv list is one command - program argv[0] with its
+    literal arguments. Quote each element so a DATA argument (`['echo', 'example; git rebase']` only prints
+    text) is not re-split on shell metacharacters; only the program and its real flags reach the git/gh rules.
     Only an exec-style call qualifies, so a plain data list (`print(['git','push'])`) is not assembled."""
     out = []
     for code in codes:
         for m in ARGV_EXEC.finditer(code):
             parts = re.findall(r"['\"]([^'\"]*)['\"]", m.group(1))
             if parts:
-                out.append(" ".join(parts))
+                out.append(" ".join(shlex.quote(p) for p in parts))
     return out
 
 
@@ -3488,7 +3571,9 @@ def segments(command):
 
 def split_shell(command):
     """Like segments, but separators inside quotes do not split: `bash -c 'echo ok; git push --force'`
-    stays one segment so the inline code reaches inline_code_strings intact (the ';' is code, not a separator)."""
+    stays one segment so the inline code reaches inline_code_strings intact (the ';' is code, not a separator).
+    Subshell boundaries are emitted as standalone '(' / ')' markers (a '$(' opens a scope too) so the caller
+    can keep a cd inside ( ... ) from leaking to the parent shell."""
     parts, buf = [], []
     quote, esc, i, n = None, False, 0, len(command)
     while i < n:
@@ -3506,11 +3591,24 @@ def split_shell(command):
         elif c in "'\"":
             quote = c
             buf.append(c)
-        elif command.startswith(("||", "&&", "$("), i):
+        elif command.startswith(("||", "&&"), i):
             parts.append("".join(buf))
             buf = []
             i += 1
-        elif c in ";|&`\n()":
+        elif command.startswith("$(", i):
+            parts.append("".join(buf))
+            buf = []
+            parts.append("(")
+            i += 1
+        elif c == "(":
+            parts.append("".join(buf))
+            buf = []
+            parts.append("(")
+        elif c == ")":
+            parts.append("".join(buf))
+            buf = []
+            parts.append(")")
+        elif c in ";|&`\n":
             parts.append("".join(buf))
             buf = []
         else:
@@ -3518,6 +3616,22 @@ def split_shell(command):
         i += 1
     parts.append("".join(buf))
     return [s for s in parts if s.strip()]
+
+
+def segments_scoped(command):
+    """segments() for quote-neutralised text, but subshell parens are emitted as '(' / ')' markers so a cd
+    inside ( ... ) or $( ... ) is scoped to the subshell and cannot leak to the parent shell's commands."""
+    out, last = [], 0
+    for m in re.finditer(r"\|\||&&|[;|&`\n]|\$\(|[()]", command):
+        out.append(command[last:m.start()])
+        sep = m.group(0)
+        if sep in ("(", "$("):
+            out.append("(")
+        elif sep == ")":
+            out.append(")")
+        last = m.end()
+    out.append(command[last:])
+    return [s for s in out if s.strip()]
 
 
 def words_of(segment):
@@ -4039,6 +4153,20 @@ def guard_tests(repo):
     expect_allow(repo, "perl -E harmless", "main", "Bash", command="perl -E 'say 1'")
     expect_allow(repo, "python data list not a command", "main", "Bash",
                  command="python3 -c \"print(['git','push'])\"")
+    # --- F14: an argv list is joined and re-parsed as shell; echo DATA must not become a command.
+    #          shlex.quote keeps each element intact so '; git rebase' inside an echo arg stays text.
+    expect_allow(repo, "F14 echo argv semicolon data", "main", "Bash",
+                 command="python3 -c \"import subprocess; subprocess.run(['echo', 'example; git rebase'])\"")
+    expect_allow(repo, "F14 echo argv pipe data", "main", "Bash",
+                 command="python3 -c \"import subprocess; subprocess.run(['echo', 'x | git push --force'])\"")
+    expect_allow(repo, "F14 echo argv gh merge data", "main", "Bash",
+                 command="python3 -c \"import subprocess; subprocess.run(['echo', 'gh pr merge 1'])\"")
+    expect_allow(repo, "F14 data args after python -c program", "main", "Bash",
+                 command="python3 -c \"print('hi')\" 'example; git rebase'")
+    expect_deny(repo, "F14 control real force push argv", "main", "Bash",
+                command="python3 -c \"import subprocess; subprocess.run(['git', 'push', '--force'])\"")
+    expect_deny(repo, "F14 control real gh merge argv", "main", "Bash",
+                command="python3 -c \"import subprocess; subprocess.run(['gh', 'pr', 'merge', '1'])\"")
     # --- V5b: a quoted string that merely LOOKS like a command is data unless an exec-style call runs it
     expect_allow(repo, "print literal force push is data", "main", "Bash",
                  command="python3 -c \"print('git push --force')\"")
@@ -4101,6 +4229,20 @@ def guard_tests(repo):
     expect_deny(repo, "cd main worktree push no refspec", "main", "Bash", command=f"cd {wt_main} && git push")
     expect_allow(repo, "pushd feature worktree push HEAD", "main", "Bash", command=f"pushd {wt_feat} && git push origin HEAD")
     expect_allow(repo, "cd relative feature worktree push HEAD", "main", "Bash", command="cd ../wt-feat && git push origin HEAD")
+    # --- F10: a `cd` INSIDE a subshell ( ) or command-substitution $( ) must not leak to the parent shell,
+    #          so a parent push of the session's own feature branch is judged against the project, not mainwt.
+    expect_allow(repo, "F10 subshell cd to main does not leak", "main", "Bash",
+                 command=f"( cd {wt_main} && git status ) && git push -u origin HEAD")
+    expect_allow(repo, "F10 cmdsubst cd to main does not leak", "main", "Bash",
+                 command=f"echo $( cd {wt_main} && git status ) && git push -u origin HEAD")
+    expect_allow(repo, "F10 nested subshell cd does not leak", "main", "Bash",
+                 command=f"( cd {wt_main} && ( git status ) ) && git push -u origin HEAD")
+    expect_deny(repo, "F10 control push inside subshell on main", "main", "Bash",
+                command=f"( cd {wt_main} && git push -u origin HEAD )")
+    expect_deny(repo, "F10 control real cd to main then push", "main", "Bash",
+                command=f"cd {wt_main} && git push -u origin HEAD")
+    expect_deny(repo, "F10 control cd then subshell then push", "main", "Bash",
+                command=f"cd {wt_main} && ( git status ) && git push -u origin HEAD")
     git(repo, "worktree", "remove", "--force", wt_main)   # free main again for the later checkout-main tests
     git(repo, "worktree", "remove", "--force", wt_feat)
     # --- hardening: hook-skipping abbreviations and config
@@ -4400,6 +4542,49 @@ def multi_module_stop_tests(repo):
     check("fixed adapter -> green", r.returncode == 0, r.stderr)
 
 
+def cache_isolation_tests(repo):
+    """F13a: a red-run cache is judged per module. Core's reports being newer than ADAPTER's log must not
+    invalidate the cache while each module's own reports are older than its own log; a genuinely newer report
+    in one module must still force a re-run."""
+    core, adapter = MODULES[0], MODULES[1]
+    git(repo, "checkout", "-q", "main")
+    git(repo, "checkout", "-q", "-b", "claude/cache-iso")
+    run_hook(repo, "stop_gate.py", {"session_id": "s4", "cwd": repo, "hook_event_name": "SessionStart"}, args=("--record-start",))
+
+    def stop(active=True):
+        ev = {"session_id": "s4", "cwd": repo, "hook_event_name": "Stop", "stop_hook_active": active}
+        return run_hook(repo, "stop_gate.py", ev, args=("--task", "gauntletFast", "--max-attempts", "5", "--timeout", "60"))
+
+    def setm(rel, t):
+        p = os.path.join(repo, rel)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        if not os.path.exists(p):
+            write(repo, rel, "<testsuite/>")
+        os.utime(p, (t, t))
+
+    write(repo, core + "/src/main/java/com/example/service/domain/Order.java", "package x; class Order { int iso; }\n")
+    write(repo, adapter + "/src/main/java/com/example/service/domain/Mapper.java", "package x; class Mapper { int iso; }\n")
+    for m in (core, adapter):
+        write(repo, m + "/build/gauntlet/fake-exit", "1")
+    r = stop(active=False)
+    check("F13a setup: both modules red on the first run", r.returncode == 2, r.stderr)
+    for m in (core, adapter):
+        os.remove(os.path.join(repo, m, "build/gauntlet/fake-exit"))   # a re-run would now be green
+    base = time.time()
+    core_log = core + "/build/gauntlet/gauntletFast-hook.log"
+    setm(core_log, base + 100)
+    setm(adapter + "/build/gauntlet/gauntletFast-hook.log", base + 50)
+    setm(core + "/build/test-results/test/TEST-c.xml", base + 90)      # newer than adapter's log, older than core's
+    setm(adapter + "/build/test-results/test/TEST-a.xml", base + 40)
+    r = stop(active=True)
+    core_mtime = os.path.getmtime(os.path.join(repo, core_log))
+    check("F13a: cross-module reports do not invalidate a fresh per-module cache (cached red, no re-run)",
+          r.returncode == 2 and abs(core_mtime - (base + 100)) < 1, f"rc={r.returncode} core_log_mtime={core_mtime} want~{base + 100}")
+    setm(adapter + "/build/test-results/test/TEST-a2.xml", base + 200)  # genuinely newer than adapter's own log
+    r = stop(active=True)
+    check("F13a control: a newer report in one module forces a re-run (now green)", r.returncode == 0, r.stderr)
+
+
 def continuation_window_tests(repo):
     """Kimi P2: the SubagentStop continuation window must cover the WHOLE multi-module run budget
     (modules * timeout), not a single module's timeout, or a slow two-module mutationGate resets the counter."""
@@ -4465,6 +4650,69 @@ def gate_scope_tests(repo):
     finally:
         sg.git_bytes = orig_bytes
 
+    # F7: nested builds (module=core,core/adapter) - the longest prefix owns the change, not the first match
+    am = sg.affected_modules
+    for order in (["core", "core/adapter"], ["core/adapter", "core"]):
+        sg.MODULES = order
+        tag = ",".join(order)
+        check(f"F7: nested change runs the inner build, not the parent (order {tag})",
+              am({"core/adapter/src/main/java/X.java"}) == ["core/adapter"], str(am({"core/adapter/src/main/java/X.java"})))
+        check(f"F7: parent-only change runs the parent (order {tag})", am({"core/src/main/java/X.java"}) == ["core"])
+        check(f"F7: nested overlay config runs the inner build (order {tag})",
+              am({"gauntlet/config/core/adapter/gauntlet.properties"}) == ["core/adapter"])
+    sg.MODULES = []
+
+    # F6: a COMMITTED rename across modules yields both ends (--name-status -M), so the source build runs too
+    orig_git, orig_uncommitted = sg.git, sg.uncommitted_paths
+    try:
+        sg.uncommitted_paths = lambda: set()
+
+        def fake_git(*a):
+            if a[:2] == ("rev-parse", "HEAD"):
+                return "newhead"
+            if a and a[0] == "diff":
+                return "R100\tcore/src/main/java/X.java\tadapter/src/main/java/X.java\nM\tcore/build.gradle\n"
+            return ""
+        sg.git = fake_git
+        cp = sg.changed_paths("oldhead")
+        check("F6: committed rename yields both ends + the modified file",
+              cp == {"core/src/main/java/X.java", "adapter/src/main/java/X.java", "core/build.gradle"}, str(cp))
+        check("F6: committed rename includes the SOURCE module path", "core/src/main/java/X.java" in cp, str(cp))
+    finally:
+        sg.git, sg.uncommitted_paths = orig_git, orig_uncommitted
+
+    # F13a: report dirs are per module, so one module's cache is never judged against another's reports
+    check("F13a: root module report dirs", sg.module_report_dirs(".") == ["build/test-results", "build/reports"])
+    check("F13a: nested module report dirs",
+          sg.module_report_dirs("core/adapter") == ["core/adapter/build/test-results", "core/adapter/build/reports"])
+
+    # F13b: a deleted tracked build.gradle stays in the git pathspec (index or HEAD), else its module is skipped
+    orig_watched = sg.WATCHED
+    tmp = tempfile.mkdtemp(prefix="sg-existing-")
+    old_cwd = os.getcwd()
+    try:
+        subprocess.run(["git", "init", "-q", tmp], check=True)
+        subprocess.run(["git", "-C", tmp, "config", "user.email", "t@example.com"], check=True)
+        subprocess.run(["git", "-C", tmp, "config", "user.name", "t"], check=True)
+        bg = os.path.join(tmp, "build.gradle")
+        with open(bg, "w") as f:
+            f.write("plugins { java }\n")
+        subprocess.run(["git", "-C", tmp, "add", "build.gradle"], check=True)
+        subprocess.run(["git", "-C", tmp, "commit", "-qm", "base"], check=True)
+        os.chdir(tmp)
+        sg.WATCHED = ["build.gradle", "src"]
+        os.remove(bg)   # uncommitted deletion: absent on disk, still in the index
+        check("F13b: uncommitted-deleted build.gradle stays in pathspec",
+              "build.gradle" in sg.existing(["build.gradle", "src"]), str(sg.existing(["build.gradle", "src"])))
+        subprocess.run(["git", "-C", tmp, "rm", "-q", "--cached", "build.gradle"], check=True)  # staged deletion: in HEAD, not index
+        check("F13b: staged-deleted build.gradle stays via HEAD",
+              "build.gradle" in sg.existing(["build.gradle"]), str(sg.existing(["build.gradle"])))
+        check("F13b: unknown absent path is dropped", "src" not in sg.existing(["build.gradle", "src"]))
+    finally:
+        os.chdir(old_cwd)
+        sg.WATCHED = orig_watched
+        shutil.rmtree(tmp, ignore_errors=True)
+
 
 def session_start_tests(repo):
     r = subprocess.run(["bash", os.path.join(repo, "gauntlet/hooks/session_start.sh")], cwd=repo, input="{}",
@@ -4512,6 +4760,7 @@ def main():
             gate_scope_tests(repo)
             if len(MODULES) > 1:
                 multi_module_stop_tests(repo)
+                cache_isolation_tests(repo)
         finally:
             shutil.rmtree(os.path.dirname(repo), ignore_errors=True)
     for f in failures:
@@ -4725,8 +4974,10 @@ def gate(opts, event, state, session):
     attempts_file = os.path.join(state, key + ".attempts")
     red_file = os.path.join(state, "last-red-" + safe(opts.task))
     logs = [log_file(m, opts.task) for m in affected]
+    # Judge each module's cache against its OWN reports: a recent Gradle run in module B must not be
+    # compared with module A's log (the old min(logs) vs all REPORT_DIRS conflated the two modules).
     cached = read(red_file) == fingerprint and all(os.path.exists(l) for l in logs) \
-        and not newer_than(min(mtime(l) for l in logs), REPORT_DIRS)
+        and not any(newer_than(mtime(log_file(m, opts.task)), module_report_dirs(m)) for m in affected)
     if cached:
         code, output = 1, "\n".join(read(l) for l in logs)   # nothing changed since the last red run: no re-run
     else:
@@ -4790,7 +5041,12 @@ def changed_paths(start_head):
     """Paths changed in this session: uncommitted changes plus commits made since the session started."""
     paths = uncommitted_paths()
     if start_head and git("rev-parse", "HEAD") != start_head:
-        paths.update(git("diff", "--name-only", start_head, "HEAD", "--", *existing(WATCHED)).splitlines())
+        # --name-status -M reports a rename/copy as "R100\told\tnew": a committed move across modules
+        # touches BOTH ends, so the source module's build must run too, not only the destination's.
+        # Pass WATCHED unfiltered - a committed deletion is gone from disk/index/HEAD, and dropping it
+        # from the pathspec would hide the deletion and skip the module's build.
+        for line in git("diff", "--name-status", "-M", start_head, "HEAD", "--", *WATCHED).splitlines():
+            paths.update(f.strip('"') for f in line.split("\t")[1:] if f.strip())
     return {p for p in paths if p}
 
 
@@ -4909,11 +5165,13 @@ def affected_modules(changed):
         return ["."]
     touched, shared = set(), False
     for p in changed:
-        owner = next((m for m in MODULES if p.startswith(m + "/")), None)
+        # Longest (most specific) prefix wins: with module=core,core/adapter a change inside core/adapter
+        # belongs to the nested build, not the parent core - the first match depended on module order.
+        owner = max((m for m in MODULES if p.startswith(m + "/")), key=len, default=None)
         if owner:
             touched.add(owner)
         elif p.startswith("gauntlet/config/"):
-            overlay = next((m for m in MODULES if p.startswith("gauntlet/config/" + m + "/")), None)
+            overlay = max((m for m in MODULES if p.startswith("gauntlet/config/" + m + "/")), key=len, default=None)
             if overlay:
                 touched.add(overlay)
             else:
@@ -4955,6 +5213,13 @@ def newer_than(stamp, dirs):
     return False
 
 
+def module_report_dirs(module):
+    """The Gradle report directories of ONE module ('.' = the repository root), so its red-run cache is
+    judged against its own reports rather than every module's combined REPORT_DIRS."""
+    base = "" if module == "." else module + "/"
+    return [base + "build/test-results", base + "build/reports"]
+
+
 def state_dir():
     path = git("rev-parse", "--git-path", "gauntlet-hook")
     if not path:
@@ -4976,7 +5241,17 @@ def git_bytes(*args):
 
 
 def existing(paths):
-    return [p for p in paths if os.path.exists(p)] or ["."]
+    """Pathspec for the read-only git queries. Keep a watched path that exists on disk OR is still known
+    to git (index or HEAD): a tracked build.gradle the agent deleted is absent on disk but must stay in
+    scope, otherwise its deletion is invisible and the module's build is skipped. A deleted directory
+    stays while git tracks files under it. Fall back to '.' only when nothing is known."""
+    kept = [p for p in paths if os.path.exists(p)]
+    absent = [p for p in paths if not os.path.exists(p)]
+    if absent:
+        known = set(git("ls-files", "--", *absent).splitlines())
+        known.update(git("ls-tree", "-r", "--name-only", "HEAD", "--", *absent).splitlines())
+        kept += [p for p in absent if p in known or any(k.startswith(p + "/") for k in known)]
+    return kept or ["."]
 
 
 def safe(value):
@@ -5053,12 +5328,26 @@ case "$mod_count" in ''|*[!0-9]*) mod_count=1 ;; esac
 [ "$mod_count" -ge 1 ] || mod_count=1
 existed=0; [ -f .claude/settings.json ] && existed=1
 GAUNTLET_MOD_COUNT="$mod_count" GAUNTLET_EXISTED="$existed" python3 - <<'PY'
-import json, os, re
+import json, os, re, shlex
+
+INTERPRETERS = {"python", "python3", "bash", "sh", "zsh", "dash", "ksh"}
 
 def gkey(cmd):
-    # a gauntlet hook is identified by the script it runs, not the whole command: the command may carry
-    # version-specific flags (--timeout/--max-attempts), and matching on it would duplicate the hook on upgrade.
-    m = re.search(r"gauntlet/hooks/([A-Za-z0-9_.-]+)", cmd or "")
+    # Identify a gauntlet hook by the script it LAUNCHES, not by a path merely mentioned somewhere in the
+    # command. The gauntlet runs `python3 "<...>/gauntlet/hooks/X.py" [flags]` / `bash "<...>/X.sh"`: the
+    # script is the interpreter's first operand. A user hook like `sha256sum .../gauntlet/hooks/guard.py` or
+    # `python3 -c '... guard.py ...'` only MENTIONS the path - treating it as the gauntlet's own hook would
+    # overwrite the user's command on upgrade. Matching the script (not the whole command) still lets the
+    # version-specific --timeout/--max-attempts flags change without duplicating the hook.
+    try:
+        tokens = shlex.split(cmd or "")
+    except ValueError:
+        return None
+    if not tokens or os.path.basename(tokens[0]) not in INTERPRETERS:
+        return None
+    if len(tokens) < 2 or tokens[1].startswith("-"):
+        return None   # interpreter flags / inline code (-c, -m): not a plain hook-script launch
+    m = re.search(r"gauntlet/hooks/([A-Za-z0-9_.-]+)", tokens[1])
     return m.group(1) if m else None
 
 def scale(event, hook, n):
@@ -5100,10 +5389,14 @@ for event, groups in ours["hooks"].items():
                         h[field] = oh[field]
                     else:
                         h.pop(field, None)
-                if "matcher" in og:
-                    g["matcher"] = og["matcher"]
-                else:
-                    g.pop("matcher", None)
+                # Own the group's matcher only when every hook in it is a gauntlet hook. A mixed group's
+                # matcher also governs the user's neighbouring hooks: rewriting or removing it would change
+                # when those fire, so leave it untouched.
+                if all(gkey(hh.get("command")) in our_by_key for hh in g.get("hooks", [])):
+                    if "matcher" in og:
+                        g["matcher"] = og["matcher"]
+                    else:
+                        g.pop("matcher", None)
                 present.add(k)
     for g in groups:                        # append gauntlet groups not already present
         if any(gkey(h.get("command")) in present for h in g.get("hooks", [])):
@@ -5214,6 +5507,7 @@ public class CucumberSpringConfiguration {
 import java.io.File;
 import java.io.FileDescriptor;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -5223,11 +5517,13 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -5315,7 +5611,9 @@ public class CrapGate {
     static List<Score> score(Document doc, Args a) {
         List<Pattern> excludes = globs(a.excludes);
         Set<String> allow = a.allow;
+        Map<String, Set<String>> declared = a.only == null ? Map.of() : declaredTypes(a.only);
         List<Score> result = new ArrayList<>();
+        boolean missingSource = false;
         NodeList packages = doc.getElementsByTagName("package");
         for (int p = 0; p < packages.getLength(); p++) {
             Element pkg = (Element) packages.item(p);
@@ -5325,9 +5623,13 @@ public class CrapGate {
                 String sourceFile = cls.getAttribute("sourcefilename");
                 String pkgPath = pkg.getAttribute("name");
                 if (sourceFile.isEmpty()) {
-                    // debug=false: JaCoCo keeps the counters but omits sourcefilename. Derive it from the
-                    // outer class so the gate still analyses the method instead of silently passing.
-                    sourceFile = outerSimpleName(className) + ".java";
+                    // debug=false: JaCoCo keeps the counters but omits sourcefilename. The outer class name is
+                    // NOT necessarily the file name (class Selection lives in Selectors.java), so guessing
+                    // Selection.java would drop the class from the changed-file scope and pass with 0 methods.
+                    // Bind it to the changed source file that actually declares the type instead.
+                    missingSource = true;
+                    String resolved = resolveSource(declared, pkgPath, outerSimpleName(className));
+                    sourceFile = resolved != null ? resolved : outerSimpleName(className) + ".java";
                 }
                 String sourcePath = (pkgPath.isEmpty() ? "" : pkgPath + "/") + sourceFile;
                 if (!inScope(sourcePath, a.only)) {
@@ -5339,10 +5641,15 @@ public class CrapGate {
                 List<Element> methods = children(cls, "method");
                 Map<String, Integer> nameCounts = new HashMap<>();
                 Map<String, List<String>> nameDescs = new HashMap<>();
+                Map<String, Integer> displayCounts = new HashMap<>();
+                Map<String, List<String>> displaySigs = new HashMap<>();
                 for (Element m : methods) {
                     String n = m.getAttribute("name");
+                    String d = prettyMethod(n);
                     nameCounts.merge(n, 1, Integer::sum);
                     nameDescs.computeIfAbsent(n, k -> new ArrayList<>()).add(n + m.getAttribute("desc"));
+                    displayCounts.merge(d, 1, Integer::sum);
+                    displaySigs.computeIfAbsent(d, k -> new ArrayList<>()).add(n + m.getAttribute("desc"));
                 }
                 for (Element m : methods) {
                     String name = m.getAttribute("name");
@@ -5355,27 +5662,82 @@ public class CrapGate {
                     int line = m.hasAttribute("line") ? Integer.parseInt(m.getAttribute("line")) : 0;
                     String methodName = prettyMethod(name);
                     // A signature entry Class#method(desc) exempts exactly one overload. A name-only entry
-                    // Class#method exempts only when the name is unambiguous; with overloads it exempts nothing
-                    // (the human must pick a signature), so a later overload never inherits an old exception.
-                    boolean nameOnly = allow.contains(className + "#" + name)
-                            || allow.contains(className + "#" + methodName);
+                    // exempts only when the key it matched is unambiguous. Uniqueness is checked for BOTH the
+                    // raw JVM name (overloads) and the display name: two lambdas lambda$rules$0/1 collapse to
+                    // one display "rules::lambda", so a display-name entry must not exempt both silently.
+                    boolean rawMatch = allow.contains(className + "#" + name);
+                    boolean dispMatch = allow.contains(className + "#" + methodName);
                     boolean allowed = allow.contains(className + "#*")
                             || allow.contains(className + "#" + name + desc)
-                            || (nameOnly && nameCounts.getOrDefault(name, 0) == 1);
-                    if (nameOnly && nameCounts.getOrDefault(name, 0) > 1) {
-                        String entry = allow.contains(className + "#" + name)
-                                ? className + "#" + name : className + "#" + methodName;
-                        a.ambiguous.add("CRAP allowlist: '" + entry + "' matches " + nameCounts.get(name)
+                            || (rawMatch && nameCounts.getOrDefault(name, 0) == 1)
+                            || (dispMatch && displayCounts.getOrDefault(methodName, 0) == 1);
+                    if (rawMatch && nameCounts.getOrDefault(name, 0) > 1) {
+                        a.ambiguous.add("CRAP allowlist: '" + className + "#" + name + "' matches " + nameCounts.get(name)
                                 + " overloads " + nameDescs.get(name) + " - it exempts nothing; specify a signature"
                                 + " (e.g. " + className + "#" + nameDescs.get(name).get(0) + ").");
+                    }
+                    if (dispMatch && displayCounts.getOrDefault(methodName, 0) > 1) {
+                        a.ambiguous.add("CRAP allowlist: '" + className + "#" + methodName + "' matches "
+                                + displayCounts.get(methodName) + " methods sharing that display name "
+                                + displaySigs.get(methodName) + " (e.g. sibling lambdas) - it exempts nothing;"
+                                + " specify a signature (e.g. " + className + "#" + displaySigs.get(methodName).get(0) + ").");
                     }
                     result.add(new Score(className, methodName, line, sourcePath, cc, coverage, crap, allowed));
                 }
             }
         }
+        if (a.only != null && !a.only.isEmpty() && result.isEmpty() && missingSource) {
+            a.ambiguous.add("CRAP gate: the JaCoCo report carries no source filenames (debug=false) and the changed-file"
+                    + " scope analysed 0 methods. A zero-method pass is not proof the changed code is simple: rebuild the"
+                    + " report with debug info, or verify acceptance.features/changed sources resolve to the right files.");
+        }
         result.sort(Comparator.comparingDouble(Score::crap).reversed()
                 .thenComparing(Score::className).thenComparingInt(Score::line));
         return result;
+    }
+
+    /** Index the changed source files by package-relative path -> the type simple names they declare, so a
+     *  class whose sourcefilename JaCoCo omitted can be bound to the file that really declares it. */
+    static Map<String, Set<String>> declaredTypes(Set<String> only) {
+        Map<String, Set<String>> map = new LinkedHashMap<>();
+        Pattern type = Pattern.compile("\\b(?:class|interface|enum|record)\\s+(\\w+)");
+        for (String f : only) {
+            Path p = Path.of(f);
+            if (!Files.isRegularFile(p)) {
+                continue;
+            }
+            String norm = f.replace('\\', '/');
+            int root = norm.indexOf("src/main/java/");
+            String rel = root >= 0 ? norm.substring(root + "src/main/java/".length()) : norm;
+            try {
+                Matcher m = type.matcher(Files.readString(p, StandardCharsets.UTF_8));
+                Set<String> names = new HashSet<>();
+                while (m.find()) {
+                    names.add(m.group(1));
+                }
+                map.put(rel, names);
+            } catch (IOException unreadable) {
+                // unreadable source: cannot bind, leave it out of the index
+            }
+        }
+        return map;
+    }
+
+    static String resolveSource(Map<String, Set<String>> declared, String pkgPath, String outerName) {
+        String prefix = pkgPath.isEmpty() ? "" : pkgPath + "/";
+        String found = null;
+        for (Map.Entry<String, Set<String>> e : declared.entrySet()) {
+            String rel = e.getKey();
+            if (!rel.startsWith(prefix) || !e.getValue().contains(outerName)) {
+                continue;
+            }
+            String base = rel.substring(rel.lastIndexOf('/') + 1);
+            if (found != null && !found.equals(base)) {
+                return null;   // two changed files declare the same type name: cannot bind unambiguously
+            }
+            found = base;
+        }
+        return found;
     }
 
     static double crap(int complexity, double coverage) {
@@ -5795,11 +6157,14 @@ import org.w3c.dom.NodeList;
  * java GherkinMutator.java verdict --mutants build/gherkin-mutation/mutants \
  *      --results build/gherkin-mutation/results
  * </pre>
- * {@code generate} writes one feature file per mutant (a plain Scenario with the Background
- * and the substituted steps) plus manifest.tsv. Run them with Cucumber, then {@code verdict}
- * reads the JUnit XML results: a {@code <failure>} (assertion) = killed (an undefined step for the new
- * value is counted separately), passed = survived; a {@code <error>} (exception/crash), skipped/aborted
- * or missing = error, never a kill.
+ * {@code generate} writes one feature file per mutant: the original Scenario Outline with its
+ * {@code <placeholders>} and Background intact, and a single Examples row whose one target cell is
+ * mutated - Cucumber interpolates every other value exactly as in the original run, so a non-mutated
+ * column (e.g. an address holding a newline) is never distorted. Plus manifest.tsv. Run them with
+ * Cucumber, then {@code verdict} reads the JUnit XML results: a {@code <failure>} that is an assertion
+ * thrown IN A STEP = killed (an undefined step for the new value is counted separately); passed =
+ * survived; a {@code <error>}, a non-assertion {@code <failure>} (IOException etc.), a {@code <failure>}
+ * from a @Before/@After hook (no step reached a verdict), skipped/aborted or missing = error, never a kill.
  * {@code no-skipped} fails when the {@code --features} directory is missing, when a normal acceptance run
  * skipped scenarios, or ran none although {@code --features} holds feature files; an existing directory
  * without feature files passes without reading any results.
@@ -5816,7 +6181,7 @@ public class GherkinMutator {
     // ---------------------------------------------------------------- keywords
 
     record Keywords(List<String> feature, List<String> background, List<String> rule, List<String> scenario,
-                    List<String> outline, List<String> examples, List<String> step, String plainScenario) {
+                    List<String> outline, List<String> examples, List<String> step) {
     }
 
     // Step keywords carry their trailing space (Gherkin dialect form); "* " is the universal step keyword.
@@ -5824,12 +6189,12 @@ public class GherkinMutator {
             "en", new Keywords(List.of("Feature", "Business Need", "Ability"), List.of("Background"), List.of("Rule"),
                     List.of("Example", "Scenario"), List.of("Scenario Outline", "Scenario Template"),
                     List.of("Examples", "Scenarios"),
-                    List.of("Given ", "When ", "Then ", "And ", "But ", "* "), "Scenario"),
+                    List.of("Given ", "When ", "Then ", "And ", "But ", "* ")),
             "ru", new Keywords(List.of("Функция", "Функциональность", "Функционал", "Свойство", "Фича"),
                     List.of("Предыстория", "Контекст"), List.of("Правило"), List.of("Пример", "Сценарий"),
                     List.of("Структура сценария", "Шаблон сценария"), List.of("Примеры", "Значения"),
                     List.of("Дано ", "Допустим ", "Пусть ", "Если ", "Когда ", "То ", "Тогда ", "Затем ",
-                            "И ", "А ", "Но ", "Иначе ", "Также ", "К тому же ", "* "), "Сценарий"));
+                            "И ", "А ", "Но ", "Иначе ", "Также ", "К тому же ", "* ")));
 
     enum Kw { FEATURE, BACKGROUND, RULE, SCENARIO, EXAMPLES }
 
@@ -6056,23 +6421,29 @@ public class GherkinMutator {
         List<String> tags = new ArrayList<>(m.scenario().tags);
         tags.addAll(m.examples().tags);
         lines.addAll(tags);
-        lines.add("  " + kw.plainScenario() + ": MUTANT " + m.id() + " | " + m.scenario().name + " | " + m.key() + ": "
+        // Keep the Scenario Outline and its <placeholders> verbatim: Cucumber interpolates the Examples
+        // values itself, exactly as in the original run. Flattening to a plain Scenario and re-escaping the
+        // substituted values would distort every other column (a real newline in an address cell becomes a
+        // literal \n in step text, failing an unrelated check and falsely "killing" this mutant). Only the
+        // single target cell of the single target row changes; all other cells stay byte-for-byte as written.
+        lines.add("  " + kw.outline().get(0) + ": MUTANT " + m.id() + " | " + m.scenario().name + " | " + m.key() + ": "
                 + tsv(m.original()) + " -> " + tsv(m.mutated()));
-        Map<String, String> values = new LinkedHashMap<>();
-        List<String> row = m.examples().rowsRaw.get(m.row());
-        for (int k = 0; k < m.examples().headerRaw.size() && k < row.size(); k++) {
-            String key = unescape(m.examples().headerRaw.get(k));
-            values.put(key, key.equals(m.key()) ? m.mutated() : unescape(row.get(k)));
-        }
-        for (String bodyLine : m.scenario().body) {
-            boolean tableLine = bodyLine.trim().startsWith("|");
-            String substituted = bodyLine;
-            for (Map.Entry<String, String> v : values.entrySet()) {
-                String value = tableLine ? escapeCell(v.getValue()) : escapeStepText(v.getValue());
-                substituted = substituted.replace("<" + v.getKey() + ">", value);
+        lines.addAll(m.scenario().body);
+        Examples ex = m.examples();
+        lines.add("    " + kw.examples().get(0) + ":");
+        lines.add("      | " + String.join(" | ", ex.headerRaw) + " |");
+        int keyIndex = -1;
+        for (int k = 0; k < ex.headerRaw.size(); k++) {
+            if (unescape(ex.headerRaw.get(k)).equals(m.key())) {
+                keyIndex = k;
+                break;
             }
-            lines.add(substituted);
         }
+        List<String> row = new ArrayList<>(ex.rowsRaw.get(m.row()));
+        if (keyIndex >= 0 && keyIndex < row.size()) {
+            row.set(keyIndex, escapeCell(m.mutated()));
+        }
+        lines.add("      | " + String.join(" | ", row) + " |");
         return lines;
     }
 
@@ -6231,11 +6602,30 @@ public class GherkinMutator {
     static int stepCount(Scenario sc, Keywords kw) {
         int n = 0;
         for (String line : sc.body) {
-            if (isStepLine(line.trim(), kw)) {
+            if (isStepLine(gherkinStrip(line), kw)) {
                 n++;
             }
         }
         return n;
+    }
+
+    /** Gherkin's lexer treats Unicode space separators (incl. U+00A0 NBSP) as indentation, but String.trim()
+     *  only strips chars <= U+0020 and keeps NBSP - a step indented with NBSP would otherwise vanish from
+     *  stepCount and the scenario would be wrongly treated as having no steps (zero mutants, vacuous pass). */
+    static String gherkinStrip(String line) {
+        int start = 0;
+        int end = line.length();
+        while (start < end && isGherkinSpace(line.charAt(start))) {
+            start++;
+        }
+        while (end > start && isGherkinSpace(line.charAt(end - 1))) {
+            end--;
+        }
+        return line.substring(start, end);
+    }
+
+    static boolean isGherkinSpace(char c) {
+        return Character.isWhitespace(c) || Character.isSpaceChar(c);
     }
 
     static List<String> cells(String row) {
@@ -6279,14 +6669,6 @@ public class GherkinMutator {
 
     static String escapeCell(String value) {
         return value.replace("\\", "\\\\").replace("|", "\\|").replace("\n", "\\n");
-    }
-
-    /** Step text and docstrings are single lines in the rendered file. An Examples {@code \n} escape unescapes
-     *  to a real newline, which would split the step line and make Cucumber reject the whole mutant file
-     *  (PARSE_ERROR). Gherkin does not unescape step text, so keep it on one line as a literal {@code \n};
-     *  table cells go through escapeCell, which Gherkin does unescape. */
-    static String escapeStepText(String value) {
-        return value.replace("\r", "\\r").replace("\n", "\\n");
     }
 
     // ---------------------------------------------------------------- value mutation (APS rules)
@@ -6605,9 +6987,11 @@ public class GherkinMutator {
             for (Node n = tc.getFirstChild(); n != null; n = n.getNextSibling()) {
                 if (n instanceof Element e) {
                     switch (e.getTagName()) {
-                        // <failure> = an assertion failed: the mutant was killed. <error> = an exception/crash
-                        // (glue, context, harness) that never reached a verdict: not a kill, report it as an error.
-                        case "failure" -> result = undefinedStep(e) ? "undefined" : "failed";
+                        // A kill is an assertion that failed IN A STEP. Gradle writes a @Before/@After hook
+                        // exception (IOException, or an assertion in the hook) as <failure> too, but no step
+                        // reached a verdict - that is an error, not a kill. <error> = a crash/glue/harness
+                        // failure that never reached a verdict: also an error.
+                        case "failure" -> result = undefinedStep(e) ? "undefined" : stepAssertionKill(e) ? "failed" : "error";
                         case "error" -> result = undefinedStep(e) ? "undefined" : "error";
                         case "skipped" -> result = result.equals("passed") ? "aborted" : result;
                         default -> {
@@ -6627,6 +7011,31 @@ public class GherkinMutator {
     static boolean undefinedStep(Element failure) {
         String text = failure.getAttribute("type") + " " + failure.getAttribute("message") + " " + failure.getTextContent();
         return text.contains("UndefinedStepException") || text.contains("is undefined");
+    }
+
+    /** A mutant is killed only by an assertion that failed while a STEP ran. A non-assertion exception
+     *  (IOException, SQLException, ...) is infrastructure/prep, never a verdict; an assertion thrown from a
+     *  @Before/@After hook failed before any step ran, so it proves nothing about the mutated value. Both are
+     *  written by Gradle/Cucumber as {@code <failure>}, so the stage must be read from the type and the trace. */
+    static boolean stepAssertionKill(Element failure) {
+        if (!assertionType(failure.getAttribute("type"))) {
+            return false;
+        }
+        return !hookStage(failure.getTextContent());
+    }
+
+    static boolean assertionType(String type) {
+        return type.endsWith("AssertionError") || type.endsWith("AssertionFailedError")
+                || type.endsWith("AssertFailedError") || type.endsWith("ComparisonFailure")
+                || type.endsWith("MultipleFailuresError");
+    }
+
+    /** Cucumber runs a @Before/@After hook through these runner frames; a step failure goes through
+     *  PickleStepDefinitionMatch/StepDefinitionMatch and carries the synthetic {@code ✽} step frame instead. */
+    static boolean hookStage(String trace) {
+        return trace.contains("HookDefinitionMatch") || trace.contains("TestCaseState.runHook")
+                || trace.contains("HookTestStep") || trace.contains("MethodHookDefinition")
+                || trace.contains("Runner.runHook") || trace.contains("runHook");
     }
 
     // ---------------------------------------------------------------- helpers
@@ -6723,6 +7132,8 @@ public class IntegrityCheck {
             "(?:named|getByName|maybeCreate|register)\\s*\\(\\s*[\"']([^\"']+)[\"']\\s*\\)$");
     static final Pattern LAST_ID = Pattern.compile("([A-Za-z_$][\\w$]*)$");
     static final Pattern HARMLESS_NAME = Pattern.compile("(?i)^(?:" + HARMLESS_NAMES + ")$");
+    /** Single named parameter of a task-configuration closure: {@code jar { t -> }} / {@code jar { Task t -> }}. */
+    static final Pattern CLOSURE_PARAM = Pattern.compile("^\\s*(?:[\\w.$]+(?:<[^>]*>)?(?:\\[\\])?\\s+)?(\\w+)\\s*->");
 
     static final List<Rule> RULES = List.of(
             rule("T1", Kind.TEST, "@Disabled\\w*", false, "disabled test"),
@@ -6954,7 +7365,7 @@ public class IntegrityCheck {
             if (depth < 0) {
                 // the innermost enclosing block opener must be harmless AND the assignment on this line
                 // must target that harmless task itself, not a gate task (jar { test.enabled = false }).
-                return harmlessOpener(line) && disabledTargetsHarmless(lines.get(index));
+                return harmlessOpener(line) && disabledTargetsHarmless(lines.get(index), closureParam(line));
             }
         }
         return false;
@@ -7000,12 +7411,13 @@ public class IntegrityCheck {
         if (!HARMLESS_TASK.matcher(opener + " {").find()) {
             return false;
         }
+        String param = closureParam(line);
         Matcher m = DISABLED.matcher(line);
         while (m.find()) {
             if (m.start() < open || m.start() > insideEnd) {
                 return false;                              // a disabled statement before/after the block, not inside it
             }
-            if (!receiverIsHarmless(line, m.start())) {
+            if (!receiverIsHarmless(line, m.start(), param)) {
                 return false;                              // disables a gate task (test), not the harmless block's task
             }
         }
@@ -7013,24 +7425,35 @@ public class IntegrityCheck {
     }
 
     /** Every disabled statement on the line must target the harmless task itself, not a gate task. */
-    static boolean disabledTargetsHarmless(String line) {
+    static boolean disabledTargetsHarmless(String line, String closureParam) {
         Matcher m = DISABLED.matcher(line);
         while (m.find()) {
-            if (!receiverIsHarmless(line, m.start())) {
+            if (!receiverIsHarmless(line, m.start(), closureParam)) {
                 return false;
             }
         }
         return true;
     }
 
+    /** The closure's single named parameter ({@code jar { t -> }}), bound to the task itself; null for the
+     *  implicit {@code it} or a closure with no/other parameters. Only consulted once the opener is harmless. */
+    static String closureParam(String openerLine) {
+        int brace = openerLine.indexOf('{');
+        if (brace < 0) {
+            return null;
+        }
+        Matcher m = CLOSURE_PARAM.matcher(openerLine.substring(brace + 1));
+        return m.find() ? m.group(1) : null;
+    }
+
     /**
      * The receiver left of {@code enabled = false}/{@code setEnabled(false)} must be empty (a bare assignment
-     * configures the enclosing harmless task), name a harmless task, or be {@code delegate}/{@code this} - which
-     * inside the harmless task's configuration block refer to that task itself. {@code test.enabled},
-     * {@code tasks.test.enabled} and {@code tasks.named("test").enabled} disable a gate task and are never exempt,
-     * even inside {@code jar { }}.
+     * configures the enclosing harmless task), name a harmless task, or be {@code delegate}/{@code this}/{@code it}
+     * or the closure's own named parameter - which inside the harmless task's configuration block refer to that
+     * task itself. {@code test.enabled}, {@code tasks.test.enabled} and {@code tasks.named("test").enabled} disable
+     * a gate task and are never exempt, even inside {@code jar { }}.
      */
-    static boolean receiverIsHarmless(String line, int matchStart) {
+    static boolean receiverIsHarmless(String line, int matchStart, String closureParam) {
         String before = line.substring(0, matchStart).stripTrailing();
         if (!before.endsWith(".")) {
             return true;                                   // bare enabled = false / setEnabled(false)
@@ -7044,7 +7467,8 @@ public class IntegrityCheck {
             Matcher id = LAST_ID.matcher(recv);
             name = id.find() ? id.group(1) : recv;         // tasks.test -> test, jar -> jar, delegate -> delegate
         }
-        if (name.equals("delegate") || name.equals("this")) {
+        if (name.equals("delegate") || name.equals("this") || name.equals("it")
+                || (closureParam != null && name.equals(closureParam))) {
             return true;                                   // the enclosing block's own task (already verified harmless)
         }
         return HARMLESS_NAME.matcher(name).matches();

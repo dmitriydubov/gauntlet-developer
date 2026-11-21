@@ -85,7 +85,7 @@ workflow, если он есть в сессии и владелец разре�
   guard (human-only правила внутри обёрток, inline-кода и pipe; защита `.git/`; `push --mirror`/`--all`/`HEAD`
   на базовой ветке; сокращения `--no-verify` и `core.hooksPath`; регистронезависимые пути), `permissions.deny`
   дополнен прямыми формами human-only команд; пример фичи переведён на фиксированную скидку без эквивалентных
-  мутантов; самопроверка хуков 574 → 733 → 808 → 892. Продолжение ревизии 4.3 — правки по ревью Kimi: тела подстановок
+  мутантов; самопроверка хуков 574 → 733 → 808 → 892 → 970. Продолжение ревизии 4.3 — правки по ревью Kimi: тела подстановок
   `$(…)`/`` `…` `` вне одинарных кавычек, `env -S`, push без refspec на базовой ветке (guard); смешанная строка с
   отключением test (`IntegrityCheck`); окно повторов `stop_gate` на весь бюджет прогона. Правка Kimi «пустой
   сценарий при непустом Background» (`GherkinMutator`, K2) отменена правкой G6 ревью Grok: пустой сценарий ничего
@@ -105,7 +105,15 @@ workflow, если он есть в сессии и владелец разре�
   `stop_gate` — негативный код Gradle считается красным, rename и общий `gauntlet/config/` в области модулей;
   `gauntlet.gradle` — каталог фич объявлен входом `acceptanceTest`, `mutationGate` целит в скомпилированные типы
   (package-private и вложенные `Name$*`); сборщик/распаковщик бандла — побайтный round-trip (тело verbatim, без
-  снятия/добавления переноса строки). Остаток эвристики
+  снятия/добавления переноса строки). Второй раунд ревью Codex (F1–F14): `GherkinMutator` — сбой подготовки
+  (`@Before` до шага) не kill, мутация одной ячейки Examples не портит соседнюю колонку, NBSP в отступе шага не
+  теряется; `CrapGate` — `sourcefilename` ≠ имя файла не пропускает метод, уникальность лямбд по allowlist;
+  `gauntlet.gradle` — regex находит тип с аннотацией на строке объявления; `stop_gate` — закоммиченный rename
+  берёт оба пути, вложенные сборки по самому длинному префиксу, кэш отчётов по модулю, удалённый файл в области;
+  `install.sh` — gauntlet-хук узнаётся по команде запуска (интерпретатор + скрипт), `matcher` смешанной группы не
+  трогается; `IntegrityCheck` — получатель `it`/именованный параметр замыкания свободен; guard — `cd` в подоболочке
+  `( )`/`$( )` не утекает в родителя, argv-список экранируется и echo-данные не становятся командой; сборщик §8.4
+  поставляет распаковщик своей версии и встроенно сверяет round-trip побайтно. Остаток эвристики
   guard (подстановка, порождающая имя бинарника, переменные, закодированные payload'ы) описан честно: опора —
   `integrityCheck`, CI, branch protection и diff PR.
 Синхронизировано с бандлом ревизии 4.3.
@@ -1131,21 +1139,50 @@ kit-src kit-old kit-clean`, где `kit-old` — распакованный пр
 Бандл снимают с ревизии, где смержены все правки набора. Если правка набора ещё в открытом PR, до его мержа
 `REV` — ветка этого PR, иначе пересборка из `origin/main` молча её потеряет.
 
-**Сборка.** Скрипт ниже пишет манифест и файлы; заголовок (описание, список изменений, скрипт
-распаковки) берётся из прежнего бандла, первую строку (`ревизия N от <дата>`) и список изменений
-владелец правит руками:
+**Сборка.** Скрипт ниже пишет манифест и файлы и вкладывает в заголовок **канонический распаковщик этой
+версии**. Распаковщик поставляется вместе со сборщиком одного формата (F12): брать его из прежнего бандла
+нельзя — старый формат добавлял завершающий LF, который новый сборщик уже сохраняет, и каждый файл расходился
+бы с манифестом на байт. Из прежнего бандла берутся только описание и список изменений; первую строку
+(`ревизия N от <дата>`) и список изменений владелец правит руками. Сборщик сам распаковывает результат своим
+распаковщиком и сверяет побайтно (round-trip), поэтому рассинхрон формата, пустой файл или лишний/недостающий
+завершающий LF не уйдут в бандл молча:
 ```bash
 python3 - kit-clean gauntlet-kit-bundle.md gauntlet-kit-bundle.new.md "# Бандл эталонного набора gauntlet (ревизия N от <дата>)" <<'PY'
-import os, sys
+import os, sys, subprocess, tempfile
 src, old_bundle, new_bundle, revision = sys.argv[1:5]
 if not os.path.isdir(src) or not any(os.scandir(src)):
     sys.exit(f"{src}: нет очищенной копии набора — сначала очистка")
-header = open(old_bundle, encoding="utf-8").read().split("\n## Манифест\n", 1)[0].split("\n")
+# Канонический распаковщик побайтного формата этого сборщика (тело пишется verbatim, без rstrip и без добавления
+# LF). Меняется ВМЕСТЕ со сборщиком: новый формат + старый распаковщик = каждый файл на байт длиннее манифеста.
+FENCE = chr(96) * 3
+EXTRACTOR = r'''import re, os, sys
+bundle = open(sys.argv[1], encoding="utf-8").read()
+for m in re.finditer(r"^===== BEGIN FILE (.+?) =====\n(.*?)\n===== END FILE \1 =====$", bundle, re.S | re.M):
+    path, body = m.group(1), m.group(2)
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(body)
+    print("wrote", path)
+'''
+UNPACK = (
+    "## Как распаковать (Claude выполняет это на шаге 2 протокола `start`)\n\n"
+    "Каждый файл лежит между строками `===== BEGIN FILE <путь> =====` и `===== END FILE <путь> =====`.\n"
+    "Скрипт ниже пишет их на диск в текущий каталог, сохраняя пути. При `start` запускайте его во временном\n"
+    "каталоге вне репозитория: набор попадает в проект только после адаптации под стек.\n\n"
+    + FENCE + "python\n" + EXTRACTOR + FENCE + "\n\n"
+    "Запуск: `python3 extract_bundle.py gauntlet-kit-bundle.md`. После распаковки: `chmod +x gauntlet/hooks/*.sh\n"
+    "gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и `.github/workflows/gauntlet.yml`\n"
+    "в эталоне уже установлены (`install.sh` их когда-то перенёс из `gauntlet/claude` и `gauntlet/ci`); для новой\n"
+    "установки положите их обратно в `gauntlet/claude/` и `gauntlet/ci/`: их переносит `install.sh` последним шагом\n"
+    "установки (раздел 8.1, шаг 3 инструкции). Корневой `CLAUDE.md` в бандле — шаблон: описание модулей заполняется по репозиторию.\n"
+)
+old = open(old_bundle, encoding="utf-8").read()
+header = old.split("\n## Как распаковать", 1)[0].split("\n")   # описание + список изменений прежнего бандла
 header[0] = revision
 files = sorted(os.path.relpath(os.path.join(d, n), src).replace(os.sep, "/")
                for d, _, names in os.walk(src) for n in names)
 with open(new_bundle, "w", encoding="utf-8", newline="\n") as out:
-    out.write("\n".join(header).rstrip("\n") + "\n\n## Манифест\n\n")
+    out.write("\n".join(header).rstrip("\n") + "\n\n" + UNPACK + "\n## Манифест\n\n")
     out.writelines(f"- `{p}` ({os.path.getsize(os.path.join(src, p))} байт)\n" for p in files)
     out.write("\n## Файлы\n\n")
     for p in files:
@@ -1154,13 +1191,25 @@ with open(new_bundle, "w", encoding="utf-8", newline="\n") as out:
             sys.exit(f"CRLF in {p}: заголовок бандла читается с universal newlines (CRLF→LF), побайтного совпадения не будет")
         body = raw.decode("utf-8")          # без rstrip: тело == содержимое файла побайтно, распаковка пишет его как есть
         out.write(f"===== BEGIN FILE {p} =====\n{body}\n===== END FILE {p} =====\n\n")
-print(len(files), "files ->", new_bundle)
+# Round-trip тем же распаковщиком, что уйдёт в заголовке: ловит рассинхрон формата, пустые файлы и 0/1/2 LF.
+with tempfile.TemporaryDirectory() as td:
+    ext = os.path.join(td, "extract_bundle.py")
+    open(ext, "w", encoding="utf-8", newline="\n").write(EXTRACTOR)
+    outdir = os.path.join(td, "out"); os.makedirs(outdir)
+    subprocess.run([sys.executable, ext, os.path.abspath(new_bundle)], cwd=outdir, check=True, stdout=subprocess.DEVNULL)
+    for p in files:
+        a = open(os.path.join(src, p), "rb").read()
+        b = open(os.path.join(outdir, p), "rb").read()
+        if a != b:
+            sys.exit(f"round-trip расходится в {p}: {len(a)} -> {len(b)} байт — распаковщик не соответствует формату сборщика")
+print(len(files), "files ->", new_bundle, "(round-trip побайтно совпал)")
 PY
 ```
 
-**Проверка.** Распаковать новый бандл во временный каталог скриптом из его заголовка: `diff -r` с
-`kit-clean` — пусто (тело файла пишется побайтно, без снятия или добавления переноса строки); `python3 gauntlet/hooks/selftest.py` из распакованной копии — `0 failed`; grep по
-запрещённым словам — пусто. После проверки новый бандл заменяет старый.
+**Проверка.** Сборщик уже сверил round-trip побайтно своим распаковщиком. Дополнительно распаковать новый бандл
+во временный каталог скриптом из его заголовка: `diff -r` с `kit-clean` — пусто (тело файла пишется побайтно, без
+снятия или добавления переноса строки); `python3 gauntlet/hooks/selftest.py` из распакованной копии — `0 failed`;
+grep по запрещённым словам — пусто. После проверки новый бандл заменяет старый.
 
 ### 8.5. `contract <ревизия прода>` — сверка контракта с продом
 

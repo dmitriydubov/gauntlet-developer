@@ -348,17 +348,31 @@ ArchUnit-тест, шаблоны, установку и документаци�
 **Управление версиями проекта и Gauntlet при `start`.**
 - `config/gauntlet.properties`: `project.java.version`, `project.gradle.version`, `project.framework.*.version`,
   `project.test.*.version` — фактические версии целевого проекта (шаблон не наследуется); `gate.java.version`
-  и локальный `gate.java.home` — независимая JVM инструментов. Версии Gauntlet выбираются по совместимости и
+  и внешний `GAUNTLET_GATE_JAVA_HOME`/`gauntlet.gateJavaHome` — независимая JVM инструментов. Версии Gauntlet выбираются по совместимости и
   фиксируются после реального прогона. Обновление зависимостей приложения — только отдельное решение владельца.
 - `gauntlet.gradle`: gate JVM применяется к инструментам JavaExec/Exec и acceptance/arch/mutant Test-задачам,
   не меняя toolchain приложения; `gauntletInfo` показывает `project.*`, версии инструментов и executable гейта.
-- `.github/workflows/gauntlet.yml`: CI читает `gate.java.version` (fallback `project.java.version`), вызывает
-  wrapper обнаруженной версии Gradle, печатает `--version` и `gauntletInfo`.
+- `.github/workflows/gauntlet.yml`: CI устанавливает project/gate Java отдельно, wrapper получает проектную
+  `JAVA_HOME`, инструменты — gate JDK через `GAUNTLET_GATE_JAVA_HOME`; wrapper — обнаруженной версии Gradle.
 - `.claude/agents/*`, `CLAUDE.md`, `INSTALL.md`, `README.md`: роли и источники используют `project.*` и фактически
   разрешённые зависимости; убрана автоматическая рекомендация обновлять JUnit приложения ради Cucumber.
 - Проверено: Java 17 + Gradle 8.14.3 + JUnit 5.12.2 + Cucumber 7.23.0 с JVM 21 гейта — 12/12 kill, манифест
-  приложения не изменился; второй проект — `gauntletInfo`/`integrityCheck` и PIT 8/8 OK; YAML workflow распарсен (7 шагов),
+  приложения не изменился; второй проект — `gauntletInfo`/`integrityCheck` и PIT 8/8 OK; YAML workflow распарсен (10 шагов),
   чтение CI-версии проверено. GitHub Actions в этой среде не запускался.
+
+**Повторное ревью `8bf40f7`: ленивая JVM, безопасный installer, кодировка и строгая область.**
+- Toolchain gate-JDK разрешается только при выполнении гейта; обычные `help`/`classes` проходят с JDK 99 в gate.
+  `Test`/`JavaExec` получают `javaLauncher`, а не executable поверх проектного launcher. CI запускает wrapper на
+  project Java и передаёт gate JDK отдельно: 17/21 → bytecode 61; контроль 21 → 65. Путь JDK — только вне git.
+- Installer принимает `./gauntlet/hooks`, только известные аргументы и одиночную команду; newline/`;`/`&&`/pipe/
+  redirect оставляют пользовательский вызов целиком. Изменённые штатные роли/workflow выдаются `*.gauntlet.new`
+  для слияния без перезаписи пользовательских файлов.
+- PIT/CRAP читают `JavaCompile.options.encoding`; CRAP `--encoding`, ошибка чтения видима. Физический fallback
+  CRAP удалён: `legacy.Prices` из другого source root не входит, если changed объявляет `domain.Prices`.
+- Standalone `//` перед closure-параметром не даёт B1; reviewer `python3 docsearch.py -e price` остаётся read-only;
+  комментарий properties не обновляет JUnit приложения.
+- Проверки: selftest 997/997, Java/XML 35/35, installer 20/20; PIT 2/2 и CRAP 2 метода для ISO-8859-1 `Tarifé`;
+  `archTest` 17/21 зелёный; round-trip 30/30. GitHub Actions в этой среде не запускался.
 
 ## Как распаковать (Claude выполняет это на шаге 2 протокола `start`)
 
@@ -389,31 +403,31 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 - `.claude/agents/reviewer.md` (7509 байт)
 - `.claude/agents/specifier.md` (5026 байт)
 - `.claude/settings.json` (2211 байт)
-- `.github/workflows/gauntlet.yml` (2827 байт)
+- `.github/workflows/gauntlet.yml` (3407 байт)
 - `CLAUDE.md` (279 байт)
-- `gauntlet/CLAUDE.md` (64492 байт)
-- `gauntlet/INSTALL.md` (13962 байт)
-- `gauntlet/README.md` (50708 байт)
+- `gauntlet/CLAUDE.md` (64586 байт)
+- `gauntlet/INSTALL.md` (14369 байт)
+- `gauntlet/README.md` (51401 байт)
 - `gauntlet/archtest/gauntlet/architecture/ArchitectureTest.java` (7906 байт)
 - `gauntlet/config/architecture.properties` (1420 байт)
 - `gauntlet/config/checkstyle.xml` (4593 байт)
 - `gauntlet/config/crap-allowlist.txt` (924 байт)
-- `gauntlet/config/gauntlet.properties` (6379 байт)
+- `gauntlet/config/gauntlet.properties` (6384 байт)
 - `gauntlet/config/integrity-allowlist.txt` (445 байт)
 - `gauntlet/config/pit-runerror-allowlist.txt` (1485 байт)
 - `gauntlet/config/pmd-ruleset.xml` (11398 байт)
-- `gauntlet/gauntlet.gradle` (38557 байт)
-- `gauntlet/hooks/guard.py` (44247 байт)
-- `gauntlet/hooks/selftest.py` (69006 байт)
+- `gauntlet/gauntlet.gradle` (39133 байт)
+- `gauntlet/hooks/guard.py` (44168 байт)
+- `gauntlet/hooks/selftest.py` (69153 байт)
 - `gauntlet/hooks/session_start.sh` (3116 байт)
 - `gauntlet/hooks/stop_gate.py` (20644 байт)
-- `gauntlet/install.sh` (9541 байт)
+- `gauntlet/install.sh` (10570 байт)
 - `gauntlet/templates/acceptanceTest/java/com/example/service/acceptance/CucumberSpringConfiguration.java` (615 байт)
 - `gauntlet/templates/acceptanceTest/resources/features/example_discount.feature` (1258 байт)
-- `gauntlet/tools/CrapGate.java` (23561 байт)
+- `gauntlet/tools/CrapGate.java` (22946 байт)
 - `gauntlet/tools/DryGate.java` (6538 байт)
 - `gauntlet/tools/GherkinMutator.java` (42883 байт)
-- `gauntlet/tools/IntegrityCheck.java` (22678 байт)
+- `gauntlet/tools/IntegrityCheck.java` (22710 байт)
 - `gauntlet/tools/PitSummary.java` (11633 байт)
 
 ## Файлы
@@ -732,7 +746,7 @@ before any code is written; the coder must then make your scenarios pass without
 
 ===== BEGIN FILE .github/workflows/gauntlet.yml =====
 # Gauntlet gate for pull requests. Installed to .github/workflows/gauntlet.yml by gauntlet/install.sh.
-# start records project.* and gate.java.* in the properties; CI uses gate Java and the project's Gradle wrapper.
+# start records project.* and gate.java.*; CI runs the application on project Java and tools on gate Java.
 # The agent's hooks run only inside Claude Code; this job is the check nobody can skip.
 name: gauntlet
 
@@ -754,23 +768,35 @@ jobs:
         with:
           fetch-depth: 0                      # scope=changed needs the merge base with the base branch
 
-      - name: Resolve the configured gate JVM
+      - name: Resolve project and gate Java
         id: versions
         run: |
-          version=$(sed -n 's#^[[:space:]]*gate.java.version[[:space:]]*=[[:space:]]*##p' gauntlet/config/gauntlet.properties | tail -1)
-          if [ -z "$version" ]; then
-            version=$(sed -n 's#^[[:space:]]*project.java.version[[:space:]]*=[[:space:]]*##p' gauntlet/config/gauntlet.properties | tail -1)
-          fi
-          if [ -z "$version" ]; then
-            echo '::error::Set gate.java.version (or project.java.version) in gauntlet/config/gauntlet.properties'
+          project=$(sed -n 's#^[[:space:]]*project.java.version[[:space:]]*=[[:space:]]*##p' gauntlet/config/gauntlet.properties | tail -1)
+          gate=$(sed -n 's#^[[:space:]]*gate.java.version[[:space:]]*=[[:space:]]*##p' gauntlet/config/gauntlet.properties | tail -1)
+          if [ -z "$project" ]; then
+            echo '::error::Set project.java.version in gauntlet/config/gauntlet.properties'
             exit 1
           fi
-          echo "gate_java=$version" >> "$GITHUB_OUTPUT"
+          echo "project_java=$project" >> "$GITHUB_OUTPUT"
+          echo "gate_java=${gate:-$project}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ steps.versions.outputs.project_java }}
+
+      - name: Remember the application JVM
+        id: project_home
+        run: echo "home=$JAVA_HOME" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: ${{ steps.versions.outputs.gate_java }}
+
+      - name: Remember the gate JVM
+        id: gate_home
+        run: echo "home=$JAVA_HOME" >> "$GITHUB_OUTPUT"
 
       - uses: gradle/actions/setup-gradle@v4
 
@@ -791,7 +817,13 @@ jobs:
           status=0
           for dir in ${{ steps.base.outputs.modules }}; do
             echo "::group::gauntlet in $dir"
-            ( cd "$dir" && ./gradlew --version && ./gradlew gauntletInfo && ./gradlew gauntlet --continue --console=plain -Pgauntlet.baseRef="${{ steps.base.outputs.ref }}" ) || status=1
+            (
+              cd "$dir"
+              export JAVA_HOME="${{ steps.project_home.outputs.home }}"
+              export GAUNTLET_GATE_JAVA_HOME="${{ steps.gate_home.outputs.home }}"
+              ./gradlew --version && ./gradlew gauntletInfo &&
+                ./gradlew gauntlet --continue --console=plain -Pgauntlet.baseRef="${{ steps.base.outputs.ref }}"
+            ) || status=1
             echo "::endgroup::"
           done
           exit $status
@@ -1058,7 +1090,8 @@ Gradle-сборки живут в этих каталогах: `./gradlew …` �
     `javap -p -c -cp <jar>`. Сайт недоступен — запасные пути раздела «Источники документации» по порядку:
     javadoc-jar и sources-jar нужной версии, исходники документации по тегу, jar в кэше Gradle; каждый случай
     — в отчёт. Версии инструментов Gauntlet фиксируются в `gauntlet/config/gauntlet.properties`; JVM инструментов
-    задаётся отдельно через `gate.java.version`/`gate.java.home` и не меняет Java приложения. Обновлять версии
+    задаётся отдельно через `gate.java.version`, а локальный путь — `GAUNTLET_GATE_JAVA_HOME` или
+    `-Pgauntlet.gateJavaHome` вне git, и не меняет Java приложения. Обновлять версии
     языка, сборщика, фреймворков или библиотек самого приложения ради зелёного гейта нельзя: это требует
     отдельного решения владельца и отдельной задачи. Зависимости Gauntlet держим отдельно от приложения.
 13. **Антипаттерны запрещены**, не только те, что ловит `pmdGate`: god class и класс-«сервис» со всем
@@ -1254,9 +1287,11 @@ PR открыт. Бизнес-код и существующие тесты не
 - `project.java.version`, `project.gradle.version`, `project.framework.<имя>.version`,
   `project.test.<имя>.version` — фактические версии из шага 1, не значения шаблона. CI и роли используют
   эти записи; `./gradlew gauntletInfo` показывает их вместе с версиями инструментов.
-- `gate.java.version` — major-версия JVM инструментов Gauntlet, `gate.java.home` — необязательный локальный
-  абсолютный путь к ней. Если гейту нужна другая JVM, меняй только эти ключи, не Java приложения и не его
-  toolchain. CI устанавливает `gate.java.version`; если она пуста, использует `project.java.version`.
+- `gate.java.version` — major-версия JVM инструментов Gauntlet. Локальный путь задаётся только вне
+  репозитория: `GAUNTLET_GATE_JAVA_HOME` или `-Pgauntlet.gateJavaHome`; старый tracked `gate.java.home` не
+  используется. Не меняй Java приложения или его toolchain. CI устанавливает проектную Java и gate Java
+  раздельно; wrapper запускается с проектной `JAVA_HOME`, а установленный gate JDK передаётся инструментам
+  через `GAUNTLET_GATE_JAVA_HOME`. Если gate-версия пуста, CI использует `project.java.version`.
 - `cucumber.version`, `archunit.version`, `pit.version`, `pit.junit5PluginVersion`, `jacoco.version`,
   `checkstyle.version`, `pmd.version` и плагин PIT — совместимые с обнаруженными Java/Gradle/JUnit/Spring
   версии, зафиксированные после реального прогона. Например, Boot 3.5 с JUnit 5.12 → Cucumber 7.23.0;
@@ -1328,7 +1363,8 @@ DRY, PIT и Gherkin-мутация проверят пустое множест�
 Сначала `python3 gauntlet/hooks/selftest.py` — самопроверка хуков на этой VM, ожидается `0 failed`.
 Затем `bash gauntlet/install.sh`. Скрипт создаст `.claude/settings.json`, `.claude/agents/`,
 `.github/workflows/gauntlet.yml` и добавит `@gauntlet/CLAUDE.md` в корневой `CLAUDE.md`
-(существующие файлы не перезаписывает: положит рядом `*.gauntlet.*` — тогда слей их вручную и удали копию).
+(существующие роли/workflow не перезаписывает: при отличиях создаёт `*.gauntlet.new`; просмотри новую
+штатную версию, слей её с пользовательскими правками и удали сгенерированную копию).
 После этого шага `gauntlet/`, `.claude/` и `CLAUDE.md` не редактируй.
 
 ## 8. Коммит, push, PR
@@ -1391,7 +1427,7 @@ gauntlet/
   archtest/               ArchUnit-тест, читающий config/architecture.properties
   hooks/                  guard.py (PreToolUse), stop_gate.py (Stop; SubagentStop hardener'а — matcher в
                           .claude/settings.json), session_start.sh (SessionStart; в облаке поднимает dockerd),
-                          selftest.py (994 проверки хуков в трёх раскладках: python3 gauntlet/hooks/selftest.py)
+                          selftest.py (997 проверок хуков в трёх раскладках: python3 gauntlet/hooks/selftest.py)
   templates/              конфигурация Cucumber+Spring, пример фичи на русском
   claude/, ci/            только до установки: install.sh переносит их в .claude/ и .github/workflows/
 ```
@@ -1420,9 +1456,10 @@ gauntlet/
 (CRAP > 8 у crap4java, «ни один покрытый мутант не выживает» у mutate4java, DRY 0.82 у dry4java, CC < 4).
 Версии инструментов в таблице — примеры эталона. При `start` фактические версии языка, сборщика,
 фреймворков и тестовых библиотек определяются по файлам целевого проекта и записываются в `project.*`;
-совместимые версии инструментов фиксируются после реального прогона. `gate.java.version` и
-`gate.java.home` задают JVM только для гейтов, отдельно от Java приложения. CI и роли читают эту
-конфигурацию (`./gradlew gauntletInfo`). Обновление зависимостей приложения — только отдельным решением
+совместимые версии инструментов фиксируются после реального прогона. `gate.java.version` задаёт JVM
+гейтов отдельно от Java приложения; локальный путь — только `GAUNTLET_GATE_JAVA_HOME` или
+`-Pgauntlet.gateJavaHome`, вне git. CI и роли читают эту конфигурацию (`./gradlew gauntletInfo`).
+Обновление зависимостей приложения — только отдельным решением
 владельца и отдельной задачей, не часть установки Gauntlet.
 
 **Монорепо.** Если в репозитории несколько независимых Gradle-сборок (у каждой свой `build.gradle` и
@@ -1477,8 +1514,9 @@ gauntlet/
 строка статуса SessionStart в начале сессии: `guard: on; stop hook: on`. Имя окружения ничего не гарантирует:
 переменную видно только в его настройках.
 
-**CI и защита ветки.** `.github/workflows/gauntlet.yml` устанавливает `gate.java.version` (при пустой —
-`project.java.version`), вызывает Gradle wrapper той версии, которую `start` нашёл в проекте, печатает
+**CI и защита ветки.** `.github/workflows/gauntlet.yml` устанавливает отдельно `project.java.version`
+и `gate.java.version` (при пустой — проектную), запускает wrapper с проектной `JAVA_HOME`, а gate JDK передаёт
+инструментам через `GAUNTLET_GATE_JAVA_HOME`. Поэтому байткод приложения остаётся на его Java. CI печатает
 `./gradlew --version` и `gauntletInfo`, затем гоняет `./gradlew gauntlet` на каждый PR с
 полной историей (`fetch-depth: 0`) — это проверка, которую агент не может обойти (хуки работают только
 внутри Claude Code). Если репозиторий приватный на бесплатном плане GitHub, правила защиты веток
@@ -1552,7 +1590,7 @@ protection базовой ветки и то, что любая попытка �
 ## 8. Что проверено в этой версии, а что нет
 
 Проверено здесь (Gradle 8.14.3, Java 21):
-- Хуки, `hooks/selftest.py`, 994 проверки в трёх раскладках (сборка в корне; модуль `core/`; два модуля
+- Хуки, `hooks/selftest.py`, 997 проверок в трёх раскладках (сборка в корне; модуль `core/`; два модуля
   `core/` + `adapter/` — Gradle только в изменённом модуле, красный модуль блокирует, коммит
   спецификации одного модуля замораживает фичи другого, чужая незакоммиченная работа не считается)
   на временном git-репозитории с фиктивным `origin/main`:
@@ -1669,8 +1707,10 @@ protection базовой ветки и то, что любая попытка �
 - Управление версиями: на учебном проекте Java 17 + Gradle 8.14.3 + JUnit 5.12.2 + Cucumber 7.23.0
   `gauntletInfo` показал отдельную JVM 21 гейта, реальный `gherkinMutation` дал 12/12 kill, а манифест
   приложения не изменился. На втором проекте `gauntletInfo`/`integrityCheck` и PIT 8/8 прошли с той же настройкой.
-  Workflow распарсен как YAML (7 шагов), чтение `gate.java.version` для CI проверено; GitHub Actions здесь
-  не запускался.
+  Workflow распарсен как YAML (10 шагов), раздельное чтение project/gate Java для CI проверено; GitHub Actions
+  здесь не запускался. Дополнительно: `help`/`classes` проходят с отсутствующей gate-JDK 99; проектная JDK 17 +
+  gate 21 дают байткод 61 (контроль на 21 — 65); `archTest` с launcher 17/21 зелёный; ISO-8859-1 + debug=false —
+  PIT 2/2 и CRAP 2 метода для `Tarifé`; installer 20/20, standalone `//` перед closure-параметром не даёт B1.
 - `install.sh` на демо-проекте: чистая установка; слияние с существующим `.claude/settings.json`
   (хуки и права добавлены, `disableAllHooks=false`); обновление 4.2 → 4.3 освежает поля gauntlet-хуков и
   масштабирует таймауты по модулям, чужие хуки и роль/`CLAUDE.md` не перезаписаны; идемпотентно (без дублей);
@@ -2138,7 +2178,7 @@ acceptance.spring=true
 # --- Tool versions (pit.version = the default of gradle-pitest-plugin 1.19.0; newer PIT usually works) ----
 # Cucumber must match the JUnit Platform your Spring Boot manages:
 #   Spring Boot 3.5.x (JUnit 5.12) -> 7.23.0   (built against JUnit 5.12.2)
-#   Spring Boot 4.x   (JUnit 6.0)  -> 8.0.1 and set junit-jupiter.version=6.1.2 (see INSTALL.md)
+#   Spring Boot 4.x   (JUnit 6.0)  -> 8.0.1; keep the project's JUnit, never update it just for Gauntlet
 cucumber.version=8.0.1
 archunit.version=1.5.1
 pit.version=1.22.1
@@ -2154,9 +2194,8 @@ project.framework.springBoot.version=4.0.7
 project.test.junit-jupiter.version=6.1.2
 
 # JVM for Gauntlet tools only. The application keeps its own Java/toolchain and dependencies.
-# gate.java.home is an optional local absolute path; CI uses gate.java.version.
+# Optional local path: GAUNTLET_GATE_JAVA_HOME or -Pgauntlet.gateJavaHome (never commit it).
 gate.java.version=21
-gate.java.home=
 
 ===== END FILE gauntlet/config/gauntlet.properties =====
 
@@ -2469,6 +2508,10 @@ def changedFiles = {
 }.memoize()
 def changedMainJava = { -> changedFiles()?.findAll { it.startsWith('src/main/java/') && it.endsWith('.java') } }
 def changedFeatures = { -> changedFiles()?.findAll { it.startsWith(featuresPath + '/') && it.endsWith('.feature') } }
+def sourceEncoding = { ->
+    def compileJava = tasks.findByName('compileJava')
+    return compileJava instanceof JavaCompile ? (compileJava.options.encoding ?: 'UTF-8') : 'UTF-8'
+}
 def javaTopLevelSource = { String source ->
     def code = new StringBuilder(source.length())
     def state = 'code'
@@ -2568,7 +2611,7 @@ def changedClassGlobs = { ->
         def globs = new LinkedHashSet<String>()
         def src = file(path)
         if (src.isFile()) {
-            def source = src.getText('UTF-8')
+            def source = src.getText(sourceEncoding())
             def pkg = declaredJavaPackage(source)
             topLevelTypeNames(source).each { simpleName ->
                 def name = (pkg ? pkg + '.' : '') + simpleName
@@ -2588,24 +2631,30 @@ def changedClassGlobs = { ->
 apply plugin: 'java'
 apply plugin: 'jacoco'
 
-def gateJavaHome = setting('gate.java.home', '')
+def gateJavaHome = System.getenv('GAUNTLET_GATE_JAVA_HOME') ?: (findProperty('gauntlet.gateJavaHome') ?: '').toString()
 def gateJavaVersion = setting('gate.java.version', '')
 def gateJavaLauncher = gateJavaVersion ? javaToolchains.launcherFor {
     languageVersion = JavaLanguageVersion.of(gateJavaVersion)
 } : null
-def javaBin = gateJavaHome ? "${gateJavaHome}/bin/java" :
-        gateJavaLauncher != null ? gateJavaLauncher.get().executablePath.asFile.absolutePath :
-                "${System.getProperty('java.home')}/bin/java"
+def javaBin = "${System.getProperty('java.home')}/bin/java"
+def gateJavaBin = { ->
+    if (gateJavaHome) {
+        return "${gateJavaHome}/bin/java"
+    }
+    return gateJavaLauncher != null ? gateJavaLauncher.get().executablePath.asFile.absolutePath : javaBin
+}
 def gateJava = { task ->
-    if (task instanceof JavaExec) {
+    if (task instanceof Exec && !(task instanceof JavaExec)) {
+        task.doFirst { task.executable = gateJavaBin() }
+        return
+    }
+    if (task instanceof JavaExec || task instanceof Test) {
         if (gateJavaHome) {
-            task.executable = javaBin
+            task.javaLauncher.set(null)
+            task.executable = gateJavaBin()
         } else if (gateJavaLauncher != null) {
             task.javaLauncher = gateJavaLauncher
         }
-    }
-    if (task instanceof Test && (gateJavaHome || gateJavaLauncher != null)) {
-        task.executable = javaBin
     }
 }
 
@@ -2668,12 +2717,15 @@ tasks.register('gauntletInfo') {
             "tools        : PIT ${setting('pit.version', '1.22.1')}, ArchUnit ${setting('archunit.version', '1.5.1')}, " +
                     "Checkstyle ${setting('checkstyle.version', '12.3.1')}, PMD ${setting('pmd.version', '7.27.0')}, " +
                     "JaCoCo ${setting('jacoco.version', '0.8.15')}",
-            "gate JVM    : version=${gateJavaVersion ?: '(Gradle JVM)'}; home=${gateJavaHome ?: '(from toolchain)'}; " +
-                    "executable=${javaBin}"].collect { it.toString() }
+            "gate JVM    : version=${gateJavaVersion ?: '(Gradle JVM)'}; home=${gateJavaHome ?: '(from toolchain)'}"]
+            .collect { it.toString() }
     gauntletConfig.stringPropertyNames().findAll { it.startsWith('project.') }.sort().each { key ->
         lines.add("${key} = ${gauntletConfig.getProperty(key)}".toString())
     }
-    doLast { lines.each { println it } }
+    doLast {
+        lines.each { println it }
+        println "gate executable: ${gateJavaBin()}"
+    }
 }
 
 tasks.register('gauntletScope') {
@@ -2878,7 +2930,7 @@ tasks.register('crapGate', Exec) {
     executable javaBin
     args "${tools}/CrapGate.java", '--report', buildDirFile('reports/jacoco/test/jacocoTestReport.xml').absolutePath,
             '--threshold', setting('crap.threshold', '8'), '--allowlist', configFile('crap-allowlist.txt').absolutePath,
-            '--exclude', excludedClassGlobs.join(',')
+            '--encoding', sourceEncoding(), '--exclude', excludedClassGlobs.join(',')
     def only = changedMainJava()
     if (only != null) {
         args '--only', only.join(',')
@@ -3147,7 +3199,8 @@ tasks.configureEach { Task task ->
 
 // ------------------------------------------------------------------------------ gate JVM
 
-['checkstyleGate', 'pmdGate', 'cpdReport', 'acceptanceTest', 'archTest', 'gherkinMutantsRun'].each {
+['checkstyleGate', 'pmdGate', 'cpdReport', 'acceptanceTest', 'archTest', 'gherkinMutantsRun',
+ 'integrityCheck', 'acceptanceCheck', 'crapGate', 'dryGate', 'pitSummary', 'gherkinMutants', 'gherkinMutation'].each {
     tasks.named(it) { gateJava(it) }
 }
 plugins.withId('info.solidsoft.pitest') {
@@ -4011,9 +4064,7 @@ def inline_code(words):
     if not words:
         return False
     cmd, args = os.path.basename(words[0]), words[1:]
-    if is_interpreter(cmd):
-        return any(f in short_flags(args) for f in "ce")
-    return cmd == "perl" and "e" in short_flags(args).lower()
+    return (is_interpreter(cmd) or cmd == "perl") and bool(inline_code_strings(cmd, args))
 
 
 def writes_worktree(words, segment):
@@ -4029,7 +4080,7 @@ def writes_worktree(words, segment):
     if cmd in ("awk", "gawk"):
         return "-i" in args or any(a.startswith("-i") for a in args)
     if is_interpreter(cmd):
-        return any(f in short_flags(args) for f in "ce")
+        return inline_code(words)
     if cmd == "git":
         return git_subcommand(args) in GIT_WORKTREE_WRITING
     if cmd == "find":
@@ -4461,6 +4512,8 @@ def guard_tests(repo):
                  command="python3 docsearch.py -e 'git rebase'")
     expect_allow(repo, "option-looking data after python module", "main", "Bash",
                  command="python3 -m docsearch -e 'git rebase'")
+    expect_allow(repo, "reviewer python script option is read-only", "reviewer", "Bash",
+                 command="python3 docsearch.py -e price")
     expect_deny(repo, "python option value does not hide inline code", "main", "Bash",
                 command="python3 -W ignore -c \"import os; os.system('git push --force')\"")
     expect_deny(repo, "F14 control real force push argv", "main", "Bash",
@@ -5627,7 +5680,7 @@ if __name__ == "__main__":
 #
 # Existing files: settings.json is merged in place (the gauntlet's own hooks are refreshed to this version,
 # new ones appended, user hooks left untouched, permissions united, disableAllHooks pinned to false); an
-# existing role file or workflow is left as it is and reported. Nothing is written
+# existing role file or workflow is left as it is; a changed managed version is written as *.gauntlet.new for manual merge. Nothing is written
 # outside these paths. The sources under gauntlet/claude and gauntlet/ci are removed afterwards so nothing
 # exists twice. Run this LAST in the install session: from the moment .claude/settings.json holds the hooks
 # they are live and gauntlet/ becomes read-only for agents.
@@ -5665,6 +5718,21 @@ import json, os, re, shlex
 
 INTERPRETERS = {"python", "python3", "bash", "sh", "zsh", "dash", "ksh"}
 
+def known_args(name, args):
+    if name in ("guard.py", "session_start.sh"):
+        return not args
+    if name != "stop_gate.py":
+        return False
+    i = 0
+    while i < len(args):
+        if args[i] == "--record-start":
+            i += 1
+        elif args[i] in ("--task", "--max-attempts", "--timeout") and i + 1 < len(args):
+            i += 2
+        else:
+            return False
+    return True
+
 def gkey(cmd):
     # Identify a gauntlet hook by the script it LAUNCHES, not by a path merely mentioned somewhere in the
     # command. The gauntlet runs `python3 "<...>/gauntlet/hooks/X.py" [flags]` / `bash "<...>/X.sh"`: the
@@ -5680,7 +5748,7 @@ def gkey(cmd):
         return None
     if len(tokens) < 2 or tokens[1].startswith("-"):
         return None   # interpreter flags / inline code (-c, -m): not a plain hook-script launch
-    script = tokens[1].replace("\\", "/")
+    script = re.sub(r"^(?:\./)+", "", tokens[1].replace("\\", "/"))
     m = re.fullmatch(r"(?:.*/)?gauntlet/hooks/([A-Za-z0-9_.-]+)", script)
     if not m:
         return None
@@ -5688,9 +5756,10 @@ def gkey(cmd):
     root_script = os.path.join(os.getcwd(), managed).replace(os.sep, "/")
     if script not in (managed, "$CLAUDE_PROJECT_DIR/" + managed, "${CLAUDE_PROJECT_DIR}/" + managed, root_script):
         return None
-    if any(t.startswith((";", "|", "&", ">", "<")) or re.match(r"^\d+[<>]", t) for t in tokens[2:]):
+    if any(re.search(r"[\r\n;|`]|\$\(", t) or t.startswith(("&", ">", "<"))
+           or re.match(r"^\d+[<>]", t) for t in tokens[2:]):
         return None   # a compound user command (hook && auditor, redirection) is not ours to rewrite
-    return m.group(1)
+    return m.group(1) if known_args(m.group(1), tokens[2:]) else None
 
 def scale(event, hook, n):
     m = re.search(r"--timeout\s+(\d+)", hook.get("command", ""))
@@ -5777,14 +5846,24 @@ fi
 for role in gauntlet/claude/agents/*.md; do
   dst=".claude/agents/$(basename "$role")"
   if [ -e "$dst" ]; then
-    echo "  kept   $dst (exists; the gauntlet version stays in git history of gauntlet/claude/agents/)"
+    if cmp -s "$role" "$dst"; then
+      echo "  kept   $dst (already current)"
+    else
+      cp "$role" "$dst.gauntlet.new"
+      echo "  review $dst.gauntlet.new (merge the managed update into $dst; the existing file is untouched)"
+    fi
   else
     cp "$role" "$dst"; echo "  added  $dst"
   fi
 done
 if [ -f gauntlet/ci/gauntlet.yml ]; then
   if [ -e .github/workflows/gauntlet.yml ]; then
-    echo "  kept   .github/workflows/gauntlet.yml (exists)"
+    if cmp -s gauntlet/ci/gauntlet.yml .github/workflows/gauntlet.yml; then
+      echo "  kept   .github/workflows/gauntlet.yml (already current)"
+    else
+      cp gauntlet/ci/gauntlet.yml .github/workflows/gauntlet.yml.gauntlet.new
+      echo "  review .github/workflows/gauntlet.yml.gauntlet.new (merge the managed update; the existing workflow is untouched)"
+    fi
   else
     mkdir -p .github/workflows
     cp gauntlet/ci/gauntlet.yml .github/workflows/gauntlet.yml; echo "  added  .github/workflows/gauntlet.yml"
@@ -5858,6 +5937,7 @@ import java.io.FileDescriptor;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -5892,6 +5972,7 @@ import org.w3c.dom.NodeList;
  * <pre>
  * java CrapGate.java --report build/reports/jacoco/test/jacocoTestReport.xml --threshold 8
  *      [--only src/main/java/a/B.java,src/main/java/a/C.java]   (scope: only these files)
+ *      [--encoding UTF-8]                                        (JavaCompile.options.encoding)
  *      [--allowlist gauntlet/config/crap-allowlist.txt]           (human-approved exceptions)
  *      [--exclude *Application,*MapperImpl]                        (class-name globs)
  *      [--top 15]
@@ -5924,7 +6005,7 @@ public class CrapGate {
         } catch (IllegalArgumentException e) {
             err.println("CrapGate: " + e.getMessage());
             err.println("usage: java CrapGate.java --report <jacoco.xml> [--threshold 8] [--only f1,f2]"
-                    + " [--allowlist file] [--exclude globs] [--top N]");
+                    + " [--encoding UTF-8] [--allowlist file] [--exclude globs] [--top N]");
             return 2;
         }
         if (a.only != null && a.only.isEmpty()) {
@@ -5957,10 +6038,10 @@ public class CrapGate {
         return b.parse(xml);
     }
 
-    static List<Score> score(Document doc, Args a) {
+    static List<Score> score(Document doc, Args a) throws IOException {
         List<Pattern> excludes = globs(a.excludes);
         Set<String> allow = a.allow;
-        Map<String, Set<String>> declared = a.only == null ? Map.of() : declaredTypes(a.only);
+        Map<String, Set<String>> declared = a.only == null ? Map.of() : declaredTypes(a.only, a.encoding);
         List<Score> result = new ArrayList<>();
         boolean missingSource = false;
         NodeList packages = doc.getElementsByTagName("package");
@@ -6045,7 +6126,11 @@ public class CrapGate {
     }
 
     /** Index only top-level types: a nested Selection.Legacy must not bind an unrelated top-level Legacy. */
-    static Map<String, Set<String>> declaredTypes(Set<String> only) {
+    static Map<String, Set<String>> declaredTypes(Set<String> only) throws IOException {
+        return declaredTypes(only, StandardCharsets.UTF_8);
+    }
+
+    static Map<String, Set<String>> declaredTypes(Set<String> only, Charset encoding) throws IOException {
         Map<String, Set<String>> map = new LinkedHashMap<>();
         Pattern type = Pattern.compile("(?<![\\p{javaJavaIdentifierPart}$])(?:class|interface|enum|record)\\s+"
                 + "([\\p{javaJavaIdentifierStart}][\\p{javaJavaIdentifierPart}]*)");
@@ -6054,26 +6139,19 @@ public class CrapGate {
                 + "[\\p{javaJavaIdentifierStart}][\\p{javaJavaIdentifierPart}]*)*)\\s*;");
         for (String f : only) {
             Path p = Path.of(f);
-            if (!Files.isRegularFile(p)) {
-                continue;
-            }
             String norm = f.replace('\\', '/');
-            try {
-                String topLevel = topLevelSource(Files.readString(p, StandardCharsets.UTF_8));
-                Matcher m = type.matcher(topLevel);
-                Set<String> names = new HashSet<>();
-                while (m.find()) {
-                    names.add(m.group(1));
-                }
-                Matcher pkg = pkgPattern.matcher(topLevel);
-                String packageName = pkg.find() ? pkg.group(1).replaceAll("\\s+", "") : "";
-                String packagePath = packageName.replace('.', '/');
-                String fileName = norm.substring(norm.lastIndexOf('/') + 1);
-                String rel = (packagePath.isEmpty() ? "" : packagePath + "/") + fileName;
-                map.put(rel, names);
-            } catch (IOException unreadable) {
-                // unreadable source: cannot bind, leave it out of the index
+            String topLevel = topLevelSource(Files.readString(p, encoding));
+            Matcher m = type.matcher(topLevel);
+            Set<String> names = new HashSet<>();
+            while (m.find()) {
+                names.add(m.group(1));
             }
+            Matcher pkg = pkgPattern.matcher(topLevel);
+            String packageName = pkg.find() ? pkg.group(1).replaceAll("\\s+", "") : "";
+            String packagePath = packageName.replace('.', '/');
+            String fileName = norm.substring(norm.lastIndexOf('/') + 1);
+            String rel = (packagePath.isEmpty() ? "" : packagePath + "/") + fileName;
+            map.put(rel, names);
         }
         return map;
     }
@@ -6235,27 +6313,7 @@ public class CrapGate {
     }
 
     static boolean inScope(String sourcePath, Map<String, Set<String>> declared, Set<String> only) {
-        return only == null || declared.containsKey(sourcePath) || inScope(sourcePath, only);
-    }
-
-    static boolean inScope(String sourcePath, Set<String> only) {
-        if (only == null) {
-            return true;
-        }
-        for (String f : only) {
-            String norm = f.replace('\\', '/');
-            // changed sources are module-relative (src/main/java/<package>/<File>.java); compare the exact
-            // package-relative path, not a suffix - otherwise com/example/prices/Catalog.java would also
-            // pull in an unrelated, unchanged prices/Catalog.java.
-            int root = norm.indexOf("src/main/java/");
-            if (root >= 0) {
-                norm = norm.substring(root + "src/main/java/".length());
-            }
-            if (norm.equals(sourcePath)) {
-                return true;
-            }
-        }
-        return false;
+        return only == null || declared.containsKey(sourcePath);
     }
 
     static String outerSimpleName(String className) {
@@ -6319,6 +6377,7 @@ public class CrapGate {
         String report;
         double threshold = 8.0;
         Set<String> only;
+        Charset encoding = StandardCharsets.UTF_8;
         Set<String> allow = new HashSet<>();
         List<String> excludes = new ArrayList<>();
         int top = 15;
@@ -6336,6 +6395,7 @@ public class CrapGate {
                     case "--report" -> a.report = value;
                     case "--threshold" -> a.threshold = Double.parseDouble(value);
                     case "--only" -> a.only = splitToSet(value);
+                    case "--encoding" -> a.encoding = Charset.forName(value);
                     case "--allowlist" -> a.allow = readAllowlist(value);
                     case "--exclude" -> a.excludes = new ArrayList<>(splitToSet(value));
                     case "--top" -> a.top = Integer.parseInt(value);
@@ -7903,7 +7963,7 @@ public class IntegrityCheck {
         }
         for (int i = openerIndex + 1; i < lines.size(); i++) {
             String next = lines.get(i);
-            if (next.trim().isEmpty()) {
+            if (next.trim().isEmpty() || next.trim().startsWith("//")) {
                 continue;
             }
             return closureParamText(next);

@@ -357,6 +357,29 @@
       проекте `gauntletInfo`/`integrityCheck` и PIT 8/8 зелёные; workflow распарсен как YAML (7 шагов), чтение версии
       CI проверено. GitHub Actions в этой среде не запускался.
 
+19. **Повторное ревью управления версиями и граничных случаев.** Все находки на `8bf40f7` проверены и закрыты.
+    - **Обычная сборка не зависит от gate-JDK.** Toolchain launcher больше не разрешается через `get()` при
+      подключении скрипта: путь вычисляется только при выполнении гейта/`gauntletInfo`; `help`/`classes` проходят
+      даже с отсутствующей gate-JDK 99. `Test`/`JavaExec` получают `javaLauncher`, а не конфликтующий executable.
+    - **CI сохраняет Java приложения.** Проектная и gate Java устанавливаются отдельно; wrapper получает проектную
+      `JAVA_HOME`, инструменты — установленный gate JDK через `GAUNTLET_GATE_JAVA_HOME`. Контроль без target:
+      проект 17/gate 21 → байткод 61 и запуск на 17; старый контроль на 21 → 65 и `UnsupportedClassVersionError` на 17.
+    - **Локальный путь JDK вне git.** Используются `GAUNTLET_GATE_JAVA_HOME` или `-Pgauntlet.gateJavaHome`;
+      tracked `gate.java.home` удалён из шаблона и игнорируется, поэтому чужой путь не ломает CI/другой checkout.
+    - **Installer: полная известная команда и обновления файлов.** `./gauntlet/hooks/…` нормализуется; принимаются
+      только известные аргументы stop/guard/session. Перенос строки, `;` в конце значения, `&&`, pipe, redirect и
+      неизвестные аргументы оставляют команду пользовательской. Изменённые штатные роли/workflow не перезаписывают
+      существующие: новая версия создаётся как `*.gauntlet.new` для ручного слияния, входные копии не теряют данные.
+    - **Кодировка и область CRAP.** PIT и CRAP читают исходники в `JavaCompile.options.encoding`; CRAP принимает
+      `--encoding`, а ошибка чтения — видимый сбой, не зелёный пропуск. Физический fallback по пути удалён: класс
+      `legacy.Prices` из другого source root не включается, если changed-файл объявляет `domain.Prices`.
+    - **Граничные случаи.** Standalone `//` между `{` и closure-параметром пропускается; reviewer может читать
+      `python3 docsearch.py -e price`, потому что argv после скрипта не считается записью. Комментарий в
+      `gauntlet.properties` больше не предписывает обновлять JUnit приложения.
+    - **Проверки:** selftest 994 → 997; Java/XML 35/35; installer 20/20; реальные split-JVM и encoding сценарии
+      выше; `archTest` с launcher 17/21 зелёный; standalone-comment Gradle — только packaging выключен; бандл
+      round-trip 30/30. Workflow — 10 шагов, YAML корректен; GitHub Actions в этой среде не запускался.
+
 ### Остаток эвристики guard (честно)
 
 guard — растяжка, а не сейф (это заявлено в наборе). Статический разбор shell не видит:
@@ -381,7 +404,7 @@ guard — растяжка, а не сейф (это заявлено в наб�
 - `.claude/agents/{specifier,hardener,reviewer}.md`, `.github/workflows/gauntlet.yml`, `gauntlet/CLAUDE.md`,
   `INSTALL.md`, `config/gauntlet.properties` (обнаруженные версии проекта и отдельная JVM гейта);
 - `gauntlet/tools/IntegrityCheck.java`, `CrapGate.java`, `GherkinMutator.java`, `PitSummary.java`;
-- `gauntlet/hooks/guard.py`, `stop_gate.py`, `selftest.py` (994 проверки в трёх раскладках);
+- `gauntlet/hooks/guard.py`, `stop_gate.py`, `selftest.py` (997 проверок в трёх раскладках);
 - `gauntlet/install.sh` (обновление gauntlet-хуков при слиянии, бюджет таймаута по модулям);
 - `gauntlet/gauntlet.gradle` (входы `acceptanceTest`, `mutationGate` source → compiled types);
 - `gauntlet/config/crap-allowlist.txt` (пример записи с сигнатурой перегрузки);
@@ -401,21 +424,21 @@ guard — растяжка, а не сейф (это заявлено в наб�
 | `.claude/agents/reviewer.md` | 7473 | 7509 |
 | `.claude/agents/specifier.md` | 4920 | 5026 |
 | `.claude/settings.json` | 1720 | 2211 |
-| `.github/workflows/gauntlet.yml` | 1978 | 2827 |
-| `gauntlet/CLAUDE.md` | 63625 | 64492 |
-| `gauntlet/INSTALL.md` | 11426 | 13962 |
-| `gauntlet/README.md` | 29851 | 50708 |
+| `.github/workflows/gauntlet.yml` | 1978 | 3407 |
+| `gauntlet/CLAUDE.md` | 63625 | 64586 |
+| `gauntlet/INSTALL.md` | 11426 | 14369 |
+| `gauntlet/README.md` | 29851 | 51401 |
 | `gauntlet/config/crap-allowlist.txt` | 448 | 924 |
-| `gauntlet/config/gauntlet.properties` | 5921 | 6379 |
-| `gauntlet/gauntlet.gradle` | 32451 | 38557 |
-| `gauntlet/hooks/guard.py` | 26740 | 44247 |
-| `gauntlet/hooks/selftest.py` | 41192 | 69006 |
+| `gauntlet/config/gauntlet.properties` | 5921 | 6384 |
+| `gauntlet/gauntlet.gradle` | 32451 | 39133 |
+| `gauntlet/hooks/guard.py` | 26740 | 44168 |
+| `gauntlet/hooks/selftest.py` | 41192 | 69153 |
 | `gauntlet/hooks/stop_gate.py` | 16669 | 20644 |
-| `gauntlet/install.sh` | 4933 | 9541 |
+| `gauntlet/install.sh` | 4933 | 10570 |
 | `gauntlet/templates/acceptanceTest/resources/features/example_discount.feature` | 928 | 1258 |
-| `gauntlet/tools/CrapGate.java` | 12638 | 23561 |
+| `gauntlet/tools/CrapGate.java` | 12638 | 22946 |
 | `gauntlet/tools/GherkinMutator.java` | 35990 | 42883 |
-| `gauntlet/tools/IntegrityCheck.java` | 15688 | 22678 |
+| `gauntlet/tools/IntegrityCheck.java` | 15688 | 22710 |
 | `gauntlet/tools/PitSummary.java` | 11401 | 11633 |
 
 Остальные 10 файлов не правились; их размеры не изменились. Во втором раунде Codex (F1–F14) изменены 9 файлов:
@@ -427,7 +450,7 @@ guard — растяжка, а не сейф (это заявлено в наб�
 
 ### Проверено
 
-- `python3 gauntlet/hooks/selftest.py` — 994 проверки, 0 падений, три раскладки (корень; `core/`;
+- `python3 gauntlet/hooks/selftest.py` — 997 проверок, 0 падений, три раскладки (корень; `core/`;
   `core/` + `adapter/`); в том числе из распакованной копии пересобранного бандла.
 - Компиляция всех single-file инструментов (`javac`): `CrapGate`, `DryGate`, `GherkinMutator`,
   `IntegrityCheck`, `PitSummary` — без ошибок (22 class-файла).

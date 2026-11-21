@@ -160,6 +160,69 @@
       «Примеров» → exit 1; outline → мутанты) и `IntegrityCheck` (17 форм получателя). Итого 733 → 808 проверок
       самопроверки. README набора обновлён (счётчик 808, таблица лазеек и раздел 8 — новое покрытие, строка
       GherkinMutator исправлена).
+14. **Инструменты, хуки, установка и сборщик — правки по ревью Codex (продолжение ревизии 4.3).** Полный прогон
+    набора; находки V1–V7 подтверждены воспроизведением на голове PR; поведение гейтов не ослаблено.
+    - **`install.sh`, обновление 4.2 → 4.3 (V1) и бюджет таймаута по модулям (V7-3).** Слияние с существующим
+      `.claude/settings.json` только добавляло новые группы хуков и не обновляло поля уже установленных
+      gauntlet-хуков — таймаут `SubagentStop` из старой версии терялся. Теперь gauntlet-хуки (ключ — имя файла в
+      `gauntlet/hooks/…`) освежаются на месте (command/type/timeout/statusMessage/matcher), чужие хуки не
+      трогаются, новые добавляются, дубли не плодятся (идемпотентно). Внешний таймаут Gradle-хуков масштабируется
+      по числу модулей: `Stop` ≥ `max(1800, timeout × модули + 100)`, `SubagentStop` ≥ `max(7200, timeout × модули
+      + 600)`; права объединяются, `disableAllHooks=false` пинится. Число модулей считается с защитой от
+      пустого/некорректного значения (≥ 1). Проверено harness'ом на 29 случаев (1/2/3 модуля, upgrade 3600 → 7200,
+      дрейф command, идемпотентность, чужие хуки).
+    - **`CrapGate`, одно разрешение на все перегрузки (V2), пустой sourcefilename (V6-d), точные пути (V7-4).**
+      Запись allowlist `Class#method` освобождала все перегрузки метода. Теперь `Class#method(desc)` освобождает
+      ровно одну перегрузку; `Class#method` без сигнатуры — только когда имя однозначно (`nameCounts == 1`), при
+      перегрузках не освобождает ничего и печатает предупреждение с перечнем сигнатур. Пустой `sourcefilename`
+      (JaCoCo debug=false) выводился в пустой путь и метод молча пропускался — теперь выводится из имени внешнего
+      класса (`OuterSimpleName.java`). Область `--only` сравнивала суффикс пути и подтягивала чужой
+      `prices/Catalog.java` — теперь сравнивается точный package-relative путь (после `src/main/java/`).
+      Регрессия: 14 случаев (сигнатура/имя/перегрузки/`Class#*`, debug=false, точные пути).
+    - **`IntegrityCheck`, получатель delegate и многострочная скобка (V3, регрессия G7).** `receiverIsHarmless`
+      не принимал `delegate`/`this` как безобидного получателя внутри безобидного блока; многострочная скобка
+      обрывала проверку отключений по концу первой строки. Теперь `delegate.enabled`/`this.enabled` внутри
+      безобидного блока свободны, а `close > open` переносит проверку на следующую строку. Регрессия: 24 контроля.
+    - **`GherkinMutator`, описание за шаг и пустой outline (V4), error vs failure (V6-a), missing dir (V7-1),
+      перенос строки (V7-5).** Пустота сценария проверялась по непустому телу, поэтому сценарий с одним лишь
+      описанием (без шагов) считался исполняемым и давал ложный `GHERKIN VACUOUS`, а пустой outline — мутанты.
+      Теперь проверка по `stepCount` (строки с ключевым словом шага): сценарий без собственных шагов не даёт
+      мутантов и не vacuous; vacuous только сценарий со своими шагами без «Примеров». В verdict `<error>`
+      (исключение/crash) и `<skipped>` засчитывались как kill — теперь это `MUTANT ERROR` (exit 1), `<failure>` —
+      kill, `<error>` с `UndefinedStepException` — kill через undefined. `no-skipped` с отсутствующим каталогом
+      `--features` теперь exit 1 (misconfigured), пустой каталог без фич — exit 0. Реальный перенос строки в
+      тексте шага разрывал строку и давал PARSE_ERROR — теперь `escapeStepText` экранирует его в литерал `\n`
+      (ячейки таблицы — `escapeCell`). Регрессия: 52 случая (V4/V6-a/V7-1/V7-5, включая unit-probe экранирования).
+    - **guard, over-block cd-worktree / print-литерал / stdin-документ (V5).** `git push` из worktree после
+      `cd`/`pushd` на своей ветке блокировался (cwd не отслеживался по сегментам) — теперь `follow_cd` ведёт cwd,
+      push на своей ветке разрешён, на базовой блокируется. `print`/`console.log`/`perl print` с литералом
+      `git push` блокировались как команда — теперь строка-литерал разрешена. Pipe документа в
+      `python3 script.py`/`node app.js`/`python3 -m json.tool`/`bash -c 'echo hi'` блокировался — теперь
+      `reads_stdin_program` отличает чтение документа из stdin от исполнения stdin-кода (`bash -s`/`python3 -`
+      по-прежнему блокируются). Регрессии в `selftest.py`: +9 (print-литерал/stdin) и +6 (cd-worktree push).
+    - **`stop_gate`, негативные коды (V6-c) и область модулей (V7-2).** Негативный код Gradle (сигнал, например
+      -15) не считался красным — теперь `worst = max(worst, code if code > 0 else 1)`. Rename в
+      `git status --porcelain` разбирался только по одному концу — теперь по обоим (`old -> new`, кавычки
+      снимаются). Общий `gauntlet/config/` (не оверлей модуля) не затрагивал модули — теперь затрагивает все;
+      `gauntlet/config/<module>/` — только свой. Регрессии в `selftest.py`: `gate_scope_tests` +13 (негативные
+      коды, область модулей, rename).
+    - **`gauntlet.gradle`, входы acceptanceTest (V6-b) и source → compiled types (V6-e).** `acceptanceTest` не
+      объявлял каталог фич входом, правка фичи не запускала приёмку — теперь
+      `inputs.dir(featuresDir).optional().withPathSensitivity(PathSensitivity.RELATIVE)`. `mutationGate` целил в
+      имена исходников, пропуская package-private и вложенные типы — теперь по каждому изменённому
+      `src/main`-файлу сканируются объявления типов (включая `Name$*`), пустая область — `onlyIf { false }`,
+      `scope=all` — `basePackage.*`. `gherkinMutantsRun` не кэшируется (`outputs.upToDateWhen { false }`).
+      Проверено JVM-симуляцией (Gradle на VM отсутствует): вторичные package-private типы захватываются,
+      вложенные/комментарии исключаются, default-package и generics/extends корректны.
+    - **Сборщик/распаковщик бандла, побайтный round-trip (V7-6).** Тело файла писалось со снятием/добавлением
+      переноса строки, манифест считал размер после `rstrip` — round-trip не сходился побайтово. Теперь тело
+      пишется verbatim (без `rstrip` и без `+ "\n"`), манифест = байтовый размер на диске; CRLF-файлы
+      отклоняются сборщиком. Проверено: распаковка 30 файлов опубликованным скриптом совпадает с исходниками
+      побайтово (`diff -r` пуст), синтетическая регрессия на хвостовые переносы.
+    - Регрессии: guard +9 и +6 сценариев × 3 раскладки = +45; `stop_gate` `gate_scope_tests` +13 × 3 = +39;
+      целевые harness'ы `CrapGate` (14), `IntegrityCheck` (24), `GherkinMutator` (52), `install.sh` (29),
+      симуляция `gauntlet.gradle`. Итого 808 → 892 проверки самопроверки. README набора обновлён (счётчик 892,
+      раздел 8 — покрытие Codex, пункт `install.sh`).
 
 ### Остаток эвристики guard (честно)
 
@@ -178,51 +241,66 @@ guard — растяжка, а не сейф (это заявлено в наб�
 раздел 1.1, п. 10 (оговорка типа «дефект»).
 
 **`gauntlet-kit-bundle.md`** (встроенные файлы эталона):
-- шапка: ревизия 4.3, дата; блок «Изменения против ревизии 4.2»;
+- шапка: ревизия 4.3, дата; блок «Изменения против ревизии 4.2»; блоки правок Kimi, Grok, Codex;
 - `gauntlet/tools/IntegrityCheck.java`, `CrapGate.java`, `GherkinMutator.java`, `PitSummary.java`;
-- `gauntlet/hooks/guard.py`, `stop_gate.py`, `selftest.py` (808 проверок в трёх раскладках);
+- `gauntlet/hooks/guard.py`, `stop_gate.py`, `selftest.py` (892 проверки в трёх раскладках);
+- `gauntlet/install.sh` (обновление gauntlet-хуков при слиянии, бюджет таймаута по модулям);
+- `gauntlet/gauntlet.gradle` (входы `acceptanceTest`, `mutationGate` source → compiled types);
+- `gauntlet/config/crap-allowlist.txt` (пример записи с сигнатурой перегрузки);
 - `.claude/settings.json` (deny; таймаут SubagentStop 3600 → 7200 с);
 - `gauntlet/templates/acceptanceTest/resources/features/example_discount.feature`;
-- `gauntlet/README.md` (таблица лазеек, раздел 8, остаток);
-- манифест: пересчитаны байтовые размеры 10 изменённых файлов (см. ниже).
+- `gauntlet/README.md` (таблица лазеек, раздел 8, остаток, пункт `install.sh`);
+- манифест: пересчитаны байтовые размеры 13 изменённых файлов (см. ниже).
 
 ### Манифест бандла
 
-Пересчитаны размеры по фактическому содержимому; round-trip распаковки сходится по всем 30 файлам.
+Пересчитаны размеры по фактическому содержимому; round-trip распаковки сходится побайтово по всем 30 файлам
+(тело пишется verbatim, без снятия/добавления переноса строки; манифест = байтовый размер на диске).
 
 | Файл | 4.2 | 4.3 |
 |---|---|---|
 | `.claude/settings.json` | 1720 | 2211 |
-| `gauntlet/README.md` | 29851 | 37880 |
-| `gauntlet/hooks/guard.py` | 26740 | 38892 |
-| `gauntlet/hooks/selftest.py` | 41192 | 52397 |
-| `gauntlet/hooks/stop_gate.py` | 16669 | 17174 |
+| `gauntlet/README.md` | 29851 | 41749 |
+| `gauntlet/config/crap-allowlist.txt` | 448 | 924 |
+| `gauntlet/gauntlet.gradle` | 32451 | 33660 |
+| `gauntlet/hooks/guard.py` | 26740 | 40667 |
+| `gauntlet/hooks/selftest.py` | 41192 | 57756 |
+| `gauntlet/hooks/stop_gate.py` | 16669 | 18504 |
+| `gauntlet/install.sh` | 4933 | 7572 |
 | `gauntlet/templates/acceptanceTest/resources/features/example_discount.feature` | 928 | 1258 |
-| `gauntlet/tools/CrapGate.java` | 12638 | 13144 |
-| `gauntlet/tools/GherkinMutator.java` | 35990 | 37648 |
-| `gauntlet/tools/IntegrityCheck.java` | 15688 | 20022 |
+| `gauntlet/tools/CrapGate.java` | 12638 | 15713 |
+| `gauntlet/tools/GherkinMutator.java` | 35990 | 40716 |
+| `gauntlet/tools/IntegrityCheck.java` | 15688 | 20640 |
 | `gauntlet/tools/PitSummary.java` | 11401 | 11633 |
 
-Остальные 20 файлов не правились; их размеры не изменились.
+Остальные 17 файлов не правились; их размеры не изменились.
 
 ### Проверено
 
-- `python3 gauntlet/hooks/selftest.py` — 808 проверок, 0 падений, три раскладки (корень; `core/`;
+- `python3 gauntlet/hooks/selftest.py` — 892 проверки, 0 падений, три раскладки (корень; `core/`;
   `core/` + `adapter/`).
 - Компиляция всех single-file инструментов (`javac`): `CrapGate`, `DryGate`, `GherkinMutator`,
-  `IntegrityCheck`, `PitSummary` — без ошибок.
+  `IntegrityCheck`, `PitSummary` — без ошибок (22 class-файла).
 - Целевые регрессии: allowlist `CrapGate` (ключ `Class#method` цел), опенер `IntegrityCheck` (10 случаев),
   смешанные строки `test.enabled = false; jar { }` (15 случаев) и получатель отключения B1 (17 форм:
   `test`/`tasks.test`/`tasks.named("test")` внутри `jar { }` → B1, легитимные `jar`/`bootJar`/`javadoc` →
   свободно), `GherkinMutator` (пустой сценарий + Background фичи/правила/описания → exit 0; свои шаги без
   «Примеров» → exit 1; outline → мутанты), окно `stop_gate` (медленный одномодульный и двухмодульный прогон не
   сбрасывает счётчик; за пределами бюджета — сброс), пример фичи (9 мутантов / 0 эквивалентных).
+- Целевые регрессии Codex (V1–V7): `CrapGate` — 14 случаев (сигнатура/имя/перегрузки/`Class#*`, debug=false
+  `sourcefilename`, точные package-relative пути `--only`); `IntegrityCheck` — 24 контроля (`delegate`/`this`
+  получатель, многострочная скобка); `GherkinMutator` — 52 случая (сценарий без шагов/пустой outline → 0 мутантов
+  exit 0, свои шаги без «Примеров» → VACUOUS exit 1, `<error>`/`<skipped>` → MUTANT ERROR exit 1, `<failure>` →
+  kill, undefined-error → kill, missing dir → exit 1, экранирование `\n` в тексте шага unit-probe и end-to-end);
+  `install.sh` — 29 случаев (1/2/3 модуля, upgrade 3600 → 7200, дрейф command, идемпотентность, чужие хуки);
+  `gauntlet.gradle` — JVM-симуляция V6-b/V6-e (package-private и вложенные типы, default-package, generics).
 - Семантика Gherkin для G6 сверена по исходникам и прогону gherkin 42.0.1 (cucumber-bom 8.0.1 — дефолт набора):
   `PickleCompiler.compilePickleSteps` при пустом списке шагов сценария возвращает пустой pickle, Background не
   подмешивается (пустой сценарий с Background → steps=0). Целевой harness guard по находкам Grok — 36/36
   (включая allow-контроли против over-block: безобидный `printf`, список данных `print(['git','push'])`,
   `HEAD:other`/`@:other` на базовой ветке).
-- Round-trip бандла: распаковка 30 файлов побайтово совпадает с исходниками.
+- Round-trip бандла: распаковка 30 файлов опубликованным скриптом побайтово совпадает с исходниками (`diff -r`
+  пуст); синтетическая регрессия на хвостовые переносы строки.
 
 ## Ревизия 4.2 — 2026-11-19
 

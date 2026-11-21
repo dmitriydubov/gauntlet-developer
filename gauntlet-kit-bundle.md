@@ -220,6 +220,52 @@ ArchUnit-тест, шаблоны, установку и документаци�
   и IntegrityCheck (17 форм получателя: `test`/`tasks.test` внутри `jar` → B1, легитимные packaging/doc → свободно).
   Итого 733 → 808 проверок. Пороги и правила гейтов не ослаблены.
 
+**Правки по ревью Codex (продолжение ревизии 4.3) — находки V1–V7, подтверждены воспроизведением; полный прогон набора.**
+- `install.sh` (V1, V7-3): слияние 4.2 → 4.3 обновляет поля уже установленных gauntlet-хуков на месте
+  (command/type/timeout/statusMessage/matcher), а не только добавляет новые — таймаут `SubagentStop` не теряется.
+  Внешний таймаут Gradle-хуков масштабируется по числу модулей: `Stop` ≥ `max(1800, timeout × модули + 100)`,
+  `SubagentStop` ≥ `max(7200, timeout × модули + 600)`. Права объединяются, `disableAllHooks=false` пинится;
+  чужие хуки (не `gauntlet/hooks/…`) не трогаются, дубли не плодятся (идемпотентно). Число модулей считается
+  с защитой от пустого/некорректного значения (≥ 1).
+- `tools/CrapGate.java` (V2, V6-d, V7-4): запись allowlist `Class#method(desc)` освобождает ровно одну перегрузку;
+  `Class#method` без сигнатуры — только когда имя однозначно (`nameCounts == 1`), при перегрузках не освобождает
+  ничего и печатает предупреждение с перечнем сигнатур. Пустой `sourcefilename` (JaCoCo debug=false) выводится из
+  имени внешнего класса (`OuterSimpleName.java`), метод анализируется, а не пропускается молча. Область `--only`
+  сравнивает точный package-relative путь (после `src/main/java/`), а не суффикс — чужой `prices/Catalog.java`
+  не подтягивается.
+- `tools/IntegrityCheck.java` (V3): получатель `delegate.enabled`/`this.enabled` внутри безобидного блока свободен
+  (`receiverIsHarmless` принимает `delegate`/`this`); многострочная скобка (`close > open`) переносит проверку
+  отключений на следующую строку, а не обрывает её по концу первой.
+- `tools/GherkinMutator.java` (V4, V6-a, V7-1, V7-5): сценарий без собственных шагов (описание или пустой outline)
+  не даёт мутантов и не помечается vacuous — проверка по `stepCount` (строки с ключевым словом шага), а не по
+  непустому телу; vacuous только сценарий со своими шагами без «Примеров». В verdict `<error>` (исключение/crash)
+  и `<skipped>` — ошибка (`MUTANT ERROR`), а не kill; `<failure>` — kill; `<error>` с `UndefinedStepException` —
+  kill через undefined. `no-skipped` с отсутствующим каталогом `--features` — exit 1 (misconfigured), пустой
+  каталог без фич — exit 0. Перенос строки в тексте шага экранируется в литерал `\n` (`escapeStepText`), в ячейке
+  таблицы — `escapeCell`; реальный перенос не разрывает строку шага (без PARSE_ERROR).
+- `hooks/guard.py` (V5): сняты over-block — push из worktree после `cd`/`pushd` на своей ветке разрешён
+  (`follow_cd` ведёт cwd по сегментам), на базовой — блокируется; `print`/`console.log`/`perl print` с литералом
+  `git push` разрешены (строка-литерал, не команда); pipe документа в `python3 script.py`/`node app.js`/
+  `python3 -m json.tool`/`bash -c 'echo hi'` разрешён (`reads_stdin_program`), stdin-код `bash -s`/`python3 -`
+  по-прежнему блокируется.
+- `hooks/stop_gate.py` (V6-c, V7-2): негативный код Gradle (сигнал, например -15) считается красным
+  (`worst = max(worst, code if code > 0 else 1)`); rename в `git status --porcelain` разбирается по обоим концам
+  (`old -> new`, кавычки снимаются); общий `gauntlet/config/` (не оверлей модуля) затрагивает все модули,
+  `gauntlet/config/<module>/` — только свой.
+- `gauntlet.gradle` (V6-b, V6-e): `acceptanceTest` объявляет каталог фич входом
+  (`inputs.dir(featuresDir).optional().withPathSensitivity(PathSensitivity.RELATIVE)`) — правка фичи запускает
+  приёмку; `mutationGate` целит в скомпилированные типы: по каждому изменённому `src/main`-файлу сканируются
+  объявления типов (включая package-private и вложенные `Name$*`), а не только имя файла; пустая область —
+  `onlyIf { false }`, `scope=all` — `basePackage.*`. `gherkinMutantsRun` не кэшируется (`outputs.upToDateWhen { false }`).
+- Сборщик/распаковщик бандла (V7-6): побайтный round-trip — тело файла пишется verbatim, без снятия (`rstrip`) или
+  добавления переноса строки; манифест = байтовый размер на диске. Распаковка 30 файлов совпадает с исходниками
+  побайтово (`diff -r` пуст).
+- `README.md`: счётчик самопроверки 808 → 892; раздел 8 — новое покрытие Codex, обновлён пункт `install.sh`.
+- Регрессии: guard print-литерал/stdin (+9) и cd-worktree push (+6) × 3 раскладки = +45; `stop_gate` — негативные
+  коды и область модулей (rename/общий config) +13 × 3 = +39; целевые harness'ы `CrapGate` (14), `IntegrityCheck` (24),
+  `GherkinMutator` (52), `install.sh` (29), симуляция `gauntlet.gradle` (V6-b/V6-e). Итого 808 → 892 проверки.
+  Пороги и правила гейтов не ослаблены.
+
 ## Как распаковать (Claude выполняет это на шаге 2 протокола `start`)
 
 Каждый файл лежит между строками `===== BEGIN FILE <путь> =====` и `===== END FILE <путь> =====`.
@@ -233,7 +279,7 @@ for m in re.finditer(r"^===== BEGIN FILE (.+?) =====\n(.*?)\n===== END FILE \1 =
     path, body = m.group(1), m.group(2)
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     with open(path, "w", encoding="utf-8", newline="\n") as f:
-        f.write(body + "\n")
+        f.write(body)
     print("wrote", path)
 ```
 
@@ -253,27 +299,27 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 - `CLAUDE.md` (279 байт)
 - `gauntlet/CLAUDE.md` (63625 байт)
 - `gauntlet/INSTALL.md` (11426 байт)
-- `gauntlet/README.md` (37880 байт)
+- `gauntlet/README.md` (41749 байт)
 - `gauntlet/archtest/gauntlet/architecture/ArchitectureTest.java` (7906 байт)
 - `gauntlet/config/architecture.properties` (1420 байт)
 - `gauntlet/config/checkstyle.xml` (4593 байт)
-- `gauntlet/config/crap-allowlist.txt` (448 байт)
+- `gauntlet/config/crap-allowlist.txt` (924 байт)
 - `gauntlet/config/gauntlet.properties` (5921 байт)
 - `gauntlet/config/integrity-allowlist.txt` (445 байт)
 - `gauntlet/config/pit-runerror-allowlist.txt` (1485 байт)
 - `gauntlet/config/pmd-ruleset.xml` (11398 байт)
-- `gauntlet/gauntlet.gradle` (32451 байт)
-- `gauntlet/hooks/guard.py` (38892 байт)
-- `gauntlet/hooks/selftest.py` (52397 байт)
+- `gauntlet/gauntlet.gradle` (33660 байт)
+- `gauntlet/hooks/guard.py` (40667 байт)
+- `gauntlet/hooks/selftest.py` (57756 байт)
 - `gauntlet/hooks/session_start.sh` (3116 байт)
-- `gauntlet/hooks/stop_gate.py` (17174 байт)
-- `gauntlet/install.sh` (4933 байт)
+- `gauntlet/hooks/stop_gate.py` (18504 байт)
+- `gauntlet/install.sh` (7572 байт)
 - `gauntlet/templates/acceptanceTest/java/com/example/service/acceptance/CucumberSpringConfiguration.java` (615 байт)
 - `gauntlet/templates/acceptanceTest/resources/features/example_discount.feature` (1258 байт)
-- `gauntlet/tools/CrapGate.java` (13144 байт)
+- `gauntlet/tools/CrapGate.java` (15713 байт)
 - `gauntlet/tools/DryGate.java` (6538 байт)
-- `gauntlet/tools/GherkinMutator.java` (37648 байт)
-- `gauntlet/tools/IntegrityCheck.java` (20022 байт)
+- `gauntlet/tools/GherkinMutator.java` (40716 байт)
+- `gauntlet/tools/IntegrityCheck.java` (20640 байт)
 - `gauntlet/tools/PitSummary.java` (11633 байт)
 
 ## Файлы
@@ -335,6 +381,7 @@ tests would notice if it were wrong. (Role adapted from Robert C. Martin's swarm
 Mutation numbers before/after (killed / survived / no coverage / RUN_ERROR), tests added, survivors you
 could not kill and why, RUN_ERROR mutants with the allowlist line and the killing test for each,
 production-code changes you recommend.
+
 ===== END FILE .claude/agents/hardener.md =====
 
 ===== BEGIN FILE .claude/agents/reviewer.md =====
@@ -429,6 +476,7 @@ Residual risks: <what you could not verify>
 ```
 Every item must be actionable. For a «правило» item the expected correction is a spec decision for the
 human, not a code edit. No praise, no restating the diff.
+
 ===== END FILE .claude/agents/reviewer.md =====
 
 ===== BEGIN FILE .claude/agents/specifier.md =====
@@ -495,6 +543,7 @@ before any code is written; the coder must then make your scenarios pass without
 2. One line per scenario: what it pins down.
 3. Open questions and assumptions the human must confirm before approving.
 4. The decision table for selection rules (event type × observable outcome), or «нет правил выбора».
+
 ===== END FILE .claude/agents/specifier.md =====
 
 ===== BEGIN FILE .claude/settings.json =====
@@ -582,6 +631,7 @@ before any code is written; the coder must then make your scenarios pass without
     ]
   }
 }
+
 ===== END FILE .claude/settings.json =====
 
 ===== BEGIN FILE .github/workflows/gauntlet.yml =====
@@ -644,6 +694,7 @@ jobs:
             **/build/reports
             **/build/gauntlet
           if-no-files-found: ignore
+
 ===== END FILE .github/workflows/gauntlet.yml =====
 
 ===== BEGIN FILE CLAUDE.md =====
@@ -653,6 +704,7 @@ jobs:
 (`module=` в gauntlet/config/gauntlet.properties). Заполняется при установке.>
 
 @gauntlet/CLAUDE.md
+
 ===== END FILE CLAUDE.md =====
 
 ===== BEGIN FILE gauntlet/CLAUDE.md =====
@@ -1033,6 +1085,7 @@ PDF читаются инструментом Read (страницами). До�
   против всего правила; накопленные регрессионные случаи становятся приёмочным набором.
 - Гейт красный после 3 попыток — Stop-хук отпустит тебя с предупреждением. Работа при этом НЕ сделана:
   так и напиши в отчёте, с причинами.
+
 ===== END FILE gauntlet/CLAUDE.md =====
 
 ===== BEGIN FILE gauntlet/INSTALL.md =====
@@ -1162,6 +1215,7 @@ DRY, PIT и Gherkin-мутация проверят пустое множест�
 - что не удалось прогнать и почему.
 
 Человек прочитает отчёт и смержит PR — это и есть утверждение установки.
+
 ===== END FILE gauntlet/INSTALL.md =====
 
 ===== BEGIN FILE gauntlet/README.md =====
@@ -1209,7 +1263,7 @@ gauntlet/
   archtest/               ArchUnit-тест, читающий config/architecture.properties
   hooks/                  guard.py (PreToolUse), stop_gate.py (Stop; SubagentStop hardener'а — matcher в
                           .claude/settings.json), session_start.sh (SessionStart; в облаке поднимает dockerd),
-                          selftest.py (808 проверок хуков в трёх раскладках: python3 gauntlet/hooks/selftest.py)
+                          selftest.py (892 проверки хуков в трёх раскладках: python3 gauntlet/hooks/selftest.py)
   templates/              конфигурация Cucumber+Spring, пример фичи на русском
   claude/, ci/            только до установки: install.sh переносит их в .claude/ и .github/workflows/
 ```
@@ -1361,7 +1415,7 @@ protection базовой ветки и то, что любая попытка �
 ## 8. Что проверено в этой версии, а что нет
 
 Проверено здесь (Gradle 8.14.3, Java 21):
-- Хуки, `hooks/selftest.py`, 808 проверок в трёх раскладках (сборка в корне; модуль `core/`; два модуля
+- Хуки, `hooks/selftest.py`, 892 проверки в трёх раскладках (сборка в корне; модуль `core/`; два модуля
   `core/` + `adapter/` — Gradle только в изменённом модуле, красный модуль блокирует, коммит
   спецификации одного модуля замораживает фичи другого, чужая незакоммиченная работа не считается)
   на временном git-репозитории с фиктивным `origin/main`:
@@ -1409,8 +1463,32 @@ protection базовой ветки и то, что любая попытка �
   `GHERKIN VACUOUS` снят, сценарий со своими шагами без «Примеров» по-прежнему vacuous. `IntegrityCheck` —
   освобождение B1 проверяет получателя отключения: `test.enabled`/`tasks.test.enabled` внутри `jar { }` снова
   B1, легитимное `jar { enabled = false }` свободно. Итого 733 → 808 проверок.
+- Ревью Codex по PR (полный прогон набора): находки V1–V7 подтверждены воспроизведением и закрыты;
+  поведение гейтов не ослаблено. `install.sh` — слияние 4.2 → 4.3 обновляет поля уже установленных
+  gauntlet-хуков (command/type/timeout/statusMessage/matcher), не теряет таймаут `SubagentStop`, масштабирует
+  внешний таймаут Gradle-хуков по числу модулей (`Stop` ≥ 1800, `SubagentStop` ≥ 7200, плюс `timeout × модули`),
+  объединяет права и пинит `disableAllHooks=false`; чужие хуки не трогает, дублей не плодит (идемпотентно).
+  `CrapGate` — запись allowlist `Class#method(desc)` освобождает ровно одну перегрузку, `Class#method` без
+  сигнатуры — только когда имя однозначно (при перегрузках не освобождает ничего и предупреждает); пустой
+  `sourcefilename` (debug=false) выводится из имени класса, метод не пропускается молча; область `--only`
+  сравнивает точный package-relative путь, а не суффикс. `IntegrityCheck` — получатель `delegate.enabled`/
+  `this.enabled` внутри безобидного блока свободен, многострочная скобка переносит проверку на следующую строку.
+  `GherkinMutator` — сценарий без собственных шагов (описание или пустой outline) не даёт мутантов и не vacuous
+  (`stepCount`, а не «есть тело»); `<error>` (исключение/crash) в verdict — ошибка, а не kill; отсутствующий
+  каталог фич в `no-skipped` — exit 1; перенос строки в тексте шага экранируется в литерал `\n` (без PARSE_ERROR).
+  guard — сняты over-block: push из worktree после `cd`/`pushd` на своей ветке, `print`/`console.log` с литералом
+  `git push`, pipe документа в `python3 script.py`/`node app.js`/`python3 -m json.tool` (stdin-код `bash -s`/
+  `python3 -` по-прежнему блокируется). `stop_gate` — негативный код Gradle (сигнал) считается красным (`worst`),
+  rename в `git status` разбирается по обоим концам, общий `gauntlet/config/` затрагивает все модули.
+  `gauntlet.gradle` — `acceptanceTest` объявляет каталог фич входом (`PathSensitivity.RELATIVE`), `mutationGate`
+  целит в скомпилированные типы (включая package-private и вложенные `Name$*`), а не в имена исходников.
+  Сборщик/распаковщик бандла — побайтный round-trip (тело файла пишется без снятия/добавления переноса строки).
+  Регрессии: guard print-литерал/stdin (+9) и cd-worktree push (+6) × 3 раскладки = +45; `stop_gate` —
+  негативные коды и область модулей (rename/общий config) +13 × 3 = +39; целевые harness'ы `CrapGate` (14),
+  `IntegrityCheck` (24), `GherkinMutator` (52), `install.sh` (29). Итого 808 → 892 проверки самопроверки.
 - `install.sh` на демо-проекте: чистая установка; слияние с существующим `.claude/settings.json`
-  (хуки и права добавлены, `disableAllHooks=false`); существующая роль и `CLAUDE.md` не перезаписаны;
+  (хуки и права добавлены, `disableAllHooks=false`); обновление 4.2 → 4.3 освежает поля gauntlet-хуков и
+  масштабирует таймауты по модулям, чужие хуки и роль/`CLAUDE.md` не перезаписаны; идемпотентно (без дублей);
   отказ до любых изменений при битом JSON.
 - Скрипт Gradle: конфигурация проекта, `integrityCheck`, `gauntletScope`, `gauntletInfo` — из корня
   (Kotlin DSL) и из двух модулей монорепо (Groovy DSL, `apply from: '../gauntlet/gauntlet.gradle'`,
@@ -1439,6 +1517,7 @@ CI на GitHub. Оттуда — правки ревизии 3: RUN_ERROR в `mu
 - Внутренние зависимости (общая библиотека из корпоративного Nexus) из облака недоступны: библиотека
   должна лежать в репозитории или тянуться из GitHub.
 - Лицензии в swarm-forge нет, промпты ролей написаны заново по мотивам.
+
 ===== END FILE gauntlet/README.md =====
 
 ===== BEGIN FILE gauntlet/archtest/gauntlet/architecture/ArchitectureTest.java =====
@@ -1632,6 +1711,7 @@ class ArchitectureTest {
         return p;
     }
 }
+
 ===== END FILE gauntlet/archtest/gauntlet/architecture/ArchitectureTest.java =====
 
 ===== BEGIN FILE gauntlet/config/architecture.properties =====
@@ -1662,6 +1742,7 @@ fail.on.cycles=true
 # Martin's "distance from the main sequence" D = |A + I - 1| per component (0..1).
 # Empty = report only. Uncle Bob's dependency-checker flags the zones of pain/uselessness.
 max.distance=
+
 ===== END FILE gauntlet/config/architecture.properties =====
 
 ===== BEGIN FILE gauntlet/config/checkstyle.xml =====
@@ -1763,6 +1844,7 @@ max.distance=
         <!-- <module name="IllegalCatch"/> -->
     </module>
 </module>
+
 ===== END FILE gauntlet/config/checkstyle.xml =====
 
 ===== BEGIN FILE gauntlet/config/crap-allowlist.txt =====
@@ -1771,7 +1853,15 @@ max.distance=
 # above the limit - do not split it into helpers that take booleans the caller already knew".
 # Class#* allows every method of a class. Agents cannot edit this file.
 #
+# Overloads: a name-only Class#method entry exempts the method only when that name is unique in
+# the class. If the class has several overloads of the name, the entry is ambiguous and exempts
+# NOTHING (the gate prints the descriptors and fails) - a later overload must not inherit an
+# exception approved for an older one. Pick the exact overload with its JVM descriptor:
+#   Class#method(I)D            # quote(int)
+#   Class#method(Ljava/lang/String;)D   # quote(String)
+#
 # com.example.service.domain.DeliveryZone#forRegionCode   # one switch over 12 region codes
+
 ===== END FILE gauntlet/config/crap-allowlist.txt =====
 
 ===== BEGIN FILE gauntlet/config/gauntlet.properties =====
@@ -1871,6 +1961,7 @@ pit.junit5PluginVersion=1.2.3
 jacoco.version=0.8.15
 checkstyle.version=12.3.1
 pmd.version=7.27.0
+
 ===== END FILE gauntlet/config/gauntlet.properties =====
 
 ===== BEGIN FILE gauntlet/config/integrity-allowlist.txt =====
@@ -1880,6 +1971,7 @@ pmd.version=7.27.0
 #
 # src/main/java/**/entity/*.java          M1   # Hibernate @Generated on DB-generated columns
 # build.gradle.kts                        B2   # excludeTags("slow") reviewed by a human
+
 ===== END FILE gauntlet/config/integrity-allowlist.txt =====
 
 ===== BEGIN FILE gauntlet/config/pit-runerror-allowlist.txt =====
@@ -1899,6 +1991,7 @@ pmd.version=7.27.0
 
 # Example (remove): OrderTotalTest.discountAppliesOnlyAboveThreshold fails when the boundary moves.
 # com.example.service.domain.OrderTotal#discount  ConditionalsBoundaryMutator  # discountAppliesOnlyAboveThreshold: 100 -> no discount
+
 ===== END FILE gauntlet/config/pit-runerror-allowlist.txt =====
 
 ===== BEGIN FILE gauntlet/config/pmd-ruleset.xml =====
@@ -2076,6 +2169,7 @@ pmd.version=7.27.0
     <rule ref="category/java/codestyle.xml/ModifierOrder"/>
     <rule ref="category/java/codestyle.xml/FieldDeclarationsShouldBeAtStartOfClass"/>
 </ruleset>
+
 ===== END FILE gauntlet/config/pmd-ruleset.xml =====
 
 ===== BEGIN FILE gauntlet/gauntlet.gradle =====
@@ -2111,6 +2205,7 @@ pmd.version=7.27.0
  */
 
 import java.nio.file.Files
+import org.gradle.api.tasks.PathSensitivity
 
 // gauntlet/ is wherever this script lives (repository root, or one level above a module's build)
 def gauntletDir = buildscript.sourceFile.parentFile
@@ -2179,9 +2274,25 @@ def changedFiles = {
 def changedMainJava = { -> changedFiles()?.findAll { it.startsWith('src/main/java/') && it.endsWith('.java') } }
 def changedFeatures = { -> changedFiles()?.findAll { it.startsWith(featuresPath + '/') && it.endsWith('.feature') } }
 def changedClassGlobs = { ->
-    changedMainJava()?.collectMany {
-        def fqcn = (it - 'src/main/java/').replaceAll(/\.java$/, '').replace('/', '.')
-        [fqcn, fqcn + '$*']
+    changedMainJava()?.collectMany { path ->
+        def rel = path - 'src/main/java/'
+        def fqcn = rel.replaceAll(/\.java$/, '').replace('/', '.')
+        def pkg = rel.contains('/') ? rel.substring(0, rel.lastIndexOf('/')).replace('/', '.') : ''
+        def globs = [fqcn, fqcn + '$*'] as LinkedHashSet
+        // one .java file may declare several top-level types; the package-private ones do not match the
+        // file name, so a file-name glob alone would let PIT skip them. Target every column-0 declaration.
+        def src = file(path)
+        if (src.isFile()) {
+            src.eachLine('UTF-8') { line ->
+                def m = line =~ /^(?:public\s+|final\s+|abstract\s+|sealed\s+|non-sealed\s+|strictfp\s+)*(?:class|interface|enum|record)\s+(\w+)/
+                if (m.find()) {
+                    def name = (pkg ? pkg + '.' : '') + m.group(1)
+                    globs << name
+                    globs << name + '$*'
+                }
+            }
+        }
+        return globs as List
     }
 }
 
@@ -2404,6 +2515,9 @@ tasks.register('acceptanceTest', Test) {
     group = 'gauntlet'
     description = 'Runs the Gherkin acceptance tests (Cucumber) from ' + featuresPath
     configureCucumber(it, featuresDir)
+    // the features are passed as a system property, which Gradle does not track by content: without this
+    // input a change to only the feature files leaves acceptanceTest UP-TO-DATE and the new spec never runs.
+    inputs.dir(featuresDir).optional().withPathSensitivity(PathSensitivity.RELATIVE)
     testLogging { events 'failed'; exceptionFormat = 'full' }
     onlyIf { hasFeatures(featuresDir) }
     mustRunAfter 'archTest'
@@ -2725,6 +2839,7 @@ def notCacheable = { Task task -> task.notCompatibleWithConfigurationCache('gaun
  'acceptanceCheck', 'crapGate', 'cpdReport', 'dryGate', 'pitSummary', 'mutationGate', 'gherkinMutants',
  'gherkinMutantsRun', 'gherkinMutation', 'gauntletFast', 'gauntlet'].each { tasks.named(it, notCacheable) }
 plugins.withId('info.solidsoft.pitest') { tasks.named('pitest', notCacheable) }
+
 ===== END FILE gauntlet/gauntlet.gradle =====
 
 ===== BEGIN FILE gauntlet/hooks/guard.py =====
@@ -3038,16 +3153,19 @@ def protected_reason(agent, hit, ctx):
             f"Human-owned files and the specification change only through the human.")
 
 
-def human_only(command, ctx):
+def human_only(command, ctx, cwd=None):
+    if cwd is None:
+        cwd = ctx.project
     if HOOK_SWITCH.search(QUOTED.sub("''", command)):
         return "Switching the gauntlet hooks off is reserved for the human."
     for segment in split_shell(command):
         words = words_of(segment)
+        cwd = follow_cd(words, cwd, ctx.project)   # `cd worktree && git push`: judge the branch of that worktree
         if len(words) < 2:
             continue
         cmd, args = os.path.basename(words[0]), words[1:]
         if cmd == "git":
-            reason = git_human_only(args, ctx)
+            reason = git_human_only(args, ctx, cwd)
             if reason:
                 return reason
         elif cmd == "gh":
@@ -3055,15 +3173,15 @@ def human_only(command, ctx):
             if reason:
                 return reason
         for code in inline_code_strings(cmd, args):
-            reason = human_only(code, ctx)
+            reason = human_only(code, ctx, cwd)
             if reason:
                 return reason
     for code in piped_shell_code(command):
-        reason = human_only(code, ctx)
+        reason = human_only(code, ctx, cwd)
         if reason:
             return reason
     for code in command_substitutions(command):
-        reason = human_only(code, ctx)
+        reason = human_only(code, ctx, cwd)
         if reason:
             return reason
     return None
@@ -3072,6 +3190,13 @@ def human_only(command, ctx):
 PYTHON_VERSIONED = re.compile(r"^python[23](?:\.\d+)?$")
 ARGV_EXEC = re.compile(r"(?:subprocess\.\w+|os\.exec\w*|os\.spawn\w*|os\.popen)\s*\(\s*"
                        r"(\[\s*(?:['\"][^'\"]*['\"]\s*,?\s*)+\])")
+# an exec-style call whose first argument is a shell string: os.system('git push --force'),
+# subprocess.run('gh pr merge'), perl system("..."), node child_process.execSync('...'). A quoted string
+# anywhere else (print('git rebase'), console.log('...'), regex.exec('...')) is data, not a command.
+STRING_EXEC = re.compile(
+        r"(?:os\.(?:system|popen|exec\w*|spawn\w*)|subprocess\.\w+|child_process\.\w+"
+        r"|\b(?:execSync|execFileSync|spawnSync|execFile|shell_exec|passthru|proc_open|system|popen)"
+        r"|(?<![.\w])(?:exec|spawn))\s*\(\s*")
 
 
 def is_interpreter(cmd):
@@ -3111,12 +3236,33 @@ def inline_code_strings(cmd, args):
                 elif i + 1 < len(args):
                     codes.append(args[i + 1])
         for code in list(codes):
-            for m in QUOTED.finditer(code):
-                codes.append(m.group(0)[1:-1])   # nested shell call: os.system('git push --force')
+            for m in STRING_EXEC.finditer(code):
+                q = QUOTED.match(code, m.end())
+                if q:
+                    codes.append(q.group(0)[1:-1])   # the exec call's shell string: os.system('git push --force')
         codes.extend(argv_commands(codes))
     if cmd in ("eval", "source", "."):
         codes.append(" ".join(args))
     return codes
+
+
+def reads_stdin_program(words):
+    """True when an interpreter runs a program read from stdin (bare, '-', or shell -s), so text piped to it
+    is code. A script file (`python3 s.py`), a module (`python3 -m m`) or inline code (-c/-e/--eval) is not:
+    there the piped text is data the program reads, not commands the shell runs."""
+    if not words:
+        return False
+    cmd, args = os.path.basename(words[0]), words[1:]
+    if not is_interpreter(cmd) or inline_code(words):
+        return False
+    if any(a in ("--eval", "--print") or a.startswith(("--eval=", "--print=")) for a in args):
+        return False
+    if any(a == "-m" or (a.startswith("-m") and not a.startswith("--")) for a in args):
+        return False
+    if cmd in ("bash", "sh", "zsh") and any(
+            a == "-s" or (a.startswith("-") and not a.startswith("--") and "s" in a[1:]) for a in args):
+        return True
+    return not [a for a in args if not a.startswith("-")]   # no script-file argument: the program is stdin
 
 
 def piped_shell_code(command):
@@ -3127,7 +3273,7 @@ def piped_shell_code(command):
     parts = command.split("|")
     for i in range(len(parts) - 1):
         right = words_of(parts[i + 1])
-        if right and is_interpreter(os.path.basename(right[0])) and not inline_code(right):
+        if reads_stdin_program(right):
             for m in QUOTED.finditer(parts[i]):
                 codes.append(m.group(0)[1:-1])
             left = words_of(parts[i])
@@ -3247,7 +3393,7 @@ def push_current_branch(args, cwd):
     return git(base, "symbolic-ref", "--short", "HEAD")
 
 
-def git_human_only(args, ctx):
+def git_human_only(args, ctx, cwd):
     sub = git_subcommand(args)
     rest = args[args.index(sub) + 1:] if sub in args else []
     if skips_git_hooks(args):
@@ -3269,12 +3415,12 @@ def git_human_only(args, ctx):
                or a.endswith("/" + ctx.base_branch) for a in refspecs):
             return f"Pushing to {ctx.base_branch} is the human's decision (merge the PR). Push your own branch only."
         if any(a in ("HEAD", "@") for a in refspecs):   # bare HEAD/@ pushes the current branch; @ is git's HEAD synonym
-            current = push_current_branch(args, ctx.project)
+            current = push_current_branch(args, cwd)
             if current == ctx.base_branch:
                 return (f"Pushing HEAD while on {ctx.base_branch} pushes the base branch. "
                         "Reserved for the human. Push your own branch only.")
         if not refspecs:
-            current = push_current_branch(args, ctx.project)
+            current = push_current_branch(args, cwd)
             if current == ctx.base_branch:
                 return (f"Pushing without a refspec while on {ctx.base_branch} pushes the base branch "
                         "(push.default=simple). Reserved for the human. Push your own branch only.")
@@ -3283,7 +3429,7 @@ def git_human_only(args, ctx):
         positional = [a for a in before_dashes if not a.startswith("-")]
         revision = positional[0] if positional else None
         # `git reset`, `git reset HEAD file`, `git reset file` unstage; anything else moves the branch
-        if revision not in (None, "HEAD") and not os.path.exists(os.path.join(ctx.project, revision)):
+        if revision not in (None, "HEAD") and not os.path.exists(os.path.join(cwd, revision)):
             return "git reset to another revision drops commits (possibly the approved spec). Reserved for the human."
     if sub in ("checkout", "switch") and any(a in ("-B", "-C", "--force-create") for a in rest):
         return "Re-creating the branch at another revision drops its commits (the approved spec). Reserved for the human."
@@ -3580,6 +3726,7 @@ def git_code(project, *args):
 
 if __name__ == "__main__":
     sys.exit(main())
+
 ===== END FILE gauntlet/hooks/guard.py =====
 
 ===== BEGIN FILE gauntlet/hooks/selftest.py =====
@@ -3892,6 +4039,27 @@ def guard_tests(repo):
     expect_allow(repo, "perl -E harmless", "main", "Bash", command="perl -E 'say 1'")
     expect_allow(repo, "python data list not a command", "main", "Bash",
                  command="python3 -c \"print(['git','push'])\"")
+    # --- V5b: a quoted string that merely LOOKS like a command is data unless an exec-style call runs it
+    expect_allow(repo, "print literal force push is data", "main", "Bash",
+                 command="python3 -c \"print('git push --force')\"")
+    expect_allow(repo, "console.log literal force push is data", "main", "Bash",
+                 command="node -e \"console.log('git push --force')\"")
+    expect_allow(repo, "perl print literal force push is data", "main", "Bash",
+                 command="perl -e \"print 'git push --force'\"")
+    # --- V5c: text piped to an interpreter running a FILE/MODULE/inline code is data, not shell commands;
+    #          only a stdin program (bare, '-', shell -s) executes the piped text
+    expect_allow(repo, "pipe force push to python script file", "main", "Bash",
+                 command="echo 'git push --force' | python3 script.py")
+    expect_allow(repo, "pipe force push to node script file", "main", "Bash",
+                 command="echo 'git push --force' | node app.js")
+    expect_allow(repo, "pipe force push to python module", "main", "Bash",
+                 command="echo 'git push --force' | python3 -m json.tool")
+    expect_allow(repo, "pipe force push to bash inline code", "main", "Bash",
+                 command="echo 'git push --force' | bash -c 'echo hi'")
+    expect_deny(repo, "pipe force push to bash -s", "main", "Bash",
+                command="echo 'git push --force' | bash -s")
+    expect_deny(repo, "pipe force push to python stdin dash", "main", "Bash",
+                command="echo 'git push --force' | python3 -")
     expect_allow(repo, "sudo gradlew", "main", "Bash", command="sudo -u root ./gradlew test")
     # --- hardening: .git is human-owned (deleting it disables the stop hook and unfreezes the spec)
     expect_deny(repo, "rm -rf .git", "main", "Bash", command="rm -rf .git")
@@ -3926,6 +4094,13 @@ def guard_tests(repo):
     expect_deny(repo, "push -C worktree no refspec on main", "main", "Bash", command=f"git -C {wt_main} push")
     expect_deny(repo, "push -C worktree @ on main", "main", "Bash", command=f"git -C {wt_main} push origin @")
     expect_allow(repo, "push -C worktree HEAD on feature", "main", "Bash", command=f"git -C {wt_feat} push origin HEAD")
+    # --- V5a: `cd worktree && git push` judges the branch of THAT worktree (follow_cd), not the session's project
+    expect_allow(repo, "cd feature worktree push HEAD", "main", "Bash", command=f"cd {wt_feat} && git push origin HEAD")
+    expect_allow(repo, "cd feature worktree push no refspec", "main", "Bash", command=f"cd {wt_feat} && git push")
+    expect_deny(repo, "cd main worktree push HEAD", "main", "Bash", command=f"cd {wt_main} && git push origin HEAD")
+    expect_deny(repo, "cd main worktree push no refspec", "main", "Bash", command=f"cd {wt_main} && git push")
+    expect_allow(repo, "pushd feature worktree push HEAD", "main", "Bash", command=f"pushd {wt_feat} && git push origin HEAD")
+    expect_allow(repo, "cd relative feature worktree push HEAD", "main", "Bash", command="cd ../wt-feat && git push origin HEAD")
     git(repo, "worktree", "remove", "--force", wt_main)   # free main again for the later checkout-main tests
     git(repo, "worktree", "remove", "--force", wt_feat)
     # --- hardening: hook-skipping abbreviations and config
@@ -4247,6 +4422,50 @@ def continuation_window_tests(repo):
     check("window: single module beyond its budget resets", attempt(4000, 3300, 1) == 1)
 
 
+def gate_scope_tests(repo):
+    """V6-c: a signal-killed Gradle run reports a negative return code - run_all must call it RED, not green.
+    V7-2: affected_modules maps a change to the builds it touches (own dir, module overlay, shared config/tooling
+    = every module), and uncommitted_paths splits a git rename into both ends."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("sg_scope", os.path.join(repo, "gauntlet", "hooks", "stop_gate.py"))
+    sg = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(sg)
+
+    orig_gradle = sg.run_gradle
+    sg.run_gradle = lambda task, excluded, timeout, module=".": (-15, "log", "killed by signal")
+    try:
+        code, _ = sg.run_all(["."], "gauntletFast", [], 60)
+        check("V6-c: signal-killed gradle (negative code) is red", code == 1, str(code))
+        code2, _ = sg.run_all(["core", "adapter"], "gauntletFast", [], 60)
+        check("V6-c: negative code red across modules", code2 == 1, str(code2))
+    finally:
+        sg.run_gradle = orig_gradle
+
+    sg.MODULES = ["core", "adapter"]
+    am = sg.affected_modules
+    check("V7-2: own module dir touches only that module", am({"core/src/main/java/X.java"}) == ["core"], str(am({"core/src/main/java/X.java"})))
+    check("V7-2: other module dir touches that module", am({"adapter/src/main/java/Y.java"}) == ["adapter"])
+    check("V7-2: module overlay config touches only that module", am({"gauntlet/config/core/gauntlet.properties"}) == ["core"])
+    check("V7-2: shared common config touches every module", set(am({"gauntlet/config/gauntlet.properties"})) == {"core", "adapter"})
+    check("V7-2: shared hook touches every module", set(am({"gauntlet/hooks/guard.py"})) == {"core", "adapter"})
+    check("V7-2: shared gradle script touches every module", set(am({"gauntlet/gauntlet.gradle"})) == {"core", "adapter"})
+    check("V7-2: rename across modules touches both", set(am({"core/src/main/java/X.java", "adapter/src/main/java/X.java"})) == {"core", "adapter"})
+    check("V7-2: unrelated path touches no build", am({"README.md"}) == [])
+    sg.MODULES = []
+    check("V7-2: no modules -> single root build", am({"src/main/java/X.java"}) == ["."])
+
+    orig_bytes = sg.git_bytes
+    try:
+        sg.git_bytes = lambda *a, **k: b"R  core/src/main/java/X.java -> adapter/src/main/java/X.java\n"
+        check("V7-2: rename yields both ends", sg.uncommitted_paths() == {"core/src/main/java/X.java", "adapter/src/main/java/X.java"},
+              str(sg.uncommitted_paths()))
+        sg.git_bytes = lambda *a, **k: b' M "core/src/main/java/My File.java"\nR  core/a.java -> adapter/a.java\n'
+        check("V7-2: quoted path and rename parsed", sg.uncommitted_paths() == {"core/src/main/java/My File.java", "core/a.java", "adapter/a.java"},
+              str(sg.uncommitted_paths()))
+    finally:
+        sg.git_bytes = orig_bytes
+
+
 def session_start_tests(repo):
     r = subprocess.run(["bash", os.path.join(repo, "gauntlet/hooks/session_start.sh")], cwd=repo, input="{}",
                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
@@ -4290,6 +4509,7 @@ def main():
             session_start_tests(repo)
             stop_tests(repo)
             continuation_window_tests(repo)
+            gate_scope_tests(repo)
             if len(MODULES) > 1:
                 multi_module_stop_tests(repo)
         finally:
@@ -4302,6 +4522,7 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+
 ===== END FILE gauntlet/hooks/selftest.py =====
 
 ===== BEGIN FILE gauntlet/hooks/session_start.sh =====
@@ -4364,6 +4585,7 @@ else
   echo "[gauntlet] WARNING: cannot find the merge base of HEAD and $base, so the scoped checks will fail. Run 'git fetch $remote +refs/heads/$branch:refs/remotes/$remote/$branch' (after 'git fetch --unshallow $remote' in a shallow clone) or use -Pgauntlet.scope=all."
 fi
 exit 0
+
 ===== END FILE gauntlet/hooks/session_start.sh =====
 
 ===== BEGIN FILE gauntlet/hooks/stop_gate.py =====
@@ -4469,7 +4691,7 @@ def gate(opts, event, state, session):
     features = features_dirs()
     if all(any(("/" + p).startswith("/" + f + "/") for f in features) for p in changed):
         return 0  # only the spec changed: it waits for the human's approval, not for the gauntlet
-    affected = [m for m in MODULES if any(p.startswith(m + "/") for p in changed)] if MODULES else ["."]
+    affected = affected_modules(changed)
     if not affected:
         return 0  # nothing inside a guarded build changed
     pending = specs_pending_approval(features)
@@ -4540,7 +4762,11 @@ def uncommitted_paths():
     paths = set()
     status = git_bytes("status", "--porcelain", "--untracked-files=all", "--", *existing(WATCHED)).decode("utf-8", "replace")
     for line in status.splitlines():  # "XY path", relative to the repository root - do not strip: X may be a space
-        paths.add(line[3:].strip().split(" -> ")[-1].strip('"'))
+        path = line[3:].strip()
+        if " -> " in path:            # a rename "R  old -> new": both ends changed, either may sit in a guarded build
+            paths.update(part.strip().strip('"') for part in path.split(" -> "))
+        else:
+            paths.add(path.strip('"'))
     return {p for p in paths if p}
 
 
@@ -4600,7 +4826,8 @@ def run_all(modules, task, excluded, timeout):
     worst, outputs = 0, []
     for module in modules:
         code, _, output = run_gradle(task, excluded, timeout, module)
-        worst = max(worst, code)
+        if code != 0:
+            worst = max(worst, code if code > 0 else 1)   # a signal-killed run reports a negative code: red, not green
         outputs.append((f"=== {module} ===\n" if module != "." else "") + output)
     return worst, "\n".join(outputs)
 
@@ -4672,6 +4899,28 @@ def configure_module():
     if MODULES:
         WATCHED = [os.path.join(m, p) for m in MODULES for p in BUILD_FILES] + ["gauntlet"]
         REPORT_DIRS = [os.path.join(m, p) for m in MODULES for p in REPORT_DIRS]
+
+
+def affected_modules(changed):
+    """Which builds a change touches: a module's own directory, its gauntlet/config/<module>/ overlay, or -
+    for any shared gauntlet file (common config/, tools/, gauntlet.gradle) - every module, since they all
+    read it. Without modules the single build at the repository root is '.'."""
+    if not MODULES:
+        return ["."]
+    touched, shared = set(), False
+    for p in changed:
+        owner = next((m for m in MODULES if p.startswith(m + "/")), None)
+        if owner:
+            touched.add(owner)
+        elif p.startswith("gauntlet/config/"):
+            overlay = next((m for m in MODULES if p.startswith("gauntlet/config/" + m + "/")), None)
+            if overlay:
+                touched.add(overlay)
+            else:
+                shared = True   # a common config file: every module reads it
+        elif p.startswith("gauntlet/"):
+            shared = True       # shared tooling, gradle script or hooks: every module runs it
+    return list(MODULES) if shared else [m for m in MODULES if m in touched]
 
 
 def features_dirs():
@@ -4756,6 +5005,7 @@ def remove(path):
 
 if __name__ == "__main__":
     sys.exit(main())
+
 ===== END FILE gauntlet/hooks/stop_gate.py =====
 
 ===== BEGIN FILE gauntlet/install.sh =====
@@ -4767,8 +5017,9 @@ if __name__ == "__main__":
 #   gauntlet/ci/gauntlet.yml       -> .github/workflows/gauntlet.yml  (CI gate for pull requests)
 #   CLAUDE.md                      += @gauntlet/CLAUDE.md             (process + rules, loaded every session)
 #
-# Existing files: settings.json is merged in place (hooks appended, permissions united, disableAllHooks
-# pinned to false); an existing role file or workflow is left as it is and reported. Nothing is written
+# Existing files: settings.json is merged in place (the gauntlet's own hooks are refreshed to this version,
+# new ones appended, user hooks left untouched, permissions united, disableAllHooks pinned to false); an
+# existing role file or workflow is left as it is and reported. Nothing is written
 # outside these paths. The sources under gauntlet/claude and gauntlet/ci are removed afterwards so nothing
 # exists twice. Run this LAST in the install session: from the moment .claude/settings.json holds the hooks
 # they are live and gauntlet/ becomes read-only for agents.
@@ -4795,22 +5046,78 @@ fi
 
 echo "Installing the gauntlet into $ROOT"
 mkdir -p .claude/agents
-if [ -f .claude/settings.json ]; then
-  python3 - <<'PY'
-import json
-with open(".claude/settings.json") as f:
-    current = json.load(f)
+# stop_gate runs its task in every affected module sequentially, each up to the inner --timeout in the
+# command, so the outer hook timeout must outlive modules * inner + margin. Count the guarded builds.
+mod_count=$(printf '%s' "$modules" | wc -w | tr -d ' ')
+case "$mod_count" in ''|*[!0-9]*) mod_count=1 ;; esac
+[ "$mod_count" -ge 1 ] || mod_count=1
+existed=0; [ -f .claude/settings.json ] && existed=1
+GAUNTLET_MOD_COUNT="$mod_count" GAUNTLET_EXISTED="$existed" python3 - <<'PY'
+import json, os, re
+
+def gkey(cmd):
+    # a gauntlet hook is identified by the script it runs, not the whole command: the command may carry
+    # version-specific flags (--timeout/--max-attempts), and matching on it would duplicate the hook on upgrade.
+    m = re.search(r"gauntlet/hooks/([A-Za-z0-9_.-]+)", cmd or "")
+    return m.group(1) if m else None
+
+def scale(event, hook, n):
+    m = re.search(r"--timeout\s+(\d+)", hook.get("command", ""))
+    inner = int(m.group(1)) if m else 0
+    if event == "Stop":
+        hook["timeout"] = max(1800, n * inner + 100)
+    elif event == "SubagentStop":
+        hook["timeout"] = max(7200, n * inner + 600)
+
+n = max(1, int(os.environ.get("GAUNTLET_MOD_COUNT", "1")))
 with open("gauntlet/claude/settings.json") as f:
     ours = json.load(f)
+if os.environ.get("GAUNTLET_EXISTED") == "1":
+    with open(".claude/settings.json") as f:
+        current = json.load(f)
+else:
+    current = {"hooks": {}, "permissions": {}}
 current["disableAllHooks"] = False
 hooks = current.setdefault("hooks", {})
 for event, groups in ours["hooks"].items():
     existing = hooks.setdefault(event, [])
-    known = {h.get("command") for g in existing for h in g.get("hooks", [])}
-    for group in groups:
-        if any(h.get("command") in known for h in group["hooks"]):
+    our_by_key = {}
+    for g in groups:
+        for h in g.get("hooks", []):
+            k = gkey(h.get("command"))
+            if k:
+                our_by_key[k] = (g, h)
+    present = set()
+    for g in existing:                      # refresh the gauntlet's own hooks in place; user hooks untouched
+        for h in g.get("hooks", []):
+            k = gkey(h.get("command"))
+            if k in our_by_key:
+                og, oh = our_by_key[k]
+                h["command"] = oh["command"]
+                h["type"] = oh.get("type", "command")
+                for field in ("timeout", "statusMessage"):
+                    if field in oh:
+                        h[field] = oh[field]
+                    else:
+                        h.pop(field, None)
+                if "matcher" in og:
+                    g["matcher"] = og["matcher"]
+                else:
+                    g.pop("matcher", None)
+                present.add(k)
+    for g in groups:                        # append gauntlet groups not already present
+        if any(gkey(h.get("command")) in present for h in g.get("hooks", [])):
             continue
-        existing.append(group)
+        ng = json.loads(json.dumps(g))
+        existing.append(ng)
+        for h in ng.get("hooks", []):
+            k = gkey(h.get("command"))
+            if k:
+                present.add(k)
+    for g in existing:                      # scale the outer timeout of the gauntlet's Gradle hooks by modules
+        for h in g.get("hooks", []):
+            if gkey(h.get("command")) in our_by_key:
+                scale(event, h, n)
 perms = current.setdefault("permissions", {})
 for key in ("allow", "deny"):
     merged = list(perms.get(key, []))
@@ -4820,9 +5127,9 @@ with open(".claude/settings.json", "w") as f:
     json.dump(current, f, indent=2, ensure_ascii=False)
     f.write("\n")
 PY
-  echo "  merged .claude/settings.json (gauntlet hooks and permissions added, disableAllHooks=false)"
+if [ "$existed" = 1 ]; then
+  echo "  merged .claude/settings.json (gauntlet hooks refreshed, permissions united, disableAllHooks=false)"
 else
-  cp gauntlet/claude/settings.json .claude/settings.json
   echo "  added  .claude/settings.json"
 fi
 for role in gauntlet/claude/agents/*.md; do
@@ -4861,6 +5168,7 @@ cat <<'NEXT'
 Done. The hooks are live from now on: gauntlet/, .claude/ and CLAUDE.md are read-only for agents.
 Remaining steps (gauntlet/INSTALL.md): `git add -A`, commit, push, open the PR.
 NEXT
+
 ===== END FILE gauntlet/install.sh =====
 
 ===== BEGIN FILE gauntlet/templates/acceptanceTest/java/com/example/service/acceptance/CucumberSpringConfiguration.java =====
@@ -4878,6 +5186,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 public class CucumberSpringConfiguration {
 }
+
 ===== END FILE gauntlet/templates/acceptanceTest/java/com/example/service/acceptance/CucumberSpringConfiguration.java =====
 
 ===== BEGIN FILE gauntlet/templates/acceptanceTest/resources/features/example_discount.feature =====
@@ -4898,6 +5207,7 @@ public class CucumberSpringConfiguration {
       | 100    | 10000 | 9900 |
       | 300    | 2500  | 2200 |
       | 50     | 400   | 350  |
+
 ===== END FILE gauntlet/templates/acceptanceTest/resources/features/example_discount.feature =====
 
 ===== BEGIN FILE gauntlet/tools/CrapGate.java =====
@@ -4911,9 +5221,12 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 import javax.xml.parsers.DocumentBuilder;
@@ -5008,18 +5321,32 @@ public class CrapGate {
             Element pkg = (Element) packages.item(p);
             for (Element cls : children(pkg, "class")) {
                 String internal = cls.getAttribute("name");
+                String className = internal.replace('/', '.');
                 String sourceFile = cls.getAttribute("sourcefilename");
                 String pkgPath = pkg.getAttribute("name");
+                if (sourceFile.isEmpty()) {
+                    // debug=false: JaCoCo keeps the counters but omits sourcefilename. Derive it from the
+                    // outer class so the gate still analyses the method instead of silently passing.
+                    sourceFile = outerSimpleName(className) + ".java";
+                }
                 String sourcePath = (pkgPath.isEmpty() ? "" : pkgPath + "/") + sourceFile;
-                if (sourceFile.isEmpty() || !inScope(sourcePath, a.only)) {
+                if (!inScope(sourcePath, a.only)) {
                     continue;
                 }
-                String className = internal.replace('/', '.');
                 if (matchesAny(outerSimpleName(className), excludes)) {
                     continue;
                 }
-                for (Element m : children(cls, "method")) {
+                List<Element> methods = children(cls, "method");
+                Map<String, Integer> nameCounts = new HashMap<>();
+                Map<String, List<String>> nameDescs = new HashMap<>();
+                for (Element m : methods) {
+                    String n = m.getAttribute("name");
+                    nameCounts.merge(n, 1, Integer::sum);
+                    nameDescs.computeIfAbsent(n, k -> new ArrayList<>()).add(n + m.getAttribute("desc"));
+                }
+                for (Element m : methods) {
                     String name = m.getAttribute("name");
+                    String desc = m.getAttribute("desc");
                     int cc = counterTotal(m, "COMPLEXITY");
                     int[] instr = counter(m, "INSTRUCTION");
                     int total = instr[0] + instr[1];
@@ -5027,9 +5354,21 @@ public class CrapGate {
                     double crap = crap(cc, coverage);
                     int line = m.hasAttribute("line") ? Integer.parseInt(m.getAttribute("line")) : 0;
                     String methodName = prettyMethod(name);
-                    boolean allowed = allow.contains(className + "#" + methodName)
-                            || allow.contains(className + "#" + name)
-                            || allow.contains(className + "#*");
+                    // A signature entry Class#method(desc) exempts exactly one overload. A name-only entry
+                    // Class#method exempts only when the name is unambiguous; with overloads it exempts nothing
+                    // (the human must pick a signature), so a later overload never inherits an old exception.
+                    boolean nameOnly = allow.contains(className + "#" + name)
+                            || allow.contains(className + "#" + methodName);
+                    boolean allowed = allow.contains(className + "#*")
+                            || allow.contains(className + "#" + name + desc)
+                            || (nameOnly && nameCounts.getOrDefault(name, 0) == 1);
+                    if (nameOnly && nameCounts.getOrDefault(name, 0) > 1) {
+                        String entry = allow.contains(className + "#" + name)
+                                ? className + "#" + name : className + "#" + methodName;
+                        a.ambiguous.add("CRAP allowlist: '" + entry + "' matches " + nameCounts.get(name)
+                                + " overloads " + nameDescs.get(name) + " - it exempts nothing; specify a signature"
+                                + " (e.g. " + className + "#" + nameDescs.get(name).get(0) + ").");
+                    }
                     result.add(new Score(className, methodName, line, sourcePath, cc, coverage, crap, allowed));
                 }
             }
@@ -5068,6 +5407,9 @@ public class CrapGate {
                     s.coverage() * 100.0, s.display());
             shown++;
         }
+        for (String note : a.ambiguous) {
+            out.println(note);
+        }
         if (failing.isEmpty()) {
             out.println("CRAP gate: OK");
             return 0;
@@ -5086,7 +5428,14 @@ public class CrapGate {
         }
         for (String f : only) {
             String norm = f.replace('\\', '/');
-            if (norm.equals(sourcePath) || norm.endsWith("/" + sourcePath)) {
+            // changed sources are module-relative (src/main/java/<package>/<File>.java); compare the exact
+            // package-relative path, not a suffix - otherwise com/example/prices/Catalog.java would also
+            // pull in an unrelated, unchanged prices/Catalog.java.
+            int root = norm.indexOf("src/main/java/");
+            if (root >= 0) {
+                norm = norm.substring(root + "src/main/java/".length());
+            }
+            if (norm.equals(sourcePath)) {
                 return true;
             }
         }
@@ -5157,6 +5506,7 @@ public class CrapGate {
         Set<String> allow = new HashSet<>();
         List<String> excludes = new ArrayList<>();
         int top = 15;
+        Set<String> ambiguous = new LinkedHashSet<>();
 
         static Args parse(String[] args) {
             Args a = new Args();
@@ -5223,6 +5573,7 @@ public class CrapGate {
         }
     }
 }
+
 ===== END FILE gauntlet/tools/CrapGate.java =====
 
 ===== BEGIN FILE gauntlet/tools/DryGate.java =====
@@ -5396,6 +5747,7 @@ public class DryGate {
         return set;
     }
 }
+
 ===== END FILE gauntlet/tools/DryGate.java =====
 
 ===== BEGIN FILE gauntlet/tools/GherkinMutator.java =====
@@ -5445,13 +5797,17 @@ import org.w3c.dom.NodeList;
  * </pre>
  * {@code generate} writes one feature file per mutant (a plain Scenario with the Background
  * and the substituted steps) plus manifest.tsv. Run them with Cucumber, then {@code verdict}
- * reads the JUnit XML results: failed = killed (an undefined step for the new value is reported as a
- * failure and counted separately), passed = survived, skipped/aborted or missing = error.
- * {@code no-skipped} fails when a normal acceptance run skipped scenarios, or ran none although
- * {@code --features} holds feature files; without feature files it passes without reading any results.
+ * reads the JUnit XML results: a {@code <failure>} (assertion) = killed (an undefined step for the new
+ * value is counted separately), passed = survived; a {@code <error>} (exception/crash), skipped/aborted
+ * or missing = error, never a kill.
+ * {@code no-skipped} fails when the {@code --features} directory is missing, when a normal acceptance run
+ * skipped scenarios, or ran none although {@code --features} holds feature files; an existing directory
+ * without feature files passes without reading any results.
  * {@code generate} fails when the configured features directory does not exist (a misconfigured
  * {@code acceptance.features}; the install creates it empty), or when a scenario in scope has steps but no
  * Examples value to mutate: gherkinMutation would otherwise pass it without having checked anything.
+ * A scenario with no steps of its own (empty or description-only) runs nothing under Cucumber, so it
+ * yields no mutant and is not flagged vacuous.
  * Supports English and Russian keywords ("# language: ru").
  * Exit codes: 0 = OK / all killed, 1 = survivors or errors, 2 = usage or IO error.
  */
@@ -5460,16 +5816,20 @@ public class GherkinMutator {
     // ---------------------------------------------------------------- keywords
 
     record Keywords(List<String> feature, List<String> background, List<String> rule, List<String> scenario,
-                    List<String> outline, List<String> examples, String plainScenario) {
+                    List<String> outline, List<String> examples, List<String> step, String plainScenario) {
     }
 
+    // Step keywords carry their trailing space (Gherkin dialect form); "* " is the universal step keyword.
     static final Map<String, Keywords> LANGUAGES = Map.of(
             "en", new Keywords(List.of("Feature", "Business Need", "Ability"), List.of("Background"), List.of("Rule"),
                     List.of("Example", "Scenario"), List.of("Scenario Outline", "Scenario Template"),
-                    List.of("Examples", "Scenarios"), "Scenario"),
+                    List.of("Examples", "Scenarios"),
+                    List.of("Given ", "When ", "Then ", "And ", "But ", "* "), "Scenario"),
             "ru", new Keywords(List.of("Функция", "Функциональность", "Функционал", "Свойство", "Фича"),
                     List.of("Предыстория", "Контекст"), List.of("Правило"), List.of("Пример", "Сценарий"),
-                    List.of("Структура сценария", "Шаблон сценария"), List.of("Примеры", "Значения"), "Сценарий"));
+                    List.of("Структура сценария", "Шаблон сценария"), List.of("Примеры", "Значения"),
+                    List.of("Дано ", "Допустим ", "Пусть ", "Если ", "Когда ", "То ", "Тогда ", "Затем ",
+                            "И ", "А ", "Но ", "Иначе ", "Также ", "К тому же ", "* "), "Сценарий"));
 
     enum Kw { FEATURE, BACKGROUND, RULE, SCENARIO, EXAMPLES }
 
@@ -5608,12 +5968,13 @@ public class GherkinMutator {
             }
             int before = mutants.size();
             collectMutants(doc, mutants);
+            Keywords kw = LANGUAGES.get(doc.language);
             for (Scenario sc : doc.scenarios) {
-                if (sc.body.isEmpty()) {
-                    continue;                              // no steps of its own: Cucumber executes nothing for it.
-                                                           // Gherkin's PickleCompiler.compilePickleSteps returns an empty
-                                                           // step list when the scenario has no steps, before prepending
-                                                           // Background - so an empty scenario runs no step definition.
+                if (stepCount(sc, kw) == 0) {
+                    continue;                              // no steps of its own (empty or description-only): Cucumber
+                                                           // executes nothing. Gherkin's PickleCompiler.compilePickleSteps
+                                                           // returns an empty step list when the scenario has no steps,
+                                                           // before prepending Background - so no step definition runs.
                 }
                 boolean checked = false;
                 for (int mi = before; mi < mutants.size(); mi++) {
@@ -5648,8 +6009,12 @@ public class GherkinMutator {
     }
 
     static void collectMutants(FeatureDoc doc, List<Mutant> mutants) {
+        Keywords kw = LANGUAGES.get(doc.language);
         for (int s = 0; s < doc.scenarios.size(); s++) {
             Scenario sc = doc.scenarios.get(s);
+            if (stepCount(sc, kw) == 0) {
+                continue;   // no steps: Cucumber executes nothing, so mutating its Examples proves nothing
+            }
             for (int e = 0; e < sc.examples.size(); e++) {
                 Examples ex = sc.examples.get(e);
                 if (ex.headerRaw == null) {
@@ -5703,7 +6068,7 @@ public class GherkinMutator {
             boolean tableLine = bodyLine.trim().startsWith("|");
             String substituted = bodyLine;
             for (Map.Entry<String, String> v : values.entrySet()) {
-                String value = tableLine ? escapeCell(v.getValue()) : v.getValue();
+                String value = tableLine ? escapeCell(v.getValue()) : escapeStepText(v.getValue());
                 substituted = substituted.replace("<" + v.getKey() + ">", value);
             }
             lines.add(substituted);
@@ -5852,6 +6217,27 @@ public class GherkinMutator {
         return false;
     }
 
+    /** A body line is a step when it starts with a Gherkin step keyword (which carries its trailing space).
+     *  Free-text description lines are not steps; data tables and docstrings always follow a real step. */
+    static boolean isStepLine(String trimmed, Keywords kw) {
+        for (String s : kw.step()) {
+            if (trimmed.startsWith(s)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static int stepCount(Scenario sc, Keywords kw) {
+        int n = 0;
+        for (String line : sc.body) {
+            if (isStepLine(line.trim(), kw)) {
+                n++;
+            }
+        }
+        return n;
+    }
+
     static List<String> cells(String row) {
         List<String> cells = new ArrayList<>();
         StringBuilder cur = null;
@@ -5893,6 +6279,14 @@ public class GherkinMutator {
 
     static String escapeCell(String value) {
         return value.replace("\\", "\\\\").replace("|", "\\|").replace("\n", "\\n");
+    }
+
+    /** Step text and docstrings are single lines in the rendered file. An Examples {@code \n} escape unescapes
+     *  to a real newline, which would split the step line and make Cucumber reject the whole mutant file
+     *  (PARSE_ERROR). Gherkin does not unescape step text, so keep it on one line as a literal {@code \n};
+     *  table cells go through escapeCell, which Gherkin does unescape. */
+    static String escapeStepText(String value) {
+        return value.replace("\r", "\\r").replace("\n", "\\n");
     }
 
     // ---------------------------------------------------------------- value mutation (APS rules)
@@ -6087,6 +6481,8 @@ public class GherkinMutator {
                 survived.add("MUTANT SURVIVED " + e.getKey() + "  " + what);
             } else if (o.equals("aborted")) {
                 errors.add("MUTANT ERROR    " + e.getKey() + " skipped/aborted, not a kill  " + what);
+            } else if (o.equals("error")) {
+                errors.add("MUTANT ERROR    " + e.getKey() + " errored (exception/crash), not a kill  " + what);
             } else {
                 killed++;
                 byUndefinedStep += o.equals("undefined") ? 1 : 0;
@@ -6116,9 +6512,16 @@ public class GherkinMutator {
 
     /** Cucumber reports undefined steps as aborted, which Gradle shows as skipped - not as failed. */
     static int noSkipped(Path resultsDir, Path featuresDir, PrintStream out) throws IOException {
-        if (featuresDir != null && !hasFeatureFiles(featuresDir)) {
-            out.println("Acceptance: no feature files in " + featuresDir + " - nothing to check (older results ignored)");
-            return 0;
+        if (featuresDir != null) {
+            if (!Files.isDirectory(featuresDir)) {
+                out.println("Acceptance: FAILED - features directory " + featuresDir + " does not exist - acceptance.features"
+                        + " is misconfigured (the install creates it empty with a .gitkeep); a missing dir is not an empty run");
+                return 1;
+            }
+            if (!hasFeatureFiles(featuresDir)) {
+                out.println("Acceptance: no feature files in " + featuresDir + " - nothing to check (older results ignored)");
+                return 0;
+            }
         }
         List<String> skipped = new ArrayList<>();
         int total = 0;
@@ -6202,7 +6605,10 @@ public class GherkinMutator {
             for (Node n = tc.getFirstChild(); n != null; n = n.getNextSibling()) {
                 if (n instanceof Element e) {
                     switch (e.getTagName()) {
-                        case "failure", "error" -> result = undefinedStep(e) ? "undefined" : "failed";
+                        // <failure> = an assertion failed: the mutant was killed. <error> = an exception/crash
+                        // (glue, context, harness) that never reached a verdict: not a kill, report it as an error.
+                        case "failure" -> result = undefinedStep(e) ? "undefined" : "failed";
+                        case "error" -> result = undefinedStep(e) ? "undefined" : "error";
                         case "skipped" -> result = result.equals("passed") ? "aborted" : result;
                         default -> {
                         }
@@ -6261,6 +6667,7 @@ public class GherkinMutator {
         }
     }
 }
+
 ===== END FILE gauntlet/tools/GherkinMutator.java =====
 
 ===== BEGIN FILE gauntlet/tools/IntegrityCheck.java =====
@@ -6572,17 +6979,19 @@ public class IntegrityCheck {
     }
 
     /**
-     * A single-line block is harmless only when every disabled statement on the line sits INSIDE the block's
-     * braces and the block opener is a packaging/doc task. {@code test.enabled = false; jar { }} and
+     * A block opened on this line is harmless only when every disabled statement on the line sits INSIDE the
+     * block's braces and the block opener is a packaging/doc task. {@code test.enabled = false; jar { }} and
      * {@code jar { }; test.enabled = false } disable test with a separate statement outside the jar block, so
-     * they are not exempt; {@code jar { enabled = false }} is.
+     * they are not exempt; {@code jar { enabled = false }} is. The closing brace may sit on a LATER line
+     * ({@code jar { enabled = false} newline {@code }}): then everything after '{' on this line is inside the block.
      */
     static boolean harmlessSingleLine(String line) {
         int open = line.indexOf('{');
-        int close = line.lastIndexOf('}');
-        if (open < 0 || close < open) {
+        if (open < 0) {
             return false;
         }
+        int close = line.lastIndexOf('}');
+        int insideEnd = close > open ? close : line.length();   // no '}' here: the block continues on the next line
         String opener = line.substring(0, open).trim();
         int semi = opener.lastIndexOf(';');
         if (semi >= 0) {
@@ -6593,7 +7002,7 @@ public class IntegrityCheck {
         }
         Matcher m = DISABLED.matcher(line);
         while (m.find()) {
-            if (m.start() < open || m.start() > close) {
+            if (m.start() < open || m.start() > insideEnd) {
                 return false;                              // a disabled statement before/after the block, not inside it
             }
             if (!receiverIsHarmless(line, m.start())) {
@@ -6616,8 +7025,10 @@ public class IntegrityCheck {
 
     /**
      * The receiver left of {@code enabled = false}/{@code setEnabled(false)} must be empty (a bare assignment
-     * configures the enclosing harmless task) or name a harmless task. {@code test.enabled}, {@code tasks.test.enabled}
-     * and {@code tasks.named("test").enabled} disable a gate task and are never exempt, even inside {@code jar { }}.
+     * configures the enclosing harmless task), name a harmless task, or be {@code delegate}/{@code this} - which
+     * inside the harmless task's configuration block refer to that task itself. {@code test.enabled},
+     * {@code tasks.test.enabled} and {@code tasks.named("test").enabled} disable a gate task and are never exempt,
+     * even inside {@code jar { }}.
      */
     static boolean receiverIsHarmless(String line, int matchStart) {
         String before = line.substring(0, matchStart).stripTrailing();
@@ -6631,7 +7042,10 @@ public class IntegrityCheck {
             name = ref.group(1);                           // tasks.named("jar") -> jar
         } else {
             Matcher id = LAST_ID.matcher(recv);
-            name = id.find() ? id.group(1) : recv;         // tasks.test -> test, jar -> jar
+            name = id.find() ? id.group(1) : recv;         // tasks.test -> test, jar -> jar, delegate -> delegate
+        }
+        if (name.equals("delegate") || name.equals("this")) {
+            return true;                                   // the enclosing block's own task (already verified harmless)
         }
         return HARMLESS_NAME.matcher(name).matches();
     }
@@ -6683,6 +7097,7 @@ public class IntegrityCheck {
         return s.length() <= 100 ? s : s.substring(0, 97) + "...";
     }
 }
+
 ===== END FILE gauntlet/tools/IntegrityCheck.java =====
 
 ===== BEGIN FILE gauntlet/tools/PitSummary.java =====
@@ -6935,5 +7350,6 @@ public class PitSummary {
         return n.getLength() == 0 ? "" : n.item(0).getTextContent().trim();
     }
 }
+
 ===== END FILE gauntlet/tools/PitSummary.java =====
 

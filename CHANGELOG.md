@@ -90,10 +90,11 @@
       `"$(git push --force)"` проходило. Добавлен `command_substitutions`: тела подстановок вне одинарных
       кавычек рекурсивно проверяются human-only правилами (вложенные подстановки рекурсия разбирает сама).
       В одинарных кавычках подстановка литеральна и не блокируется — без over-block.
-    - **`GherkinMutator`, Background (P1).** Сценарий без собственных шагов освобождался от проверки пустоты,
-      даже когда Background фичи или правила даёт исполняемые шаги. Теперь освобождение — только когда шагов
-      нет и в Background (`hasBackgroundSteps`); иначе сценарий без «Примеров» помечается `GHERKIN VACUOUS`
-      (exit 1): шаги выполняются, но мутировать нечего.
+    - **`GherkinMutator`, Background (P1) — отменено правкой G6 (п. 13).** Сценарий без собственных шагов
+      освобождался от проверки пустоты, даже когда Background фичи или правила даёт исполняемые шаги. Правка
+      сделала освобождение только когда шагов нет и в Background (`hasBackgroundSteps`); иначе сценарий без
+      «Примеров» помечался `GHERKIN VACUOUS`. Посылка оказалась неверной: Gherkin не подмешивает Background к
+      сценарию без собственных шагов, поэтому G6 отменил эту правку — пустой сценарий всегда освобождён (п. 13).
     - **`IntegrityCheck`, смешанная строка (P1).** Освобождение «безобидного» блока на одной строке срабатывало
       по опенеру, даже когда отключение `test` стояло отдельным оператором вне блока:
       `test.enabled = false; jar { }` и `jar { }; test.enabled = false` проходили. Добавлен `harmlessSingleLine`:
@@ -111,9 +112,54 @@
       и сбрасывал счётчик в 1. Окно расширено до `timeout × max(1, модули) + 10 мин`; таймаут хука в
       `.claude/settings.json` поднят 3600 → 7200 с под двухмодульный бюджет.
     - Регрессии: 12 новых сценариев guard (подстановки, `env -S`, push без refspec) × 3 раскладки = +36;
-      5 проверок окна `stop_gate` × 3 раскладки = +15; целевые Java-регрессии `GherkinMutator` (Background)
-      и `IntegrityCheck` (смешанные строки). Итого 682 → 733 проверки самопроверки. README набора обновлён
-      (счётчик 733, таблица лазеек и раздел 8 — новое покрытие).
+      5 проверок окна `stop_gate` × 3 раскладки = +15; целевая Java-регрессия `IntegrityCheck` (смешанные строки);
+      регрессия `GherkinMutator` (Background) отменена вместе с K2 правкой G6. Итого 682 → 733 проверки
+      самопроверки. README набора обновлён (счётчик 733, таблица лазеек и раздел 8 — новое покрытие).
+13. **guard и инструменты — семь правок по ревью Grok (продолжение ревизии 4.3).** Каждая находка подтверждена
+    воспроизведением на голове PR; поведение гейтов не ослаблено. G6 — отмена собственной правки K2 ревизии 4.3:
+    её посылка проверена по исходникам и прогону Gherkin и оказалась неверной.
+    - **guard, некавыченный payload через pipe (G1).** `piped_shell_code` брал из левой части пайпа только
+      фрагменты в кавычках; `echo git push --force origin main | bash` и `printf %s git\ push\ --force | bash`
+      проходили, хотя shell их исполняет. Теперь смотрится весь текст `echo`/`printf` слева от пайпа (опции
+      `-n`/`-e`/`-E` снимаются); безобидный `echo hello | bash` по-прежнему разрешён.
+    - **guard, глубина подстановок с учётом кавычек (G2).** Цикл глубины `$(…)` в `command_substitutions` считал
+      каждую `(` и `)` без учёта кавычек: `)` внутри кавычек обрывал тело и хвост не попадал в рекурсию —
+      `echo "$(python3 -c 'print(")")'; git push --force)"` проходил. Теперь цикл держит состояние кавычек
+      (одинарные/двойные, escape вне одинарных) и не уменьшает глубину на `)` внутри кавычек. `echo "$(date)"`
+      по-прежнему разрешён, одинарные кавычки — литерал.
+    - **guard, `@` — синоним HEAD в push (G3).** Проверка базовой ветки сравнивала refspec только с литералом
+      `HEAD`; `git push origin @` на базовой ветке проходил (`@` = HEAD). Теперь `@` и `@:main` блокируются как
+      `HEAD`/`HEAD:main`; `HEAD:other`/`@:other` базовой веткой не считаются и разрешены (снят over-block).
+    - **guard, push через `-C`/`--git-dir` (G4).** Текущая ветка для push бралась из `ctx.project`, игнорируя
+      `-C`/`--git-dir`: `git -C <worktree> push` из feature-сессии, когда worktree на базовой ветке, проходил.
+      Добавлены `push_branch_dir`/`push_current_branch`: каталог `-C`/`--git-dir` учитывается, `symbolic-ref`
+      берётся того каталога. Worktree на базовой ветке блокируется, на своей — разрешён.
+    - **guard, шире inline-интерпретаторы и argv (G5).** `inline_code_strings` узнавал только точные имена из
+      `INTERPRETERS` и флаги `-c`/`-e`. Добавлены версионные `python3.X`, длинные флаги node
+      `--eval`/`--eval=`/`--print`/`--print=`, `perl -E` (и `-e`); argv из отдельных кавычек
+      (`subprocess.run(['git','push','--force'])`, `os.exec*`, `execSync`) собирается в одну команду и проверяется
+      рекурсивно. Безобидные `node --eval "console.log(1)"`, `python3.12 -c "print(1)"`, `perl -E 'say 1'` и
+      список данных `print(['git','push'])` разрешены.
+    - **`GherkinMutator`, отмена K2 (G6).** Пустой сценарий при непустом Background давал ложный `GHERKIN VACUOUS`
+      (exit 1). Посылка K2 («Background выполняется и для сценария без шагов») неверна: в Gherkin 42.0.1
+      (cucumber-bom 8.0.1 — дефолт набора) `PickleCompiler.compilePickleSteps` при пустом списке шагов сценария
+      возвращает пустой pickle (`if (scenarioSteps.isEmpty()) return new ArrayList<>(0)`), Background не
+      подмешивается. Проверено на исходниках и прогоне (пустой сценарий с Background фичи/правила и с описанием
+      под Background → steps=0). Сценарий без собственных шагов теперь всегда освобождён (`if (sc.body.isEmpty())
+      continue`), `hasBackgroundSteps` удалён. Сценарий со своими шагами без «Примеров» по-прежнему vacuous
+      (exit 1); outline с «Примерами» по-прежнему даёт мутантов.
+    - **`IntegrityCheck`, получатель отключения в B1 (G7).** Освобождение «безобидного» блока смотрело на опенер
+      и на то, что `enabled = false` лежит между `{` и `}`, но не на получателя: `jar { test.enabled = false }` и
+      `jar { tasks.test.enabled = false }` (в т. ч. многострочно) проходили, хотя в Gradle замыкание задачи
+      резолвит неизвестное имя на проект и отключает `test`. Добавлены `receiverIsHarmless`/`disabledTargetsHarmless`:
+      свободно только bare `enabled = false`/`setEnabled(false)` или `<безобидная-задача>.enabled` внутри её блока;
+      `test`/`tasks.test`/`tasks.named("test")` — снова B1. Правило применено и к многострочному блоку.
+      Легитимные `jar { enabled = false }`, `bootJar`/`javadoc`/`tasks.named("jar")` остаются свободными.
+    - Регрессии: 25 новых сценариев guard (16 на G1/G2/G5 + 9 на G3/G4) × 3 раскладки = +75; целевые
+      Java-регрессии `GherkinMutator` (пустой сценарий + Background фичи/правила/описания → exit 0; свои шаги без
+      «Примеров» → exit 1; outline → мутанты) и `IntegrityCheck` (17 форм получателя). Итого 733 → 808 проверок
+      самопроверки. README набора обновлён (счётчик 808, таблица лазеек и раздел 8 — новое покрытие, строка
+      GherkinMutator исправлена).
 
 ### Остаток эвристики guard (честно)
 
@@ -134,7 +180,7 @@ guard — растяжка, а не сейф (это заявлено в наб�
 **`gauntlet-kit-bundle.md`** (встроенные файлы эталона):
 - шапка: ревизия 4.3, дата; блок «Изменения против ревизии 4.2»;
 - `gauntlet/tools/IntegrityCheck.java`, `CrapGate.java`, `GherkinMutator.java`, `PitSummary.java`;
-- `gauntlet/hooks/guard.py`, `stop_gate.py`, `selftest.py` (733 проверки в трёх раскладках);
+- `gauntlet/hooks/guard.py`, `stop_gate.py`, `selftest.py` (808 проверок в трёх раскладках);
 - `.claude/settings.json` (deny; таймаут SubagentStop 3600 → 7200 с);
 - `gauntlet/templates/acceptanceTest/resources/features/example_discount.feature`;
 - `gauntlet/README.md` (таблица лазеек, раздел 8, остаток);
@@ -147,28 +193,35 @@ guard — растяжка, а не сейф (это заявлено в наб�
 | Файл | 4.2 | 4.3 |
 |---|---|---|
 | `.claude/settings.json` | 1720 | 2211 |
-| `gauntlet/README.md` | 29851 | 34732 |
-| `gauntlet/hooks/guard.py` | 26740 | 34718 |
-| `gauntlet/hooks/selftest.py` | 41192 | 48771 |
+| `gauntlet/README.md` | 29851 | 37880 |
+| `gauntlet/hooks/guard.py` | 26740 | 38892 |
+| `gauntlet/hooks/selftest.py` | 41192 | 52397 |
 | `gauntlet/hooks/stop_gate.py` | 16669 | 17174 |
 | `gauntlet/templates/acceptanceTest/resources/features/example_discount.feature` | 928 | 1258 |
 | `gauntlet/tools/CrapGate.java` | 12638 | 13144 |
-| `gauntlet/tools/GherkinMutator.java` | 35990 | 37983 |
-| `gauntlet/tools/IntegrityCheck.java` | 15688 | 17704 |
+| `gauntlet/tools/GherkinMutator.java` | 35990 | 37648 |
+| `gauntlet/tools/IntegrityCheck.java` | 15688 | 20022 |
 | `gauntlet/tools/PitSummary.java` | 11401 | 11633 |
 
 Остальные 20 файлов не правились; их размеры не изменились.
 
 ### Проверено
 
-- `python3 gauntlet/hooks/selftest.py` — 733 проверки, 0 падений, три раскладки (корень; `core/`;
+- `python3 gauntlet/hooks/selftest.py` — 808 проверок, 0 падений, три раскладки (корень; `core/`;
   `core/` + `adapter/`).
 - Компиляция всех single-file инструментов (`javac`): `CrapGate`, `DryGate`, `GherkinMutator`,
   `IntegrityCheck`, `PitSummary` — без ошибок.
-- Целевые регрессии: allowlist `CrapGate` (ключ `Class#method` цел), опенер `IntegrityCheck` (10 случаев)
-  и смешанные строки `test.enabled = false; jar { }` (15 случаев), `GherkinMutator` (пустой сценарий при
-  непустом Background фичи/правила), окно `stop_gate` (медленный одномодульный и двухмодульный прогон не
+- Целевые регрессии: allowlist `CrapGate` (ключ `Class#method` цел), опенер `IntegrityCheck` (10 случаев),
+  смешанные строки `test.enabled = false; jar { }` (15 случаев) и получатель отключения B1 (17 форм:
+  `test`/`tasks.test`/`tasks.named("test")` внутри `jar { }` → B1, легитимные `jar`/`bootJar`/`javadoc` →
+  свободно), `GherkinMutator` (пустой сценарий + Background фичи/правила/описания → exit 0; свои шаги без
+  «Примеров» → exit 1; outline → мутанты), окно `stop_gate` (медленный одномодульный и двухмодульный прогон не
   сбрасывает счётчик; за пределами бюджета — сброс), пример фичи (9 мутантов / 0 эквивалентных).
+- Семантика Gherkin для G6 сверена по исходникам и прогону gherkin 42.0.1 (cucumber-bom 8.0.1 — дефолт набора):
+  `PickleCompiler.compilePickleSteps` при пустом списке шагов сценария возвращает пустой pickle, Background не
+  подмешивается (пустой сценарий с Background → steps=0). Целевой harness guard по находкам Grok — 36/36
+  (включая allow-контроли против over-block: безобидный `printf`, список данных `print(['git','push'])`,
+  `HEAD:other`/`@:other` на базовой ветке).
 - Round-trip бандла: распаковка 30 файлов побайтово совпадает с исходниками.
 
 ## Ревизия 4.2 — 2026-11-19

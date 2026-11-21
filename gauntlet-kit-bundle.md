@@ -174,7 +174,8 @@ ArchUnit-тест, шаблоны, установку и документаци�
   `env -S`/`--split-string` расщепляется, и исполняемая строка проверяется; `git push` без refspec на базовой
   ветке блокируется (`push.default=simple`). В одинарных кавычках подстановка литеральна — не блокируется.
 - `tools/GherkinMutator.java`: сценарий без собственных шагов при непустом Background фичи или правила не
-  считается пустым (`hasBackgroundSteps`) — step-определениям есть что проверять.
+  считался пустым (`hasBackgroundSteps`). **Отменено правкой G6 ревью Grok** (см. ниже): посылка оказалась
+  неверной — Gherkin не подмешивает Background к сценарию без шагов, исполнять там нечего.
 - `tools/IntegrityCheck.java`: однострочный «безобидный» блок освобождается, только если каждое отключение
   стоит внутри его скобок (`harmlessSingleLine`): `test.enabled = false; jar { }` и `jar { }; test.enabled = false`
   снова нарушение B1.
@@ -182,8 +183,42 @@ ArchUnit-тест, шаблоны, установку и документаци�
   плюс запас) — медленный двухмодульный `mutationGate` не сбрасывает счётчик; `.claude/settings.json`: таймаут
   хука SubagentStop 3600 → 7200 с.
 - `README.md`: счётчик самопроверки 682 → 733; таблица лазеек и раздел 8 — новое покрытие.
-- Регрессии: +36 проверок guard (12 сценариев × 3 раскладки), +15 проверок окна stop_gate (5 × 3), целевые
-  Java-регрессии GherkinMutator (Background) и IntegrityCheck (смешанные строки). Пороги и правила гейтов не ослаблены.
+- Регрессии: +36 проверок guard (12 сценариев × 3 раскладки), +15 проверок окна stop_gate (5 × 3), целевая
+  Java-регрессия IntegrityCheck (смешанные строки); регрессия GherkinMutator (Background) отменена вместе с K2
+  (правкой G6). Пороги и правила гейтов не ослаблены.
+
+**Правки по ревью Grok (продолжение ревизии 4.3) — семь находок, подтверждены воспроизведением на голове PR.**
+- `hooks/guard.py` (G1): `piped_shell_code` смотрит весь текст слева от пайпа, когда левая команда — `echo`/`printf`
+  (опции `-n`/`-e`/`-E` снимаются), а не только фрагменты в кавычках: закрыт некавыченный `echo git push --force | bash`
+  и `printf %s git\ push\ --force | bash` (shell их исполняет).
+- `hooks/guard.py` (G2): глубина `$(…)` в `command_substitutions` считается с учётом кавычек (одинарные/двойные,
+  escape вне одинарных): `)` внутри кавычек не обрывает тело, хвост подстановки доходит до рекурсии. Закрыт
+  `echo "$(python3 -c 'print(")")'; git push --force)"`; `echo "$(date)"` по-прежнему разрешён.
+- `hooks/guard.py` (G3): `@` — синоним `HEAD` в refspec push; `push origin @`/`@:main` на базовой ветке блокируются,
+  `HEAD:other`/`@:other` базовой веткой не считаются и разрешены (снят over-block на `HEAD:other`).
+- `hooks/guard.py` (G4): текущая ветка для push берётся с учётом `-C`/`--git-dir` (`push_branch_dir`/`push_current_branch`):
+  `git -C <worktree> push`/`push HEAD` из feature-сессии, когда worktree на базовой ветке, блокируются.
+- `hooks/guard.py` (G5): `inline_code_strings` принимает версионные имена `python3.X`, длинные флаги node
+  `--eval`/`--eval=`/`--print`/`--print=`, `perl -E` (и `-e`), собирает argv из отдельных кавычек
+  (`subprocess.run(['git','push','--force'])`, `os.exec*`, `execSync`) в одну команду для рекурсивной проверки.
+- `tools/GherkinMutator.java` (G6): **отмена K2.** Сценарий без собственных шагов всегда освобождён от проверки
+  пустоты (`if (sc.body.isEmpty()) continue`); `hasBackgroundSteps` удалён. Посылка K2 («Background выполняется и
+  для пустого сценария») неверна: в Gherkin 42.0.1 (cucumber-bom 8.0.1 — дефолт набора) `PickleCompiler.compilePickleSteps`
+  при пустом списке шагов сценария возвращает пустой pickle (`if (scenarioSteps.isEmpty()) return new ArrayList<>(0)`),
+  Background не подмешивается. Проверено на исходниках и прогоне: пустой сценарий с Background фичи/правила и с
+  описанием под Background даёт steps=0. Ложный `GHERKIN VACUOUS` снят; сценарий со своими шагами без «Примеров»
+  по-прежнему vacuous (exit 1), outline с «Примерами» по-прежнему даёт мутантов.
+- `tools/IntegrityCheck.java` (G7): освобождение B1 проверяет получателя отключения (`receiverIsHarmless`/
+  `disabledTargetsHarmless`): свободно только bare `enabled = false`/`setEnabled(false)` или `<безобидная-задача>.enabled`
+  внутри её блока; `test.enabled`, `tasks.test.enabled`, `tasks.named("test").enabled` внутри `jar { }` — снова B1
+  (замыкание задачи Gradle резолвит неизвестное имя на проект). Правило применено и к многострочному блоку.
+  Легитимные `jar { enabled = false }`, `bootJar`/`javadoc`/`tasks.named("jar")` остаются свободными.
+- `README.md`: счётчик самопроверки 733 → 808; таблица лазеек и раздел 8 — новое покрытие guard, исправлена строка
+  GherkinMutator (пустой сценарий освобождён, а не «не считается пустым»).
+- Регрессии: +25 проверок guard (16 на G1/G2/G5 + 9 на G3/G4) × 3 раскладки = +75; целевые Java-регрессии
+  GherkinMutator (пустой сценарий + Background фичи/правила/описания → exit 0; свои шаги без «Примеров» → exit 1)
+  и IntegrityCheck (17 форм получателя: `test`/`tasks.test` внутри `jar` → B1, легитимные packaging/doc → свободно).
+  Итого 733 → 808 проверок. Пороги и правила гейтов не ослаблены.
 
 ## Как распаковать (Claude выполняет это на шаге 2 протокола `start`)
 
@@ -218,7 +253,7 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 - `CLAUDE.md` (279 байт)
 - `gauntlet/CLAUDE.md` (63625 байт)
 - `gauntlet/INSTALL.md` (11426 байт)
-- `gauntlet/README.md` (34732 байт)
+- `gauntlet/README.md` (37880 байт)
 - `gauntlet/archtest/gauntlet/architecture/ArchitectureTest.java` (7906 байт)
 - `gauntlet/config/architecture.properties` (1420 байт)
 - `gauntlet/config/checkstyle.xml` (4593 байт)
@@ -228,8 +263,8 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 - `gauntlet/config/pit-runerror-allowlist.txt` (1485 байт)
 - `gauntlet/config/pmd-ruleset.xml` (11398 байт)
 - `gauntlet/gauntlet.gradle` (32451 байт)
-- `gauntlet/hooks/guard.py` (34718 байт)
-- `gauntlet/hooks/selftest.py` (48771 байт)
+- `gauntlet/hooks/guard.py` (38892 байт)
+- `gauntlet/hooks/selftest.py` (52397 байт)
 - `gauntlet/hooks/session_start.sh` (3116 байт)
 - `gauntlet/hooks/stop_gate.py` (17174 байт)
 - `gauntlet/install.sh` (4933 байт)
@@ -237,8 +272,8 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 - `gauntlet/templates/acceptanceTest/resources/features/example_discount.feature` (1258 байт)
 - `gauntlet/tools/CrapGate.java` (13144 байт)
 - `gauntlet/tools/DryGate.java` (6538 байт)
-- `gauntlet/tools/GherkinMutator.java` (37983 байт)
-- `gauntlet/tools/IntegrityCheck.java` (17704 байт)
+- `gauntlet/tools/GherkinMutator.java` (37648 байт)
+- `gauntlet/tools/IntegrityCheck.java` (20022 байт)
 - `gauntlet/tools/PitSummary.java` (11633 байт)
 
 ## Файлы
@@ -1174,7 +1209,7 @@ gauntlet/
   archtest/               ArchUnit-тест, читающий config/architecture.properties
   hooks/                  guard.py (PreToolUse), stop_gate.py (Stop; SubagentStop hardener'а — matcher в
                           .claude/settings.json), session_start.sh (SessionStart; в облаке поднимает dockerd),
-                          selftest.py (733 проверки хуков в трёх раскладках: python3 gauntlet/hooks/selftest.py)
+                          selftest.py (808 проверок хуков в трёх раскладках: python3 gauntlet/hooks/selftest.py)
   templates/              конфигурация Cucumber+Spring, пример фичи на русском
   claude/, ci/            только до установки: install.sh переносит их в .claude/ и .github/workflows/
 ```
@@ -1302,15 +1337,15 @@ Auto-fix (кнопка в CI status bar сессии): на упавший CI и
 | `CHECKSTYLE:OFF`, `NOPMD`, `@SuppressWarnings("checkstyle…")` | M2–M3; в checkstyle.xml нет фильтров подавления |
 | сценарий «skipped», а сборка зелёная | `acceptanceCheck` |
 | фичи есть, а не исполнено ни одного сценария; устаревшие результаты прошлого прогона | `acceptanceCheck` (результаты стираются перед прогоном) |
-| фича без значений «Примеров» проходит `gherkinMutation` вхолостую; пустой сценарий при непустом Background | `gherkinMutants`: «GHERKIN VACUOUS» по каждому сценарию; сценарий без собственных шагов, но с шагами в Background (фичи или правила), пустым не считается |
+| фича без значений «Примеров» проходит `gherkinMutation` вхолостую | `gherkinMutants`: «GHERKIN VACUOUS» по каждому сценарию со своими шагами, но без значений «Примеров»; сценарий без собственных шагов освобождён — Cucumber компилирует для него пустой pickle (Gherkin `compilePickleSteps` не подмешивает Background при пустом списке шагов), исполнять и мутировать нечего |
 | два прогона Gradle в одном `build/` (фоновый прогон, Stop-хук, сабагент) | блокировка `.gradle/gauntlet-build.lock`: второй ждёт до 1500 с (`-Pgauntlet.lockWaitSeconds`) |
 | hardener заканчивает с выжившими мутантами | SubagentStop-хук в `.claude/settings.json` (matcher `^hardener$`) гоняет `mutationGate` |
 | hardener «временно» правит продакшен-файлы ради ручных мутантов (PIT нечего мутировать) | правило роли: мутанты предлагает списком, применяет, гоняет тесты и откатывает кодер, перед коммитом `src/main` проверяется на чистоту; guard по `agent_type` — растяжка, обход через скрипт виден в diff |
 | мутант RUN_ERROR засчитан PIT как убитый, хотя тест не запускался | `PitSummary.java`: RUN_ERROR печатается `UNVERIFIED` и валит `mutationGate`, пока человек не впишет его в `config/pit-runerror-allowlist.txt` |
 | обход guard через ключевые слова shell (`for … do rm`, `if …; then git push --force`) | guard разбирает команду после `do`, `then`, `else`, `{`, `!` так же, как после `&&` |
-| обход human-only правил через обёртки и inline-код (`sudo git push --force`, `bash -c '…'`, `eval`, `echo '…' \| sh`, `python3 -c "os.system('…')"`, `env -S 'git push --force'`, `"$(git push --force)"`) | guard снимает обёртки (`sudo`/`env`/`exec`/`command`/`nohup`/`time` с их опциями, включая `env -S`/`--split-string`), рекурсивно проверяет код после `-c`/`-e`, `eval`/`source`, текст через pipe и тела подстановок `$(…)`/`` `…` `` вне одинарных кавычек, включая вложенные строки в кавычках |
+| обход human-only правил через обёртки и inline-код (`sudo git push --force`, `bash -c '…'`, `eval`, `echo '…' \| sh`, `echo git push --force \| bash` без кавычек, `python3 -c "os.system('…')"`, `python3.12 -c`, `node --eval "…"`, `perl -E '…'`, `subprocess.run(['git','push','--force'])`, `env -S 'git push --force'`, `"$(git push --force)"`, `"$(python3 -c 'print(")")'; git push --force)"`) | guard снимает обёртки (`sudo`/`env`/`exec`/`command`/`nohup`/`time` с их опциями, включая `env -S`/`--split-string`), рекурсивно проверяет код после `-c`/`-e` (и `--eval`/`--print` у node, `-E` у perl, версионные имена `python3.X`), `eval`/`source`, весь текст `echo`/`printf` через pipe (в кавычках и без), argv из отдельных кавычек (`subprocess`/`os.exec`/`execSync`) и тела подстановок `$(…)`/`` `…` `` вне одинарных кавычек — глубина учитывает кавычки, поэтому `)` внутри кавычек не обрывает тело |
 | удалить `.git`, чтобы снять заморозку и Stop-хук, или подделать зелёный статус | `.git/` — зона человека: guard отклоняет запись/удаление, в т. ч. `last-green-*` в `.git/gauntlet-hook/` |
-| `git push --mirror`/`--all`, `push HEAD` или push без refspec сидя на базовой ветке; `--no-verif` (сокращение), `core.hooksPath=/dev/null`; пути в другом регистре (`GAUNTLET/…`) | guard ловит все эти формы (push без refspec на базовой ветке = push базовой ветки при `push.default=simple`); сравнение путей и `mentions` регистронезависимы (macOS/Windows) |
+| `git push --mirror`/`--all`, `push HEAD`/`push origin @` (`@` — синоним HEAD) или push без refspec сидя на базовой ветке; `git -C <worktree> push` из feature-сессии, когда worktree на базовой ветке; `--no-verif` (сокращение), `core.hooksPath=/dev/null`; пути в другом регистре (`GAUNTLET/…`) | guard ловит все эти формы (push без refspec на базовой ветке = push базовой ветки при `push.default=simple`; текущая ветка берётся с учётом `-C`/`--git-dir`); `HEAD:other`/`@:other` базовой веткой не считаются и разрешены; сравнение путей и `mentions` регистронезависимы (macOS/Windows) |
 | step-определение игнорирует параметр | `gherkinMutation` |
 | слабые ассерты | `mutationGate` |
 | сабагент вышел за роль | guard по `agent_type`: specifier пишет только фичи, hardener — только тесты, reviewer — ничего |
@@ -1326,7 +1361,7 @@ protection базовой ветки и то, что любая попытка �
 ## 8. Что проверено в этой версии, а что нет
 
 Проверено здесь (Gradle 8.14.3, Java 21):
-- Хуки, `hooks/selftest.py`, 733 проверки в трёх раскладках (сборка в корне; модуль `core/`; два модуля
+- Хуки, `hooks/selftest.py`, 808 проверок в трёх раскладках (сборка в корне; модуль `core/`; два модуля
   `core/` + `adapter/` — Gradle только в изменённом модуле, красный модуль блокирует, коммит
   спецификации одного модуля замораживает фичи другого, чужая незакоммиченная работа не считается)
   на временном git-репозитории с фиктивным `origin/main`:
@@ -1335,11 +1370,14 @@ protection базовой ветки и то, что любая попытка �
   в базовую ветку, detached HEAD, `gh pr merge` (включая `-R` и GraphQL auto-merge), редиректы в кавычках
   и `2>`/`&>`, `rm -rf src` и `rm -rf *`, `cd … && cp`, `git -C`, `$PWD`/`$CLAUDE_PROJECT_DIR`, `xargs rm`,
   `$(…)`, запись в `~/.claude`; human-only правила внутри обёрток (`sudo`/`env`/`exec`/`command`/`nohup`,
-  включая `env -S`/`--split-string`), inline-кода (`bash -c`, `python3 -c`/`node -e` с вложенным
+  включая `env -S`/`--split-string`), inline-кода (`bash -c`, `python3 -c`/`node -e`/`node --eval`/`--print`,
+  `perl -e`/`-E`, версионные `python3.X`, argv из отдельных кавычек `subprocess.run(['git','push',…])` с вложенным
   `os.system`/`subprocess`/`execSync`, многострочный `bash -c 'echo ok; git push --force'` — разделители
-  в кавычках не режут payload), `eval`, pipe в интерпретатор и тела подстановок `$(…)`/`` `…` `` вне
-  одинарных кавычек (в двойных и без кавычек shell их исполняет); защита `.git/` (включая подделку
-  `last-green-*`); `push --mirror`/`--all`/`HEAD` и push без refspec на базовой ветке; сокращения
+  в кавычках не режут payload), `eval`, pipe в интерпретатор (весь текст `echo`/`printf`, в кавычках и без)
+  и тела подстановок `$(…)`/`` `…` `` вне одинарных кавычек (в двойных и без кавычек shell их исполняет;
+  глубина учитывает кавычки — `)` внутри кавычек не обрывает тело); защита `.git/` (включая подделку
+  `last-green-*`); `push --mirror`/`--all`/`HEAD`/`@` и push без refspec на базовой ветке, push через
+  `-C`/`--git-dir` в worktree на базовой ветке (`HEAD:other`/`@:other` разрешены); сокращения
   `--no-verif` и `core.hooksPath`; регистронезависимые пути (`GAUNTLET/…`,
   `.Claude/…`); и отсутствие ложных срабатываний на `./gradlew gauntletFast`, `git add -A`,
   `git commit` (в том числе с heredoc-сообщением и словами `--no-verify`/`push --force`/`core.hooksPath` в тексте сообщения),
@@ -1355,11 +1393,22 @@ protection базовой ветки и то, что любая попытка �
 - Два прохода независимого агента-ревьюера по набору: 12 и 7 находок (обход заморозки через
   `checkout -B` и `revert`, редиректы в кавычках, `disableAllHooks` через `~/.claude`, блокировка вопроса
   человеку после красного и т. д.) — все закрыты и покрыты самопроверкой.
-- Ревью Kimi по PR: шесть функциональных находок подтверждены воспроизведением и закрыты. Guard — тела
-  подстановок `$(…)`/`` `…` `` в двойных кавычках и без кавычек, `env -S`/`--split-string`, push без refspec
-  на базовой ветке (+36 проверок самопроверки); `stop_gate` — окно повторов на весь бюджет двух модулей
-  (+15 проверок). `GherkinMutator` (пустой сценарий при непустом Background) и `IntegrityCheck` (смешанная
-  строка `test.enabled = false; jar { }`) — целевые Java-регрессии. Итого 682 → 733 проверки.
+- Ревью Kimi по PR: шесть функциональных находок подтверждены воспроизведением; пять закрыты, а правка
+  `GherkinMutator` (K2, «пустой сценарий при непустом Background») позже отменена ревью Grok (G6) — её посылка
+  оказалась неверной. Guard — тела подстановок `$(…)`/`` `…` `` в двойных кавычках и без кавычек,
+  `env -S`/`--split-string`, push без refspec на базовой ветке (+36 проверок самопроверки); `stop_gate` — окно
+  повторов на весь бюджет двух модулей (+15 проверок). `IntegrityCheck` (смешанная строка
+  `test.enabled = false; jar { }`) — целевая Java-регрессия. Итого 682 → 733 проверки.
+- Ревью Grok по PR: семь находок подтверждены воспроизведением и закрыты. Guard — некавыченный payload
+  `echo`/`printf` через pipe, глубина подстановок с учётом кавычек (`)` внутри кавычек не обрывает тело),
+  `@` как синоним HEAD (и `HEAD:other`/`@:other` не базовая ветка), push через `-C`/`--git-dir` в worktree на
+  базовой ветке, версионные интерпретаторы (`python3.X`)/`node --eval`/`--print`/`perl -E`/argv из отдельных
+  кавычек (+25 проверок × 3 раскладки = +75). `GherkinMutator` — отмена K2: пустой сценарий компилируется в
+  пустой pickle (Gherkin 42.0.1, `PickleCompiler.compilePickleSteps` не подмешивает Background при пустом
+  списке шагов; проверено на исходниках и прогоне — steps=0), поэтому всегда освобождён; ложный
+  `GHERKIN VACUOUS` снят, сценарий со своими шагами без «Примеров» по-прежнему vacuous. `IntegrityCheck` —
+  освобождение B1 проверяет получателя отключения: `test.enabled`/`tasks.test.enabled` внутри `jar { }` снова
+  B1, легитимное `jar { enabled = false }` свободно. Итого 733 → 808 проверок.
 - `install.sh` на демо-проекте: чистая установка; слияние с существующим `.claude/settings.json`
   (хуки и права добавлены, `disableAllHooks=false`); существующая роль и `CLAUDE.md` не перезаписаны;
   отказ до любых изменений при битом JSON.
@@ -3020,35 +3069,81 @@ def human_only(command, ctx):
     return None
 
 
+PYTHON_VERSIONED = re.compile(r"^python[23](?:\.\d+)?$")
+ARGV_EXEC = re.compile(r"(?:subprocess\.\w+|os\.exec\w*|os\.spawn\w*|os\.popen)\s*\(\s*"
+                       r"(\[\s*(?:['\"][^'\"]*['\"]\s*,?\s*)+\])")
+
+
+def is_interpreter(cmd):
+    """An interpreter that runs inline code with -c/-e, including a versioned python3.12 / python2.7."""
+    return cmd in INTERPRETERS or PYTHON_VERSIONED.match(cmd) is not None
+
+
+def argv_commands(codes):
+    """`subprocess.run(['git','push','--force'])`: the quoted argv is one command, not separate strings.
+    Only an exec-style call qualifies, so a plain data list (`print(['git','push'])`) is not assembled."""
+    out = []
+    for code in codes:
+        for m in ARGV_EXEC.finditer(code):
+            parts = re.findall(r"['\"]([^'\"]*)['\"]", m.group(1))
+            if parts:
+                out.append(" ".join(parts))
+    return out
+
+
 def inline_code_strings(cmd, args):
     """Code handed to an interpreter or eval: the human-only git/gh rules apply inside it too."""
     codes = []
-    if cmd in INTERPRETERS or cmd == "perl":
+    if is_interpreter(cmd) or cmd == "perl":
         for i, a in enumerate(args):
-            if a in ("-c", "-e"):
+            flag = a.lower() if cmd == "perl" else a   # perl -E runs code like -e
+            if flag in ("-c", "-e"):
                 if i + 1 < len(args):
                     codes.append(args[i + 1])
-            elif a.startswith("-c") and len(a) > 2:
+            elif flag.startswith("-c") and len(flag) > 2 and not flag.startswith("--"):
                 codes.append(a[2:])
-            elif a.startswith("-e") and len(a) > 2:
+            elif flag.startswith("-e") and len(flag) > 2 and not flag.startswith("--"):
                 codes.append(a[2:])
+            elif cmd == "node" and (flag in ("--eval", "--print")
+                                    or flag.startswith("--eval=") or flag.startswith("--print=")):
+                if "=" in a:
+                    codes.append(a.split("=", 1)[1])
+                elif i + 1 < len(args):
+                    codes.append(args[i + 1])
         for code in list(codes):
             for m in QUOTED.finditer(code):
                 codes.append(m.group(0)[1:-1])   # nested shell call: os.system('git push --force')
+        codes.extend(argv_commands(codes))
     if cmd in ("eval", "source", "."):
         codes.append(" ".join(args))
     return codes
 
 
 def piped_shell_code(command):
-    """Text piped into an interpreter reading stdin (`echo 'git push --force' | bash`): scan the quoted payload."""
+    """Text piped into an interpreter reading stdin (`echo 'git push --force' | bash`): scan the payload.
+    Quoted fragments are scanned for any left command; for echo/printf the unquoted args are printed text
+    too, so reconstruct them (`echo git push --force | bash` really runs the push)."""
     codes = []
     parts = command.split("|")
     for i in range(len(parts) - 1):
         right = words_of(parts[i + 1])
-        if right and os.path.basename(right[0]) in INTERPRETERS and not inline_code(right):
+        if right and is_interpreter(os.path.basename(right[0])) and not inline_code(right):
             for m in QUOTED.finditer(parts[i]):
                 codes.append(m.group(0)[1:-1])
+            left = words_of(parts[i])
+            if left:
+                lcmd = os.path.basename(left[0])
+                if lcmd == "echo":
+                    rest = left[1:]
+                    while rest and rest[0] in ("-n", "-e", "-E", "-ne", "-en", "-nE"):
+                        rest = rest[1:]
+                    if rest:
+                        codes.append(" ".join(rest))
+                elif lcmd == "printf":
+                    if len(left) > 1:
+                        codes.append(" ".join(left[1:]))   # the format string may itself be the payload
+                    if len(left) > 2:
+                        codes.append(" ".join(left[2:]))   # ...or the args printed after the format
     return codes
 
 
@@ -3072,12 +3167,23 @@ def command_substitutions(command):
         elif c == "\\" and quote is None:
             i += 1
         elif command.startswith("$(", i):
-            depth, j = 1, i + 2
+            depth, j, q = 1, i + 2, None
             while j < n and depth:
-                if command[j] == "(":
-                    depth += 1
-                elif command[j] == ")":
-                    depth -= 1
+                cj = command[j]
+                if q == "'":
+                    if cj == "'":
+                        q = None
+                elif cj == "'" and q is None:
+                    q = "'"
+                elif cj == '"':
+                    q = None if q == '"' else '"'
+                elif cj == "\\" and q != "'":
+                    j += 1                      # escaped char: neither a paren nor a quote
+                elif q is None:
+                    if cj == "(":
+                        depth += 1
+                    elif cj == ")":
+                        depth -= 1              # a ) inside quotes is literal, it does not close the body
                 j += 1
             bodies.append(command[i + 2:j - 1])
             i = j
@@ -3107,6 +3213,40 @@ def gh_human_only(args):
     return None
 
 
+def push_branch_dir(args, cwd):
+    """Directory whose HEAD a push acts on: honour -C and --git-dir, as git_subcommand/path_tokens do.
+    A worktree on the base branch is pushed even when the session's own project sits on a feature branch."""
+    base, git_dir = cwd, None
+    sub = git_subcommand(args)
+    region = args[:args.index(sub)] if sub in args else args
+    i = 0
+    while i < len(region):
+        a = region[i]
+        if a == "-C" and i + 1 < len(region):
+            t = region[i + 1]
+            base = os.path.realpath(t if os.path.isabs(t) else os.path.join(base, t))
+            i += 2
+            continue
+        if a.startswith("-C") and not a.startswith("--") and len(a) > 2:
+            t = a[2:]
+            base = os.path.realpath(t if os.path.isabs(t) else os.path.join(base, t))
+        elif a == "--git-dir" and i + 1 < len(region):
+            git_dir = region[i + 1]
+            i += 2
+            continue
+        elif a.startswith("--git-dir="):
+            git_dir = a.split("=", 1)[1]
+        i += 1
+    return base, git_dir
+
+
+def push_current_branch(args, cwd):
+    base, git_dir = push_branch_dir(args, cwd)
+    if git_dir:
+        return git(base, "--git-dir", git_dir, "symbolic-ref", "--short", "HEAD")
+    return git(base, "symbolic-ref", "--short", "HEAD")
+
+
 def git_human_only(args, ctx):
     sub = git_subcommand(args)
     rest = args[args.index(sub) + 1:] if sub in args else []
@@ -3128,13 +3268,13 @@ def git_human_only(args, ctx):
         if any(a.startswith("+") or a == ctx.base_branch or a.endswith(":" + ctx.base_branch)
                or a.endswith("/" + ctx.base_branch) for a in refspecs):
             return f"Pushing to {ctx.base_branch} is the human's decision (merge the PR). Push your own branch only."
-        if any(a == "HEAD" or a.startswith("HEAD:") for a in refspecs):
-            current = git(ctx.project, "symbolic-ref", "--short", "HEAD")
+        if any(a in ("HEAD", "@") for a in refspecs):   # bare HEAD/@ pushes the current branch; @ is git's HEAD synonym
+            current = push_current_branch(args, ctx.project)
             if current == ctx.base_branch:
                 return (f"Pushing HEAD while on {ctx.base_branch} pushes the base branch. "
                         "Reserved for the human. Push your own branch only.")
         if not refspecs:
-            current = git(ctx.project, "symbolic-ref", "--short", "HEAD")
+            current = push_current_branch(args, ctx.project)
             if current == ctx.base_branch:
                 return (f"Pushing without a refspec while on {ctx.base_branch} pushes the base branch "
                         "(push.default=simple). Reserved for the human. Push your own branch only.")
@@ -3319,7 +3459,7 @@ def inline_code(words):
     if not words:
         return False
     cmd, args = os.path.basename(words[0]), words[1:]
-    if cmd in INTERPRETERS:
+    if is_interpreter(cmd):
         return any(f in short_flags(args) for f in "ce")
     return cmd == "perl" and "e" in short_flags(args).lower()
 
@@ -3336,7 +3476,7 @@ def writes_worktree(words, segment):
         return "i" in short_flags(args) or ("e" in short_flags(args).lower() and bool(PERL_WRITES.search(segment)))
     if cmd in ("awk", "gawk"):
         return "-i" in args or any(a.startswith("-i") for a in args)
-    if cmd in INTERPRETERS:
+    if is_interpreter(cmd):
         return any(f in short_flags(args) for f in "ce")
     if cmd == "git":
         return git_subcommand(args) in GIT_WORKTREE_WRITING
@@ -3727,6 +3867,31 @@ def guard_tests(repo):
                  command="echo '$(git push --force origin main)'")
     expect_allow(repo, "double-quote harmless substitution", "main", "Bash",
                  command='git commit -m "release $(date)"')
+    # --- hardening (Grok): unquoted pipe payload, quote-aware substitution depth, wider inline interpreters
+    expect_deny(repo, "echo unquoted force push | bash", "main", "Bash",
+                command="echo git push --force origin main | bash")
+    expect_deny(repo, "echo unquoted force push | sh", "main", "Bash", command="echo git push --force | sh")
+    expect_deny(repo, "printf unquoted force push | bash", "main", "Bash",
+                command="printf %s git\\ push\\ --force | bash")
+    expect_allow(repo, "echo harmless | bash", "main", "Bash", command="echo hello | bash")
+    expect_allow(repo, "printf harmless | bash", "main", "Bash", command="printf '%s\\n' hello | bash")
+    expect_deny(repo, "substitution depth past quoted paren", "main", "Bash",
+                command='echo "$(python3 -c \'print(")")\'; git push --force)"')
+    expect_allow(repo, "echo harmless substitution", "main", "Bash", command='echo "$(date)"')
+    expect_deny(repo, "node --eval force push", "main", "Bash",
+                command="node --eval \"require('child_process').execSync('git push --force')\"")
+    expect_deny(repo, "node --eval= force push", "main", "Bash",
+                command="node --eval=\"require('child_process').execSync('git push --force')\"")
+    expect_deny(repo, "python3.12 -c force push", "main", "Bash",
+                command="python3.12 -c \"import os; os.system('git push --force')\"")
+    expect_deny(repo, "python subprocess argv force push", "main", "Bash",
+                command="python3 -c \"import subprocess; subprocess.run(['git','push','--force'])\"")
+    expect_deny(repo, "perl -E force push", "main", "Bash", command="perl -E 'system(\"git push --force\")'")
+    expect_allow(repo, "node --eval harmless", "main", "Bash", command="node --eval \"console.log(1)\"")
+    expect_allow(repo, "python3.12 -c harmless", "main", "Bash", command="python3.12 -c \"print(1)\"")
+    expect_allow(repo, "perl -E harmless", "main", "Bash", command="perl -E 'say 1'")
+    expect_allow(repo, "python data list not a command", "main", "Bash",
+                 command="python3 -c \"print(['git','push'])\"")
     expect_allow(repo, "sudo gradlew", "main", "Bash", command="sudo -u root ./gradlew test")
     # --- hardening: .git is human-owned (deleting it disables the stop hook and unfreezes the spec)
     expect_deny(repo, "rm -rf .git", "main", "Bash", command="rm -rf .git")
@@ -3742,10 +3907,27 @@ def guard_tests(repo):
     expect_deny(repo, "push HEAD while on main", "main", "Bash", command="git push origin HEAD")
     expect_deny(repo, "push no refspec while on main", "main", "Bash", command="git push origin")
     expect_deny(repo, "push bare while on main", "main", "Bash", command="git push")
+    expect_deny(repo, "push @ while on main", "main", "Bash", command="git push origin @")
+    expect_deny(repo, "push @:main while on main", "main", "Bash", command="git push origin @:main")
+    expect_allow(repo, "push HEAD:other while on main", "main", "Bash", command="git push origin HEAD:other")
+    expect_allow(repo, "push @:other while on main", "main", "Bash", command="git push origin @:other")
     git(repo, "switch", "-q", cur)
     expect_allow(repo, "push HEAD on feature branch", "main", "Bash", command="git push -u origin HEAD")
     expect_allow(repo, "push no refspec on feature branch", "main", "Bash", command="git push origin")
     expect_allow(repo, "push bare on feature branch", "main", "Bash", command="git push")
+    expect_allow(repo, "push @ on feature branch", "main", "Bash", command="git push origin @")
+    # --- hardening (Grok): a worktree on the base branch is pushed even from a feature-branch session
+    root = os.path.dirname(repo)
+    wt_main = os.path.join(root, "wt-main")
+    wt_feat = os.path.join(root, "wt-feat")
+    git(repo, "worktree", "add", "-q", wt_main, "main")
+    git(repo, "worktree", "add", "-q", "-b", "claude/wt-feature", wt_feat)
+    expect_deny(repo, "push -C worktree HEAD on main", "main", "Bash", command=f"git -C {wt_main} push origin HEAD")
+    expect_deny(repo, "push -C worktree no refspec on main", "main", "Bash", command=f"git -C {wt_main} push")
+    expect_deny(repo, "push -C worktree @ on main", "main", "Bash", command=f"git -C {wt_main} push origin @")
+    expect_allow(repo, "push -C worktree HEAD on feature", "main", "Bash", command=f"git -C {wt_feat} push origin HEAD")
+    git(repo, "worktree", "remove", "--force", wt_main)   # free main again for the later checkout-main tests
+    git(repo, "worktree", "remove", "--force", wt_feat)
     # --- hardening: hook-skipping abbreviations and config
     expect_deny(repo, "no-verify abbreviation", "main", "Bash", command="git commit --no-verif -m x")
     expect_deny(repo, "core.hooksPath off", "main", "Bash", command="git -c core.hooksPath=/dev/null commit -m x")
@@ -5427,10 +5609,11 @@ public class GherkinMutator {
             int before = mutants.size();
             collectMutants(doc, mutants);
             for (Scenario sc : doc.scenarios) {
-                boolean backgroundSteps = hasBackgroundSteps(doc.background)
-                        || (sc.rule != null && hasBackgroundSteps(sc.rule.background));
-                if (sc.body.isEmpty() && !backgroundSteps) {
-                    continue;                              // no steps anywhere: nothing for a step definition to check
+                if (sc.body.isEmpty()) {
+                    continue;                              // no steps of its own: Cucumber executes nothing for it.
+                                                           // Gherkin's PickleCompiler.compilePickleSteps returns an empty
+                                                           // step list when the scenario has no steps, before prepending
+                                                           // Background - so an empty scenario runs no step definition.
                 }
                 boolean checked = false;
                 for (int mi = before; mi < mutants.size(); mi++) {
@@ -5462,18 +5645,6 @@ public class GherkinMutator {
             out.println("  the human approves it.");
         }
         return unreadable == 0 && vacuous == 0 ? 0 : 1;
-    }
-
-    static boolean hasBackgroundSteps(List<String> background) {
-        // the block holds its "Background:" keyword header at index 0; any later non-comment line is a step
-        // that runs for every scenario, so an empty-body scenario still exercises step definitions
-        for (int i = 1; i < background.size(); i++) {
-            String t = background.get(i).trim();
-            if (!t.isEmpty() && !t.startsWith("#")) {
-                return true;
-            }
-        }
-        return false;
     }
 
     static void collectMutants(FeatureDoc doc, List<Mutant> mutants) {
@@ -6140,6 +6311,11 @@ public class IntegrityCheck {
     static final Pattern HARMLESS_TASK = Pattern.compile("(?i)[\"'<(]" + HARMLESS_NAMES + "[\"'>)]|^\\s*"
             + HARMLESS_NAMES + "\\s*\\{");
     static final Pattern DISABLED = Pattern.compile("\\b(is)?[eE]nabled\\s*=\\s*false|setEnabled\\s*\\(\\s*false");
+    /** Receiver of a disabled statement: tasks.named("x")/getByName("x")/register("x") -> x. */
+    static final Pattern TASK_REF = Pattern.compile(
+            "(?:named|getByName|maybeCreate|register)\\s*\\(\\s*[\"']([^\"']+)[\"']\\s*\\)$");
+    static final Pattern LAST_ID = Pattern.compile("([A-Za-z_$][\\w$]*)$");
+    static final Pattern HARMLESS_NAME = Pattern.compile("(?i)^(?:" + HARMLESS_NAMES + ")$");
 
     static final List<Rule> RULES = List.of(
             rule("T1", Kind.TEST, "@Disabled\\w*", false, "disabled test"),
@@ -6369,7 +6545,9 @@ public class IntegrityCheck {
             }
             depth += closes - opens;
             if (depth < 0) {
-                return harmlessOpener(line);                     // the innermost enclosing block opener
+                // the innermost enclosing block opener must be harmless AND the assignment on this line
+                // must target that harmless task itself, not a gate task (jar { test.enabled = false }).
+                return harmlessOpener(line) && disabledTargetsHarmless(lines.get(index));
             }
         }
         return false;
@@ -6418,8 +6596,44 @@ public class IntegrityCheck {
             if (m.start() < open || m.start() > close) {
                 return false;                              // a disabled statement before/after the block, not inside it
             }
+            if (!receiverIsHarmless(line, m.start())) {
+                return false;                              // disables a gate task (test), not the harmless block's task
+            }
         }
         return true;
+    }
+
+    /** Every disabled statement on the line must target the harmless task itself, not a gate task. */
+    static boolean disabledTargetsHarmless(String line) {
+        Matcher m = DISABLED.matcher(line);
+        while (m.find()) {
+            if (!receiverIsHarmless(line, m.start())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * The receiver left of {@code enabled = false}/{@code setEnabled(false)} must be empty (a bare assignment
+     * configures the enclosing harmless task) or name a harmless task. {@code test.enabled}, {@code tasks.test.enabled}
+     * and {@code tasks.named("test").enabled} disable a gate task and are never exempt, even inside {@code jar { }}.
+     */
+    static boolean receiverIsHarmless(String line, int matchStart) {
+        String before = line.substring(0, matchStart).stripTrailing();
+        if (!before.endsWith(".")) {
+            return true;                                   // bare enabled = false / setEnabled(false)
+        }
+        String recv = before.substring(0, before.length() - 1).stripTrailing();
+        Matcher ref = TASK_REF.matcher(recv);
+        String name;
+        if (ref.find()) {
+            name = ref.group(1);                           // tasks.named("jar") -> jar
+        } else {
+            Matcher id = LAST_ID.matcher(recv);
+            name = id.find() ? id.group(1) : recv;         // tasks.test -> test, jar -> jar
+        }
+        return HARMLESS_NAME.matcher(name).matches();
     }
 
     static int count(String s, char c) {

@@ -328,6 +328,23 @@ ArchUnit-тест, шаблоны, установку и документаци�
   install 14/14; реальные Gradle 8.14.3/JDK 21: PIT 4/4 (`StandardPrices`, `Тариф`), CRAP 5 методов при
   debug=false, Cucumber 8.0.1/7.23.0 — 12/12 kill, `@Before` → errors, отдельный survivor. Пороги не ослаблены.
 
+**Правки по четвёртому раунду ревью Codex (продолжение ревизии 4.3) — пять P2 и один P3.**
+- `gauntlet.gradle`/`tools/CrapGate.java`: changed-scope читает объявленный `package` и только реально объявленные
+  top-level типы. Каталог больше не определяет FQCN, имя файла не добавляется как тип: класс из `legacy/Prices.java`
+  с `package …domain` проверяется, чужой `Rules` из неизменённого `LegacyTypes.java` не подключается. При
+  `debug=false` отсутствие объявления не заменяется предположением по имени класса.
+- `install.sh`: управляются только корневые `gauntlet/hooks/X` (через `$CLAUDE_PROJECT_DIR`, относительный или
+  абсолютный путь проекта) и одиночные команды. `tools/gauntlet/hooks/guard.py` остаётся пользовательским;
+  составной `guard.py && ./tools/record-reviewed-files` сохраняется целиком вместе с аудитором.
+- `tools/GherkinMutator.java`: Google Truth `AssertionErrorWithFacts` из `assertThat(condition).isTrue()` признаётся
+  assertion в шаге (kill), наряду с `ComparisonFailureWithFacts` из `isEqualTo`.
+- `hooks/guard.py`: аргументы после Python-скрипта, stdin/`-m MODULE` — данные приложения, а не inline-код;
+  опции интерпретатора со значениями (`-W`, `-X`, Node `--require` и др.) не скрывают настоящий `-c`/`-e`.
+- `tools/IntegrityCheck.java`: `// comment` после `{` не мешает прочитать typed closure-параметр на следующей строке.
+- `README.md`: selftest 985 → 994; Java/XML 32/32, installer 16/16. Реальные PIT: `domain.Prices` найден, чужой
+  `Rules` исключён; CRAP: 4 метода в changed и 2 для `Rules.java`; Cucumber 7.23.0 + Truth `isTrue()` — 12/12 kill;
+  Gradle-комментарий — только `jar`/`sourcesJar` выключены, `test` зелёный. Пороги не ослаблены.
+
 ## Как распаковать (Claude выполняет это на шаге 2 протокола `start`)
 
 Каждый файл лежит между строками `===== BEGIN FILE <путь> =====` и `===== END FILE <путь> =====`.
@@ -361,7 +378,7 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 - `CLAUDE.md` (279 байт)
 - `gauntlet/CLAUDE.md` (63625 байт)
 - `gauntlet/INSTALL.md` (11426 байт)
-- `gauntlet/README.md` (47342 байт)
+- `gauntlet/README.md` (48638 байт)
 - `gauntlet/archtest/gauntlet/architecture/ArchitectureTest.java` (7906 байт)
 - `gauntlet/config/architecture.properties` (1420 байт)
 - `gauntlet/config/checkstyle.xml` (4593 байт)
@@ -370,18 +387,18 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 - `gauntlet/config/integrity-allowlist.txt` (445 байт)
 - `gauntlet/config/pit-runerror-allowlist.txt` (1485 байт)
 - `gauntlet/config/pmd-ruleset.xml` (11398 байт)
-- `gauntlet/gauntlet.gradle` (36264 байт)
-- `gauntlet/hooks/guard.py` (43005 байт)
-- `gauntlet/hooks/selftest.py` (68532 байт)
+- `gauntlet/gauntlet.gradle` (36816 байт)
+- `gauntlet/hooks/guard.py` (44247 байт)
+- `gauntlet/hooks/selftest.py` (69006 байт)
 - `gauntlet/hooks/session_start.sh` (3116 байт)
 - `gauntlet/hooks/stop_gate.py` (20644 байт)
-- `gauntlet/install.sh` (9065 байт)
+- `gauntlet/install.sh` (9541 байт)
 - `gauntlet/templates/acceptanceTest/java/com/example/service/acceptance/CucumberSpringConfiguration.java` (615 байт)
 - `gauntlet/templates/acceptanceTest/resources/features/example_discount.feature` (1258 байт)
-- `gauntlet/tools/CrapGate.java` (23033 байт)
+- `gauntlet/tools/CrapGate.java` (23561 байт)
 - `gauntlet/tools/DryGate.java` (6538 байт)
-- `gauntlet/tools/GherkinMutator.java` (42823 байт)
-- `gauntlet/tools/IntegrityCheck.java` (22539 байт)
+- `gauntlet/tools/GherkinMutator.java` (42883 байт)
+- `gauntlet/tools/IntegrityCheck.java` (22678 байт)
 - `gauntlet/tools/PitSummary.java` (11633 байт)
 
 ## Файлы
@@ -1325,7 +1342,7 @@ gauntlet/
   archtest/               ArchUnit-тест, читающий config/architecture.properties
   hooks/                  guard.py (PreToolUse), stop_gate.py (Stop; SubagentStop hardener'а — matcher в
                           .claude/settings.json), session_start.sh (SessionStart; в облаке поднимает dockerd),
-                          selftest.py (985 проверок хуков в трёх раскладках: python3 gauntlet/hooks/selftest.py)
+                          selftest.py (994 проверки хуков в трёх раскладках: python3 gauntlet/hooks/selftest.py)
   templates/              конфигурация Cucumber+Spring, пример фичи на русском
   claude/, ci/            только до установки: install.sh переносит их в .claude/ и .github/workflows/
 ```
@@ -1477,7 +1494,7 @@ protection базовой ветки и то, что любая попытка �
 ## 8. Что проверено в этой версии, а что нет
 
 Проверено здесь (Gradle 8.14.3, Java 21):
-- Хуки, `hooks/selftest.py`, 985 проверок в трёх раскладках (сборка в корне; модуль `core/`; два модуля
+- Хуки, `hooks/selftest.py`, 994 проверки в трёх раскладках (сборка в корне; модуль `core/`; два модуля
   `core/` + `adapter/` — Gradle только в изменённом модуле, красный модуль блокирует, коммит
   спецификации одного модуля замораживает фичи другого, чужая незакоммиченная работа не считается)
   на временном git-репозитории с фиктивным `origin/main`:
@@ -1583,6 +1600,14 @@ protection базовой ветки и то, что любая попытка �
   Регрессии: selftest 970 → 985; Java/XML harness 27/27; install 14/14; реальные Gradle 8.14.3/JDK 21 —
   PIT 4/4 по `StandardPrices` и `Тариф`, CRAP 5 методов при debug=false, Cucumber 8.0.1 и 7.23.0 — 12/12 kill,
   `@Before` → 12 errors, контрольный survivor отдельно.
+- Четвёртый раунд ревью Codex: PIT и CRAP используют объявленный Java-пакет и только объявленные типы,
+  а не каталог/имя файла — изменённый класс вне ожидаемого каталога не теряется, чужой одноимённый класс не
+  подключается. Установщик узнаёт только корневой `gauntlet/hooks` и одиночную управляемую команду, поэтому
+  `tools/gauntlet` и `guard.py && auditor` сохраняются. Truth `AssertionErrorWithFacts` (`isTrue()`) засчитывается
+  kill в шаге. Guard не исполняет аргументы после Python-скрипта/`-m`; `IntegrityCheck` принимает комментарий
+  после `{` перед параметром замыкания. Регрессии: selftest 985 → 994, Java/XML 32/32, install 16/16; реальные
+  PIT — `domain.Prices` найден, чужой `Rules` исключён; CRAP — 4 метода в changed и 2 для `Rules.java`;
+  Cucumber 7.23.0 + Truth `isTrue()` — 12/12 kill; Gradle-комментарий — только `jar`/`sourcesJar` выключены.
 - `install.sh` на демо-проекте: чистая установка; слияние с существующим `.claude/settings.json`
   (хуки и права добавлены, `disableAllHooks=false`); обновление 4.2 → 4.3 освежает поля gauntlet-хуков и
   масштабирует таймауты по модулям, чужие хуки и роль/`CLAUDE.md` не перезаписаны; идемпотентно (без дублей);
@@ -2371,7 +2396,7 @@ def changedFiles = {
 }.memoize()
 def changedMainJava = { -> changedFiles()?.findAll { it.startsWith('src/main/java/') && it.endsWith('.java') } }
 def changedFeatures = { -> changedFiles()?.findAll { it.startsWith(featuresPath + '/') && it.endsWith('.feature') } }
-def topLevelTypeNames = { String source ->
+def javaTopLevelSource = { String source ->
     def code = new StringBuilder(source.length())
     def state = 'code'
     def depth = 0
@@ -2449,9 +2474,17 @@ def topLevelTypeNames = { String source ->
             i++
         }
     }
+    return code.toString()
+}
+def declaredJavaPackage = { String source ->
+    def pattern = Pattern.compile('(?<![\\p{javaJavaIdentifierPart}$])package\\s+([\\p{javaJavaIdentifierStart}][\\p{javaJavaIdentifierPart}]*(?:\\s*\\.\\s*[\\p{javaJavaIdentifierStart}][\\p{javaJavaIdentifierPart}]*)*)\\s*;')
+    def matcher = pattern.matcher(javaTopLevelSource(source))
+    return matcher.find() ? matcher.group(1).replaceAll(/\s+/, '') : ''
+}
+def topLevelTypeNames = { String source ->
     def names = new LinkedHashSet<String>()
     def type = Pattern.compile('(?<![\\p{javaJavaIdentifierPart}$])(?:class|interface|enum|record)\\s+([\\p{javaJavaIdentifierStart}][\\p{javaJavaIdentifierPart}]*)')
-    def matcher = type.matcher(code)
+    def matcher = type.matcher(javaTopLevelSource(source))
     while (matcher.find()) names << matcher.group(1)
     return names
 }
@@ -2459,15 +2492,19 @@ def changedClassGlobs = { ->
     changedMainJava()?.collectMany { path ->
         def rel = path - 'src/main/java/'
         def fqcn = rel.replaceAll(/\.java$/, '').replace('/', '.')
-        def pkg = rel.contains('/') ? rel.substring(0, rel.lastIndexOf('/')).replace('/', '.') : ''
-        def globs = [fqcn, fqcn + '$*'] as LinkedHashSet
+        def globs = new LinkedHashSet<String>()
         def src = file(path)
         if (src.isFile()) {
-            topLevelTypeNames(src.getText('UTF-8')).each { simpleName ->
+            def source = src.getText('UTF-8')
+            def pkg = declaredJavaPackage(source)
+            topLevelTypeNames(source).each { simpleName ->
                 def name = (pkg ? pkg + '.' : '') + simpleName
                 globs << name
                 globs << name + '$*'
             }
+        } else {
+            globs << fqcn
+            globs << fqcn + '$*'
         }
         return globs as List
     }
@@ -3412,11 +3449,35 @@ def argv_commands(codes):
     return out
 
 
+def interpreter_option_value(cmd, args, index):
+    if index == 0:
+        return False
+    previous = args[index - 1]
+    if cmd == "python" or PYTHON_VERSIONED.match(cmd):
+        return previous in ("-W", "-X", "--check-hash-based-pycs")
+    if cmd == "node":
+        return previous in ("-r", "--require", "--loader", "--import", "--inspect", "--inspect-brk",
+                            "--inspect-port", "--conditions", "-C")
+    if cmd in ("bash", "sh", "zsh"):
+        return previous in ("-O", "-o")
+    if cmd == "ruby":
+        return previous in ("-I", "-r", "-C", "--load-path", "--require")
+    return False
+
+
 def inline_code_strings(cmd, args):
     """Code handed to an interpreter or eval: the human-only git/gh rules apply inside it too."""
     codes = []
     if is_interpreter(cmd) or cmd == "perl":
+        python = cmd == "python" or PYTHON_VERSIONED.match(cmd) is not None
         for i, a in enumerate(args):
+            if cmd != "perl":
+                if a in ("--", "-") or (python and (a == "-m" or (a.startswith("-m") and not a.startswith("--")))):
+                    break                   # stdin/script/module: the rest belongs to the application
+                if cmd in ("bash", "sh", "zsh") and a == "-s":
+                    break
+                if not a.startswith("-") and not interpreter_option_value(cmd, args, i):
+                    break                   # script filename: option-looking values after it are application argv
             flag = a.lower() if cmd == "perl" else a   # perl -E runs code like -e
             if flag in ("-c", "-e"):
                 if i + 1 < len(args):
@@ -4285,6 +4346,12 @@ def guard_tests(repo):
                  command="python3 -c \"print('hi')\" 'example; git rebase'")
     expect_allow(repo, "F14 option-looking data after python -c program", "main", "Bash",
                  command="python3 -c 'import sys; print(sys.argv[1:])' -e 'git rebase'")
+    expect_allow(repo, "option-looking data after python script", "main", "Bash",
+                 command="python3 docsearch.py -e 'git rebase'")
+    expect_allow(repo, "option-looking data after python module", "main", "Bash",
+                 command="python3 -m docsearch -e 'git rebase'")
+    expect_deny(repo, "python option value does not hide inline code", "main", "Bash",
+                command="python3 -W ignore -c \"import os; os.system('git push --force')\"")
     expect_deny(repo, "F14 control real force push argv", "main", "Bash",
                 command="python3 -c \"import subprocess; subprocess.run(['git', 'push', '--force'])\"")
     expect_deny(repo, "F14 control real gh merge argv", "main", "Bash",
@@ -5504,7 +5571,15 @@ def gkey(cmd):
         return None   # interpreter flags / inline code (-c, -m): not a plain hook-script launch
     script = tokens[1].replace("\\", "/")
     m = re.fullmatch(r"(?:.*/)?gauntlet/hooks/([A-Za-z0-9_.-]+)", script)
-    return m.group(1) if m else None
+    if not m:
+        return None
+    managed = "gauntlet/hooks/" + m.group(1)
+    root_script = os.path.join(os.getcwd(), managed).replace(os.sep, "/")
+    if script not in (managed, "$CLAUDE_PROJECT_DIR/" + managed, "${CLAUDE_PROJECT_DIR}/" + managed, root_script):
+        return None
+    if any(t.startswith((";", "|", "&", ">", "<")) or re.match(r"^\d+[<>]", t) for t in tokens[2:]):
+        return None   # a compound user command (hook && auditor, redirection) is not ours to rewrite
+    return m.group(1)
 
 def scale(event, hook, n):
     m = re.search(r"--timeout\s+(\d+)", hook.get("command", ""))
@@ -5786,16 +5861,15 @@ public class CrapGate {
                 String sourceFile = cls.getAttribute("sourcefilename");
                 String pkgPath = pkg.getAttribute("name");
                 if (sourceFile.isEmpty()) {
-                    // debug=false: JaCoCo keeps the counters but omits sourcefilename. The outer class name is
-                    // NOT necessarily the file name (class Selection lives in Selectors.java), so guessing
-                    // Selection.java would drop the class from the changed-file scope and pass with 0 methods.
-                    // Bind it to the changed source file that actually declares the type instead.
                     missingSource = true;
                     String resolved = resolveSource(declared, pkgPath, outerSimpleName(className));
+                    if (a.only != null && resolved == null) {
+                        continue;   // this report class is not declared by any changed source file
+                    }
                     sourceFile = resolved != null ? resolved : outerSimpleName(className) + ".java";
                 }
                 String sourcePath = (pkgPath.isEmpty() ? "" : pkgPath + "/") + sourceFile;
-                if (!inScope(sourcePath, a.only)) {
+                if (!inScope(sourcePath, declared, a.only)) {
                     continue;
                 }
                 if (matchesAny(outerSimpleName(className), excludes)) {
@@ -5864,20 +5938,27 @@ public class CrapGate {
         Map<String, Set<String>> map = new LinkedHashMap<>();
         Pattern type = Pattern.compile("(?<![\\p{javaJavaIdentifierPart}$])(?:class|interface|enum|record)\\s+"
                 + "([\\p{javaJavaIdentifierStart}][\\p{javaJavaIdentifierPart}]*)");
+        Pattern pkgPattern = Pattern.compile("(?<![\\p{javaJavaIdentifierPart}$])package\\s+"
+                + "([\\p{javaJavaIdentifierStart}][\\p{javaJavaIdentifierPart}]*(?:\\s*\\.\\s*"
+                + "[\\p{javaJavaIdentifierStart}][\\p{javaJavaIdentifierPart}]*)*)\\s*;");
         for (String f : only) {
             Path p = Path.of(f);
             if (!Files.isRegularFile(p)) {
                 continue;
             }
             String norm = f.replace('\\', '/');
-            int root = norm.indexOf("src/main/java/");
-            String rel = root >= 0 ? norm.substring(root + "src/main/java/".length()) : norm;
             try {
-                Matcher m = type.matcher(topLevelSource(Files.readString(p, StandardCharsets.UTF_8)));
+                String topLevel = topLevelSource(Files.readString(p, StandardCharsets.UTF_8));
+                Matcher m = type.matcher(topLevel);
                 Set<String> names = new HashSet<>();
                 while (m.find()) {
                     names.add(m.group(1));
                 }
+                Matcher pkg = pkgPattern.matcher(topLevel);
+                String packageName = pkg.find() ? pkg.group(1).replaceAll("\\s+", "") : "";
+                String packagePath = packageName.replace('.', '/');
+                String fileName = norm.substring(norm.lastIndexOf('/') + 1);
+                String rel = (packagePath.isEmpty() ? "" : packagePath + "/") + fileName;
                 map.put(rel, names);
             } catch (IOException unreadable) {
                 // unreadable source: cannot bind, leave it out of the index
@@ -6040,6 +6121,10 @@ public class CrapGate {
         out.println("  the remaining branches with focused unit tests. Exceptions are human-owned:");
         out.println("  gauntlet/config/crap-allowlist.txt");
         return 1;
+    }
+
+    static boolean inScope(String sourcePath, Map<String, Set<String>> declared, Set<String> only) {
+        return only == null || declared.containsKey(sourcePath) || inScope(sourcePath, only);
     }
 
     static boolean inScope(String sourcePath, Set<String> only) {
@@ -7280,7 +7365,8 @@ public class GherkinMutator {
     static boolean assertionType(String type) {
         return type.endsWith("AssertionError") || type.endsWith("AssertionFailedError")
                 || type.endsWith("AssertFailedError") || type.endsWith("ComparisonFailure")
-                || type.endsWith("ComparisonFailureWithFacts") || type.endsWith("MultipleFailuresError");
+                || type.endsWith("ComparisonFailureWithFacts") || type.endsWith("AssertionErrorWithFacts")
+                || type.endsWith("MultipleFailuresError");
     }
 
     static boolean stepStage(String trace) {
@@ -7696,6 +7782,10 @@ public class IntegrityCheck {
             return null;
         }
         String tail = opener.substring(brace + 1);
+        int lineComment = tail.indexOf("//");
+        if (lineComment >= 0) {
+            tail = tail.substring(0, lineComment);
+        }
         String param = closureParamText(tail);
         if (param != null || !tail.trim().isEmpty()) {
             return param;

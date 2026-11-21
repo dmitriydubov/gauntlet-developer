@@ -314,6 +314,28 @@
       падают; Cucumber 8.0.1 и 7.23.0 — 12/12 kill (включая NBSP), `@Before` → errors, контрольный survivor и
       `IOException("Database URL is undefined")` проверены отдельно. Бандл пересобран с round-trip 30/30.
 
+17. **Changed-scope, установка и классификация — четвёртый раунд ревью Codex.** Пять P2 и один P3 на `426f9ff`
+    подтверждены и закрыты; пороги и правила не ослаблены.
+    - **PIT/CRAP: объявленный пакет и типы.** Каталог исходника больше не определяет FQCN: читается `package`.
+      Для прочитанного файла цели строятся только из объявленных top-level типов, без добавления имени файла.
+      Класс `Prices` из `legacy/` с `package …domain` проверяется; чужой `Rules` из неизменённого `LegacyTypes.java`
+      не включается. CRAP при `debug=false` больше не подставляет имя класса как имя файла, если ни один changed-
+      исходник его не объявляет.
+    - **`install.sh`: корневой одиночный вызов.** Управляются только `gauntlet/hooks/X` в корне проекта и простая
+      команда интерпретатора. `tools/gauntlet/hooks/guard.py` не считается штатным; составная команда с `&&`,
+      pipe или redirect остаётся пользовательской целиком, включая аудитор.
+    - **Truth `isTrue()`.** `AssertionErrorWithFacts` добавлен к assertion-типам наряду с
+      `ComparisonFailureWithFacts`: падение булевой проверки в шаге — kill, не error.
+    - **Guard: границы Python-приложения.** После скрипта, `-` или `-m MODULE` аргументы не разбираются как
+      inline-код. Опции интерпретатора со значениями обрабатываются отдельно, поэтому `-W ignore -c …` не скрывает
+      настоящий код; `python3 docsearch.py -e 'git rebase'` и `python3 -m docsearch -e …` разрешены.
+    - **`IntegrityCheck`: комментарий после `{`.** Однострочный `// comment` удаляется только из хвоста опенера
+      перед поиском closure-параметра на следующей строке; `test.enabled = false` остаётся B1.
+    - **Проверки:** selftest 985 → 994; Java/XML 32/32, installer 16/16. Реальные PIT: `domain.Prices` найден,
+      `CurrentRules` проверен, чужой `Rules` отсутствует; CRAP: 4 метода в changed и 2 для `Rules.java`;
+      Cucumber 7.23.0 + Truth `isTrue()` — 12/12 kill; Gradle-комментарий — только `jar`/`sourcesJar` выключены,
+      `test` зелёный. Бандл пересобран с round-trip 30/30.
+
 ### Остаток эвристики guard (честно)
 
 guard — растяжка, а не сейф (это заявлено в наборе). Статический разбор shell не видит:
@@ -333,9 +355,9 @@ guard — растяжка, а не сейф (это заявлено в наб�
 
 **`gauntlet-kit-bundle.md`** (встроенные файлы эталона):
 - шапка: ревизия 4.3, дата; блок «Изменения против ревизии 4.2»; блоки правок Kimi, Grok, Codex (V1–V7 и
-  второй раунд F1–F14 и третий раунд);
+  второй раунд F1–F14, третий и четвёртый раунды);
 - `gauntlet/tools/IntegrityCheck.java`, `CrapGate.java`, `GherkinMutator.java`, `PitSummary.java`;
-- `gauntlet/hooks/guard.py`, `stop_gate.py`, `selftest.py` (985 проверок в трёх раскладках);
+- `gauntlet/hooks/guard.py`, `stop_gate.py`, `selftest.py` (994 проверки в трёх раскладках);
 - `gauntlet/install.sh` (обновление gauntlet-хуков при слиянии, бюджет таймаута по модулям);
 - `gauntlet/gauntlet.gradle` (входы `acceptanceTest`, `mutationGate` source → compiled types);
 - `gauntlet/config/crap-allowlist.txt` (пример записи с сигнатурой перегрузки);
@@ -352,27 +374,28 @@ guard — растяжка, а не сейф (это заявлено в наб�
 | Файл | 4.2 | 4.3 |
 |---|---|---|
 | `.claude/settings.json` | 1720 | 2211 |
-| `gauntlet/README.md` | 29851 | 47342 |
+| `gauntlet/README.md` | 29851 | 48638 |
 | `gauntlet/config/crap-allowlist.txt` | 448 | 924 |
-| `gauntlet/gauntlet.gradle` | 32451 | 36264 |
-| `gauntlet/hooks/guard.py` | 26740 | 43005 |
-| `gauntlet/hooks/selftest.py` | 41192 | 68532 |
+| `gauntlet/gauntlet.gradle` | 32451 | 36816 |
+| `gauntlet/hooks/guard.py` | 26740 | 44247 |
+| `gauntlet/hooks/selftest.py` | 41192 | 69006 |
 | `gauntlet/hooks/stop_gate.py` | 16669 | 20644 |
-| `gauntlet/install.sh` | 4933 | 9065 |
+| `gauntlet/install.sh` | 4933 | 9541 |
 | `gauntlet/templates/acceptanceTest/resources/features/example_discount.feature` | 928 | 1258 |
-| `gauntlet/tools/CrapGate.java` | 12638 | 23033 |
-| `gauntlet/tools/GherkinMutator.java` | 35990 | 42823 |
-| `gauntlet/tools/IntegrityCheck.java` | 15688 | 22539 |
+| `gauntlet/tools/CrapGate.java` | 12638 | 23561 |
+| `gauntlet/tools/GherkinMutator.java` | 35990 | 42883 |
+| `gauntlet/tools/IntegrityCheck.java` | 15688 | 22678 |
 | `gauntlet/tools/PitSummary.java` | 11401 | 11633 |
 
 Остальные 17 файлов не правились; их размеры не изменились. Во втором раунде Codex (F1–F14) изменены 9 файлов:
 `README.md`, `gauntlet.gradle`, `guard.py`, `selftest.py`, `stop_gate.py`, `install.sh`, `CrapGate.java`,
 `GherkinMutator.java`, `IntegrityCheck.java` (размеры 4.3 выше — итоговые после всех раундов). В третьем раунде
-изменены те же 9 файлов эталона; описание и счётчики внешних документов обновлены синхронно.
+изменены те же 9 файлов эталона; в четвёртом — 8 (`stop_gate.py` не менялся); описание и счётчики внешних
+документов обновлены синхронно.
 
 ### Проверено
 
-- `python3 gauntlet/hooks/selftest.py` — 985 проверок, 0 падений, три раскладки (корень; `core/`;
+- `python3 gauntlet/hooks/selftest.py` — 994 проверки, 0 падений, три раскладки (корень; `core/`;
   `core/` + `adapter/`); в том числе из распакованной копии пересобранного бандла.
 - Компиляция всех single-file инструментов (`javac`): `CrapGate`, `DryGate`, `GherkinMutator`,
   `IntegrityCheck`, `PitSummary` — без ошибок (22 class-файла).
@@ -402,6 +425,10 @@ guard — растяжка, а не сейф (это заявлено в наб�
   (12/12 kill, `@Before` → errors, survivor и Truth), PIT 4/4 по двум ранее пропущенным типам, CRAP 5 методов
   с `debug=false` и точным пакетом, typed closures на Gradle (только `jar`/`sourcesJar` выключены, `test` зелёный),
   guard/worktree и Stop-gate/HEAD через расширенный `selftest.py` (985/985).
+- Целевые регрессии четвёртого раунда: Java/XML 32/32, installer 16/16; selftest 994/994. Реальные PIT —
+  `domain.Prices` и `CurrentRules` найдены, чужой `Rules` исключён; CRAP — 4 метода в changed и 2 для
+  `Rules.java`; Cucumber 7.23.0 + Truth `isTrue()` — 12/12 kill; `// comment` в Groovy — `IntegrityCheck` OK,
+  только `jar`/`sourcesJar` выключены, `test` зелёный.
 - Семантика Gherkin для G6 сверена по исходникам и прогону gherkin 42.0.1 (cucumber-bom 8.0.1 — дефолт набора):
   `PickleCompiler.compilePickleSteps` при пустом списке шагов сценария возвращает пустой pickle, Background не
   подмешивается (пустой сценарий с Background → steps=0). Целевой harness guard по находкам Grok — 36/36

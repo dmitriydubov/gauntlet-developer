@@ -305,6 +305,29 @@ ArchUnit-тест, шаблоны, установку и документаци�
   `GherkinMutator` (12), `CrapGate` (8), `IntegrityCheck` (17), `stop_gate` (8), `install.sh` (19), guard (17),
   сборщик (14), regex PIT (15) — 110/110. Итого 892 → 970 проверок. Пороги и правила гейтов не ослаблены.
 
+**Правки по третьему раунду ревью Codex (продолжение ревизии 4.3) — подтверждены реальными Gradle-прогонами.**
+- `gauntlet.gradle`/`tools/GherkinMutator.java`: `gherkinMutantsRun` задаёт `cucumber.junit-platform.naming-strategy=long`,
+  поэтому `MUTANT mN` сохраняется в JUnit XML и сопоставляется с манифестом. Kill требует assertion с кадром шага
+  Cucumber: отсутствие hook-кадров больше не принимается за доказательство шага; Google Truth
+  `ComparisonFailureWithFacts` поддержан. Только `UndefinedStepException` обозначает undefined step, а произвольное
+  сообщение `IOException("… is undefined")` — ошибка. NBSP учитывается во всех заголовках, включая outline/Examples.
+- `gauntlet.gradle`/`tools/CrapGate.java`: в changed-scope индексируются только реально объявленные top-level типы;
+  lexer маскирует комментарии/строки, поддерживает аннотации со скобками в литерале, отступы и Unicode-идентификаторы.
+  CRAP сопоставляет `debug=false` по точному каталогу пакета и не путает nested `Selection.Legacy` с top-level `Legacy`.
+- `install.sh`: только полный сегмент пути `gauntlet/hooks/X` определяет штатный хук (`legacy-gauntlet` остаётся
+  пользовательским). Штатный хук из смешанной группы с другим matcher переносится в отдельную группу с эталонным
+  matcher; широкий matcher пользовательской группы сохраняется, `mutationGate` не запускается на `reviewer`.
+- `tools/IntegrityCheck.java`: освобождение B1 понимает `final Jar archive ->` на строке опенера и `Jar archive ->`
+  на следующей строке; `test.enabled = false` по-прежнему B1.
+- `hooks/guard.py`: Git проверяется в `event.cwd`, даже если `CLAUDE_PROJECT_DIR` указывает на другое worktree;
+  после программы `python -c` аргумент `-e 'git rebase'` — данные argv, а не вторая программа. Контроли base-push
+  и настоящего exec по-прежнему блокируются.
+- `hooks/stop_gate.py`: начальный dirty-список добавляется в кандидаты изменений — если за сессию файл вернули к
+  HEAD, Stop-gate запускает сборку, хотя текущий `git status` уже чист.
+- `README.md`: счётчик самопроверки 970 → 985; раздел 8 — покрытие третьего раунда. Java/XML harness 27/27,
+  install 14/14; реальные Gradle 8.14.3/JDK 21: PIT 4/4 (`StandardPrices`, `Тариф`), CRAP 5 методов при
+  debug=false, Cucumber 8.0.1/7.23.0 — 12/12 kill, `@Before` → errors, отдельный survivor. Пороги не ослаблены.
+
 ## Как распаковать (Claude выполняет это на шаге 2 протокола `start`)
 
 Каждый файл лежит между строками `===== BEGIN FILE <путь> =====` и `===== END FILE <путь> =====`.
@@ -338,7 +361,7 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 - `CLAUDE.md` (279 байт)
 - `gauntlet/CLAUDE.md` (63625 байт)
 - `gauntlet/INSTALL.md` (11426 байт)
-- `gauntlet/README.md` (45564 байт)
+- `gauntlet/README.md` (47342 байт)
 - `gauntlet/archtest/gauntlet/architecture/ArchitectureTest.java` (7906 байт)
 - `gauntlet/config/architecture.properties` (1420 байт)
 - `gauntlet/config/checkstyle.xml` (4593 байт)
@@ -347,18 +370,18 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 - `gauntlet/config/integrity-allowlist.txt` (445 байт)
 - `gauntlet/config/pit-runerror-allowlist.txt` (1485 байт)
 - `gauntlet/config/pmd-ruleset.xml` (11398 байт)
-- `gauntlet/gauntlet.gradle` (33937 байт)
-- `gauntlet/hooks/guard.py` (42669 байт)
-- `gauntlet/hooks/selftest.py` (66559 байт)
+- `gauntlet/gauntlet.gradle` (36264 байт)
+- `gauntlet/hooks/guard.py` (43005 байт)
+- `gauntlet/hooks/selftest.py` (68532 байт)
 - `gauntlet/hooks/session_start.sh` (3116 байт)
-- `gauntlet/hooks/stop_gate.py` (20530 байт)
-- `gauntlet/install.sh` (8773 байт)
+- `gauntlet/hooks/stop_gate.py` (20644 байт)
+- `gauntlet/install.sh` (9065 байт)
 - `gauntlet/templates/acceptanceTest/java/com/example/service/acceptance/CucumberSpringConfiguration.java` (615 байт)
 - `gauntlet/templates/acceptanceTest/resources/features/example_discount.feature` (1258 байт)
-- `gauntlet/tools/CrapGate.java` (19751 байт)
+- `gauntlet/tools/CrapGate.java` (23033 байт)
 - `gauntlet/tools/DryGate.java` (6538 байт)
-- `gauntlet/tools/GherkinMutator.java` (43410 байт)
-- `gauntlet/tools/IntegrityCheck.java` (21649 байт)
+- `gauntlet/tools/GherkinMutator.java` (42823 байт)
+- `gauntlet/tools/IntegrityCheck.java` (22539 байт)
 - `gauntlet/tools/PitSummary.java` (11633 байт)
 
 ## Файлы
@@ -1302,7 +1325,7 @@ gauntlet/
   archtest/               ArchUnit-тест, читающий config/architecture.properties
   hooks/                  guard.py (PreToolUse), stop_gate.py (Stop; SubagentStop hardener'а — matcher в
                           .claude/settings.json), session_start.sh (SessionStart; в облаке поднимает dockerd),
-                          selftest.py (970 проверок хуков в трёх раскладках: python3 gauntlet/hooks/selftest.py)
+                          selftest.py (985 проверок хуков в трёх раскладках: python3 gauntlet/hooks/selftest.py)
   templates/              конфигурация Cucumber+Spring, пример фичи на русском
   claude/, ci/            только до установки: install.sh переносит их в .claude/ и .github/workflows/
 ```
@@ -1454,7 +1477,7 @@ protection базовой ветки и то, что любая попытка �
 ## 8. Что проверено в этой версии, а что нет
 
 Проверено здесь (Gradle 8.14.3, Java 21):
-- Хуки, `hooks/selftest.py`, 970 проверок в трёх раскладках (сборка в корне; модуль `core/`; два модуля
+- Хуки, `hooks/selftest.py`, 985 проверок в трёх раскладках (сборка в корне; модуль `core/`; два модуля
   `core/` + `adapter/` — Gradle только в изменённом модуле, красный модуль блокирует, коммит
   спецификации одного модуля замораживает фичи другого, чужая незакоммиченная работа не считается)
   на временном git-репозитории с фиктивным `origin/main`:
@@ -1548,6 +1571,18 @@ protection базовой ветки и то, что любая попытка �
   Регрессии: guard F10/F14 (+12 сценариев × 3 раскладки = +36) и stop_gate F6/F7/F13 (+42); целевые harness'ы
   `GherkinMutator` (12), `CrapGate` (8), `IntegrityCheck` (17), `stop_gate` (8), `install.sh` (19), guard (17),
   сборщик (14), regex PIT (15) — 110/110. Итого 892 → 970 проверок самопроверки.
+- Третий раунд ревью Codex: `gherkinMutantsRun` закрепляет `cucumber.junit-platform.naming-strategy=long`,
+  поэтому ID из манифеста сохраняется в JUnit XML; kill требует assertion именно в кадре шага Cucumber (включая
+  Truth `ComparisonFailureWithFacts`), а `@Before` без кадра шага и `IOException("… is undefined")` — error.
+  NBSP учитывается и в заголовках `Scenario Outline`/`Examples`. PIT/CRAP разбирают объявленные top-level типы
+  с аннотациями, отступами и Unicode-именами; CRAP различает точный пакет и вложенный/верхнеуровневый тип.
+  `install.sh` не принимает `legacy-gauntlet` за штатный каталог и выносит свой хук из смешанной группы в группу
+  с эталонным matcher, не меняя пользовательскую. `IntegrityCheck` принимает `final Jar archive ->` и параметр
+  на следующей строке. Guard использует `event.cwd` для Git и не трактует `-e` после программы `python -c` как
+  новый код. Stop-gate проверяет и путь из начального dirty-списка, возвращённый к HEAD за сессию.
+  Регрессии: selftest 970 → 985; Java/XML harness 27/27; install 14/14; реальные Gradle 8.14.3/JDK 21 —
+  PIT 4/4 по `StandardPrices` и `Тариф`, CRAP 5 методов при debug=false, Cucumber 8.0.1 и 7.23.0 — 12/12 kill,
+  `@Before` → 12 errors, контрольный survivor отдельно.
 - `install.sh` на демо-проекте: чистая установка; слияние с существующим `.claude/settings.json`
   (хуки и права добавлены, `disableAllHooks=false`); обновление 4.2 → 4.3 освежает поля gauntlet-хуков и
   масштабирует таймауты по модулям, чужие хуки и роль/`CLAUDE.md` не перезаписаны; идемпотентно (без дублей);
@@ -2267,6 +2302,7 @@ pmd.version=7.27.0
  */
 
 import java.nio.file.Files
+import java.util.regex.Pattern
 import org.gradle.api.tasks.PathSensitivity
 
 // gauntlet/ is wherever this script lives (repository root, or one level above a module's build)
@@ -2335,26 +2371,102 @@ def changedFiles = {
 }.memoize()
 def changedMainJava = { -> changedFiles()?.findAll { it.startsWith('src/main/java/') && it.endsWith('.java') } }
 def changedFeatures = { -> changedFiles()?.findAll { it.startsWith(featuresPath + '/') && it.endsWith('.feature') } }
+def topLevelTypeNames = { String source ->
+    def code = new StringBuilder(source.length())
+    def state = 'code'
+    def depth = 0
+    def i = 0
+    while (i < source.length()) {
+        def c = source.charAt(i)
+        def next = i + 1 < source.length() ? source.charAt(i + 1) : '\0'
+        if (state == 'lineComment') {
+            code.append(c == '\n' ? c : ' ')
+            if (c == '\n') state = 'code'
+            i++
+            continue
+        }
+        if (state == 'blockComment') {
+            if (c == '*' && next == '/') {
+                code.append('  ')
+                i += 2
+                state = 'code'
+            } else {
+                code.append(c == '\n' ? c : ' ')
+                i++
+            }
+            continue
+        }
+        if (state == 'textBlock') {
+            if (c == '\\' && i + 1 < source.length()) {
+                code.append(' ').append(next == '\n' ? '\n' : ' ')
+                i += 2
+            } else if (c == '"' && next == '"' && i + 2 < source.length() && source.charAt(i + 2) == '"') {
+                code.append('   ')
+                i += 3
+                state = 'code'
+            } else {
+                code.append(c == '\n' ? c : ' ')
+                i++
+            }
+            continue
+        }
+        if (state == 'string' || state == 'character') {
+            def delimiter = state == 'string' ? '"' : "'"
+            if (c == '\\' && i + 1 < source.length()) {
+                code.append(' ').append(next == '\n' ? '\n' : ' ')
+                i += 2
+            } else {
+                code.append(c == '\n' ? c : ' ')
+                if (c == delimiter) state = 'code'
+                i++
+            }
+            continue
+        }
+        if (c == '/' && next == '/') {
+            code.append('  ')
+            i += 2
+            state = 'lineComment'
+        } else if (c == '/' && next == '*') {
+            code.append('  ')
+            i += 2
+            state = 'blockComment'
+        } else if (c == '"' && next == '"' && i + 2 < source.length() && source.charAt(i + 2) == '"') {
+            code.append('   ')
+            i += 3
+            state = 'textBlock'
+        } else if (c == '"') {
+            code.append(' ')
+            i++
+            state = 'string'
+        } else if (c == "'") {
+            code.append(' ')
+            i++
+            state = 'character'
+        } else {
+            if (c == '{') depth++
+            if (c == '}') depth = Math.max(0, depth - 1)
+            code.append(depth == 0 || c == '\n' ? c : ' ')
+            i++
+        }
+    }
+    def names = new LinkedHashSet<String>()
+    def type = Pattern.compile('(?<![\\p{javaJavaIdentifierPart}$])(?:class|interface|enum|record)\\s+([\\p{javaJavaIdentifierStart}][\\p{javaJavaIdentifierPart}]*)')
+    def matcher = type.matcher(code)
+    while (matcher.find()) names << matcher.group(1)
+    return names
+}
 def changedClassGlobs = { ->
     changedMainJava()?.collectMany { path ->
         def rel = path - 'src/main/java/'
         def fqcn = rel.replaceAll(/\.java$/, '').replace('/', '.')
         def pkg = rel.contains('/') ? rel.substring(0, rel.lastIndexOf('/')).replace('/', '.') : ''
         def globs = [fqcn, fqcn + '$*'] as LinkedHashSet
-        // one .java file may declare several top-level types; the package-private ones do not match the
-        // file name, so a file-name glob alone would let PIT skip them. Target every column-0 declaration,
-        // including one prefixed by annotations and/or modifiers on the same line (@Deprecated final class X):
-        // consume leading @Annotation(args) and modifier words before the type keyword, otherwise the real
-        // type is missed and changed-mode PIT finds 0 targets and passes vacuously.
         def src = file(path)
         if (src.isFile()) {
-            src.eachLine('UTF-8') { line ->
-                def m = line =~ /^(?:@[\w.]+(?:\s*\([^)]*\))?\s+|[\w-]+\s+)*?(?:class|interface|enum|record)\s+(\w+)/
-                if (m.find()) {
-                    def name = (pkg ? pkg + '.' : '') + m.group(1)
-                    globs << name
-                    globs << name + '$*'
-                }
+            topLevelTypeNames(src.getText('UTF-8')).each { simpleName ->
+                def name = (pkg ? pkg + '.' : '') + simpleName
+                globs << name
+                globs << name + '$*'
             }
         }
         return globs as List
@@ -2781,6 +2893,7 @@ tasks.register('gherkinMutantsRun', Test) {
     description = 'Runs the generated mutant scenarios; failures are the expected outcome.'
     dependsOn 'gherkinMutants'
     configureCucumber(it, mutantsDir)
+    systemProperty 'cucumber.junit-platform.naming-strategy', 'long'
     ignoreFailures = true
     reports.junitXml.outputLocation.set(mutantResults)
     reports.html.required = false
@@ -2999,7 +3112,7 @@ def main():
         path = params.get("file_path") or params.get("notebook_path") or ""
         reason = user_config_violation(path) or path_violation(agent, relative(path, project), ctx)
     elif tool == "Bash":
-        reason = command_violation(agent, params.get("command", ""), ctx)
+        reason = command_violation(agent, params.get("command", ""), ctx, event.get("cwd") or project)
     else:
         reason = None
     if reason:
@@ -3127,8 +3240,8 @@ def frozen_reason(rel):
 
 # ----------------------------------------------------------------------------- shell
 
-def command_violation(agent, command, ctx):
-    reason = human_only(command, ctx)
+def command_violation(agent, command, ctx, cwd=None):
+    reason = human_only(command, ctx, cwd)
     if reason:
         return reason
     scope = ctx.role_scope(agent)
@@ -3136,7 +3249,7 @@ def command_violation(agent, command, ctx):
     protected = ctx.protected(agent)
     command = strip_heredocs(command)       # a heredoc body is data, not commands
     neutral = QUOTED.sub(lambda m: re.sub(r"[>;&|()]", "_", m.group(0)), command)  # '>' in quotes is text
-    cwd = ctx.project
+    cwd = cwd or ctx.project
     stack = []                              # subshell cwd scopes: a cd inside ( ... ) must not leak to the parent
     for segment in segments_scoped(neutral):
         if segment == "(":
@@ -3308,16 +3421,23 @@ def inline_code_strings(cmd, args):
             if flag in ("-c", "-e"):
                 if i + 1 < len(args):
                     codes.append(args[i + 1])
+                if cmd != "perl":
+                    break                   # everything after the program is argv data, not more code flags
             elif flag.startswith("-c") and len(flag) > 2 and not flag.startswith("--"):
                 codes.append(a[2:])
+                if cmd != "perl":
+                    break
             elif flag.startswith("-e") and len(flag) > 2 and not flag.startswith("--"):
                 codes.append(a[2:])
+                if cmd != "perl":
+                    break
             elif cmd == "node" and (flag in ("--eval", "--print")
                                     or flag.startswith("--eval=") or flag.startswith("--print=")):
                 if "=" in a:
                     codes.append(a.split("=", 1)[1])
                 elif i + 1 < len(args):
                     codes.append(args[i + 1])
+                break
         for code in list(codes):
             for m in STRING_EXEC.finditer(code):
                 q = QUOTED.match(code, m.end())
@@ -4163,6 +4283,8 @@ def guard_tests(repo):
                  command="python3 -c \"import subprocess; subprocess.run(['echo', 'gh pr merge 1'])\"")
     expect_allow(repo, "F14 data args after python -c program", "main", "Bash",
                  command="python3 -c \"print('hi')\" 'example; git rebase'")
+    expect_allow(repo, "F14 option-looking data after python -c program", "main", "Bash",
+                 command="python3 -c 'import sys; print(sys.argv[1:])' -e 'git rebase'")
     expect_deny(repo, "F14 control real force push argv", "main", "Bash",
                 command="python3 -c \"import subprocess; subprocess.run(['git', 'push', '--force'])\"")
     expect_deny(repo, "F14 control real gh merge argv", "main", "Bash",
@@ -4243,6 +4365,13 @@ def guard_tests(repo):
                 command=f"cd {wt_main} && git push -u origin HEAD")
     expect_deny(repo, "F10 control cd then subshell then push", "main", "Bash",
                 command=f"cd {wt_main} && ( git status ) && git push -u origin HEAD")
+    for name, project, event_cwd, expected in (
+            ("F10 event cwd feature overrides main project", wt_main, wt_feat, False),
+            ("F10 event cwd main overrides feature project", wt_feat, wt_main, True)):
+        event = {"session_id": "s1", "cwd": event_cwd, "tool_name": "Bash",
+                 "tool_input": {"command": "git push origin HEAD"}}
+        r = run_hook(repo, "guard.py", event, env={"CLAUDE_PROJECT_DIR": project})
+        check(name, r.returncode == 0 and bool(r.stdout.strip()) == expected, r.stdout + r.stderr)
     git(repo, "worktree", "remove", "--force", wt_main)   # free main again for the later checkout-main tests
     git(repo, "worktree", "remove", "--force", wt_feat)
     # --- hardening: hook-skipping abbreviations and config
@@ -4494,6 +4623,30 @@ def stop_tests(repo):
     e = {"session_id": "s2", "cwd": repo, "hook_event_name": "Stop"}
     r = run_hook(repo, "stop_gate.py", e, env={"GAUNTLET_STOP_HOOK": "off"}, args=("--task", "gauntletFast"))
     check("GAUNTLET_STOP_HOOK=off", r.returncode == 0)
+
+
+def baseline_revert_tests(repo):
+    git(repo, "reset", "--hard", "-q", "main")
+    git(repo, "clean", "-fdq")
+    git(repo, "checkout", "-q", "-b", "claude/baseline-revert")
+    source = M + "src/main/java/com/example/service/domain/Order.java"
+    log = os.path.join(repo, M + "build/gauntlet/gauntletFast-hook.log")
+    write(repo, source, "package x; class Order { int preexisting; }\n")
+    run_hook(repo, "stop_gate.py", {"session_id": "s-revert", "cwd": repo, "hook_event_name": "SessionStart"},
+             args=("--record-start",))
+
+    def stop():
+        write(repo, M + "build/gauntlet/fake-exit", "1")
+        event = {"session_id": "s-revert", "cwd": repo, "hook_event_name": "Stop", "stop_hook_active": False}
+        return run_hook(repo, "stop_gate.py", event,
+                        args=("--task", "gauntletFast", "--max-attempts", "3", "--timeout", "60"))
+
+    r = stop()
+    check("untouched pre-existing dirty file -> no run", r.returncode == 0 and not os.path.exists(log), r.stderr)
+    git(repo, "checkout", "--", source)
+    r = stop()
+    check("pre-existing dirty file restored to HEAD -> gate runs", r.returncode == 2 and os.path.exists(log),
+          r.stdout + r.stderr)
 
 
 def multi_module_stop_tests(repo):
@@ -4756,6 +4909,7 @@ def main():
             git(repo, "push", "-q", "origin", "claude/feature-x")
             session_start_tests(repo)
             stop_tests(repo)
+            baseline_revert_tests(repo)
             continuation_window_tests(repo)
             gate_scope_tests(repo)
             if len(MODULES) > 1:
@@ -4934,6 +5088,7 @@ def gate(opts, event, state, session):
     changed = changed_paths(start.get("head", ""))
     # the developer's own uncommitted work from before the session is not the agent's change (unless touched since)
     baseline = start.get("dirty") or {}
+    changed.update(baseline)  # a pre-existing dirty path restored to HEAD is still a change made in this session
     changed = {p for p in changed if baseline.get(p) != file_hash(p)}
     if not changed:
         return 0
@@ -5347,7 +5502,8 @@ def gkey(cmd):
         return None
     if len(tokens) < 2 or tokens[1].startswith("-"):
         return None   # interpreter flags / inline code (-c, -m): not a plain hook-script launch
-    m = re.search(r"gauntlet/hooks/([A-Za-z0-9_.-]+)", tokens[1])
+    script = tokens[1].replace("\\", "/")
+    m = re.fullmatch(r"(?:.*/)?gauntlet/hooks/([A-Za-z0-9_.-]+)", script)
     return m.group(1) if m else None
 
 def scale(event, hook, n):
@@ -5377,8 +5533,9 @@ for event, groups in ours["hooks"].items():
             if k:
                 our_by_key[k] = (g, h)
     present = set()
-    for g in existing:                      # refresh the gauntlet's own hooks in place; user hooks untouched
-        for h in g.get("hooks", []):
+    moves = []
+    for g in list(existing):                # refresh the gauntlet's own hooks; user hooks untouched
+        for h in list(g.get("hooks", [])):
             k = gkey(h.get("command"))
             if k in our_by_key:
                 og, oh = our_by_key[k]
@@ -5389,15 +5546,21 @@ for event, groups in ours["hooks"].items():
                         h[field] = oh[field]
                     else:
                         h.pop(field, None)
-                # Own the group's matcher only when every hook in it is a gauntlet hook. A mixed group's
-                # matcher also governs the user's neighbouring hooks: rewriting or removing it would change
-                # when those fire, so leave it untouched.
-                if all(gkey(hh.get("command")) in our_by_key for hh in g.get("hooks", [])):
+                own_group = all(gkey(hh.get("command")) in our_by_key for hh in g.get("hooks", []))
+                if own_group:
                     if "matcher" in og:
                         g["matcher"] = og["matcher"]
                     else:
                         g.pop("matcher", None)
+                elif g.get("matcher") != og.get("matcher"):
+                    moves.append((g, h, og))
                 present.add(k)
+    for g, h, og in moves:
+        # A broad user matcher must stay on the user's group, but must not broaden the gauntlet hook's scope.
+        g["hooks"] = [hh for hh in g.get("hooks", []) if hh is not h]
+        ng = {key: json.loads(json.dumps(value)) for key, value in og.items() if key != "hooks"}
+        ng["hooks"] = [h]
+        existing.append(ng)
     for g in groups:                        # append gauntlet groups not already present
         if any(gkey(h.get("command")) in present for h in g.get("hooks", [])):
             continue
@@ -5696,11 +5859,11 @@ public class CrapGate {
         return result;
     }
 
-    /** Index the changed source files by package-relative path -> the type simple names they declare, so a
-     *  class whose sourcefilename JaCoCo omitted can be bound to the file that really declares it. */
+    /** Index only top-level types: a nested Selection.Legacy must not bind an unrelated top-level Legacy. */
     static Map<String, Set<String>> declaredTypes(Set<String> only) {
         Map<String, Set<String>> map = new LinkedHashMap<>();
-        Pattern type = Pattern.compile("\\b(?:class|interface|enum|record)\\s+(\\w+)");
+        Pattern type = Pattern.compile("(?<![\\p{javaJavaIdentifierPart}$])(?:class|interface|enum|record)\\s+"
+                + "([\\p{javaJavaIdentifierStart}][\\p{javaJavaIdentifierPart}]*)");
         for (String f : only) {
             Path p = Path.of(f);
             if (!Files.isRegularFile(p)) {
@@ -5710,7 +5873,7 @@ public class CrapGate {
             int root = norm.indexOf("src/main/java/");
             String rel = root >= 0 ? norm.substring(root + "src/main/java/".length()) : norm;
             try {
-                Matcher m = type.matcher(Files.readString(p, StandardCharsets.UTF_8));
+                Matcher m = type.matcher(topLevelSource(Files.readString(p, StandardCharsets.UTF_8)));
                 Set<String> names = new HashSet<>();
                 while (m.find()) {
                     names.add(m.group(1));
@@ -5723,17 +5886,112 @@ public class CrapGate {
         return map;
     }
 
+    static String topLevelSource(String source) {
+        StringBuilder code = new StringBuilder(source.length());
+        String state = "code";
+        int depth = 0;
+        int i = 0;
+        while (i < source.length()) {
+            char c = source.charAt(i);
+            char next = i + 1 < source.length() ? source.charAt(i + 1) : '\0';
+            if (state.equals("lineComment")) {
+                appendMasked(code, c);
+                if (c == '\n') {
+                    state = "code";
+                }
+                i++;
+                continue;
+            }
+            if (state.equals("blockComment")) {
+                if (c == '*' && next == '/') {
+                    code.append("  ");
+                    i += 2;
+                    state = "code";
+                } else {
+                    appendMasked(code, c);
+                    i++;
+                }
+                continue;
+            }
+            if (state.equals("textBlock")) {
+                if (c == '\\' && i + 1 < source.length()) {
+                    appendMasked(code, c);
+                    appendMasked(code, next);
+                    i += 2;
+                } else if (c == '"' && next == '"' && i + 2 < source.length() && source.charAt(i + 2) == '"') {
+                    code.append("   ");
+                    i += 3;
+                    state = "code";
+                } else {
+                    appendMasked(code, c);
+                    i++;
+                }
+                continue;
+            }
+            if (state.equals("string") || state.equals("character")) {
+                char delimiter = state.equals("string") ? '"' : '\'';
+                if (c == '\\' && i + 1 < source.length()) {
+                    appendMasked(code, c);
+                    appendMasked(code, next);
+                    i += 2;
+                } else {
+                    appendMasked(code, c);
+                    if (c == delimiter) {
+                        state = "code";
+                    }
+                    i++;
+                }
+                continue;
+            }
+            if (c == '/' && next == '/') {
+                code.append("  ");
+                i += 2;
+                state = "lineComment";
+            } else if (c == '/' && next == '*') {
+                code.append("  ");
+                i += 2;
+                state = "blockComment";
+            } else if (c == '"' && next == '"' && i + 2 < source.length() && source.charAt(i + 2) == '"') {
+                code.append("   ");
+                i += 3;
+                state = "textBlock";
+            } else if (c == '"') {
+                code.append(' ');
+                i++;
+                state = "string";
+            } else if (c == '\'') {
+                code.append(' ');
+                i++;
+                state = "character";
+            } else {
+                if (c == '{') {
+                    depth++;
+                } else if (c == '}') {
+                    depth = Math.max(0, depth - 1);
+                }
+                code.append(depth == 0 ? c : (c == '\n' ? '\n' : ' '));
+                i++;
+            }
+        }
+        return code.toString();
+    }
+
+    static void appendMasked(StringBuilder target, char c) {
+        target.append(c == '\n' ? '\n' : ' ');
+    }
+
     static String resolveSource(Map<String, Set<String>> declared, String pkgPath, String outerName) {
-        String prefix = pkgPath.isEmpty() ? "" : pkgPath + "/";
         String found = null;
         for (Map.Entry<String, Set<String>> e : declared.entrySet()) {
             String rel = e.getKey();
-            if (!rel.startsWith(prefix) || !e.getValue().contains(outerName)) {
+            int slash = rel.lastIndexOf('/');
+            String parent = slash < 0 ? "" : rel.substring(0, slash);
+            if (!parent.equals(pkgPath) || !e.getValue().contains(outerName)) {
                 continue;
             }
-            String base = rel.substring(rel.lastIndexOf('/') + 1);
+            String base = rel.substring(slash + 1);
             if (found != null && !found.equals(base)) {
-                return null;   // two changed files declare the same type name: cannot bind unambiguously
+                return null;
             }
             found = base;
         }
@@ -6162,9 +6420,9 @@ import org.w3c.dom.NodeList;
  * mutated - Cucumber interpolates every other value exactly as in the original run, so a non-mutated
  * column (e.g. an address holding a newline) is never distorted. Plus manifest.tsv. Run them with
  * Cucumber, then {@code verdict} reads the JUnit XML results: a {@code <failure>} that is an assertion
- * thrown IN A STEP = killed (an undefined step for the new value is counted separately); passed =
- * survived; a {@code <error>}, a non-assertion {@code <failure>} (IOException etc.), a {@code <failure>}
- * from a @Before/@After hook (no step reached a verdict), skipped/aborted or missing = error, never a kill.
+ * with a Cucumber STEP frame = killed (an undefined step for the new value is counted separately); passed =
+ * survived; a {@code <error>}, a non-assertion {@code <failure>} (IOException etc.), an assertion without
+ * a step frame (including a @Before/@After hook), skipped/aborted or missing = error, never a kill.
  * {@code no-skipped} fails when the {@code --features} directory is missing, when a normal acceptance run
  * skipped scenarios, or ran none although {@code --features} holds feature files; an existing directory
  * without feature files passes without reading any results.
@@ -6320,7 +6578,7 @@ public class GherkinMutator {
             if (!lines.isEmpty() && lines.get(0).startsWith("\uFEFF")) {
                 lines.set(0, lines.get(0).substring(1));   // UTF-8 byte order mark
             }
-            if (lines.stream().map(String::trim).allMatch(l -> l.isEmpty() || l.startsWith("#"))) {
+            if (lines.stream().map(GherkinMutator::gherkinStrip).allMatch(l -> l.isEmpty() || l.startsWith("#"))) {
                 continue;   // empty or comment-only feature file: valid for Cucumber, nothing to mutate
             }
             inScope++;
@@ -6448,7 +6706,7 @@ public class GherkinMutator {
     }
 
     static String featureKeyword(FeatureDoc doc) {
-        String t = doc.header.trim();
+        String t = gherkinStrip(doc.header);
         return t.substring(0, t.indexOf(':'));
     }
 
@@ -6458,7 +6716,7 @@ public class GherkinMutator {
         FeatureDoc doc = new FeatureDoc();
         doc.path = file.toString().replace('\\', '/');
         for (String l : lines) {
-            String t = l.trim();
+            String t = gherkinStrip(l);
             if (t.isEmpty()) {
                 continue;
             }
@@ -6483,7 +6741,7 @@ public class GherkinMutator {
         String docStringFence = null;
         for (int i = 0; i < lines.size(); i++) {
             String line = lines.get(i);
-            String t = line.trim();
+            String t = gherkinStrip(line);
             if (docStringFence != null) {
                 if (block != null) {
                     block.add(line);
@@ -6509,7 +6767,7 @@ public class GherkinMutator {
             }
             Kw k = keyword(t, kw);
             if (k != null) {
-                String name = t.substring(t.indexOf(':') + 1).trim();
+                String name = gherkinStrip(t.substring(t.indexOf(':') + 1));
                 switch (k) {
                     case FEATURE -> {
                         doc.tags = pendingTags;
@@ -6640,7 +6898,7 @@ public class GherkinMutator {
                 i++;
             } else if (c == '|') {
                 if (cur != null) {
-                    cells.add(cur.toString().trim());
+                    cells.add(gherkinStrip(cur.toString()));
                 }
                 cur = new StringBuilder();
             } else if (cur != null) {
@@ -6944,7 +7202,7 @@ public class GherkinMutator {
     static boolean hasGherkin(Path featureFile) {
         try {
             return Files.readAllLines(featureFile, StandardCharsets.UTF_8).stream()
-                    .map(l -> l.replace("\uFEFF", "").trim()).anyMatch(l -> !l.isEmpty() && !l.startsWith("#"));
+                    .map(l -> gherkinStrip(l.replace("\uFEFF", ""))).anyMatch(l -> !l.isEmpty() && !l.startsWith("#"));
         } catch (IOException unreadable) {
             return true;   // unreadable is not proof of emptiness
         }
@@ -7007,35 +7265,27 @@ public class GherkinMutator {
         return outcome;
     }
 
-    /** Cucumber reports a step without a matching definition as a failure (UndefinedStepException). */
+    /** Cucumber reports a step without a matching definition with this specific exception. */
     static boolean undefinedStep(Element failure) {
-        String text = failure.getAttribute("type") + " " + failure.getAttribute("message") + " " + failure.getTextContent();
-        return text.contains("UndefinedStepException") || text.contains("is undefined");
+        String text = failure.getAttribute("type") + " " + failure.getTextContent();
+        return text.contains("UndefinedStepException");
     }
 
-    /** A mutant is killed only by an assertion that failed while a STEP ran. A non-assertion exception
-     *  (IOException, SQLException, ...) is infrastructure/prep, never a verdict; an assertion thrown from a
-     *  @Before/@After hook failed before any step ran, so it proves nothing about the mutated value. Both are
-     *  written by Gradle/Cucumber as {@code <failure>}, so the stage must be read from the type and the trace. */
+    /** A mutant is killed only by an assertion with positive evidence that a STEP ran. Runner filtering can
+     *  omit all hook frames from a @Before failure, so absence of hook markers is not evidence of a step. */
     static boolean stepAssertionKill(Element failure) {
-        if (!assertionType(failure.getAttribute("type"))) {
-            return false;
-        }
-        return !hookStage(failure.getTextContent());
+        return assertionType(failure.getAttribute("type")) && stepStage(failure.getTextContent());
     }
 
     static boolean assertionType(String type) {
         return type.endsWith("AssertionError") || type.endsWith("AssertionFailedError")
                 || type.endsWith("AssertFailedError") || type.endsWith("ComparisonFailure")
-                || type.endsWith("MultipleFailuresError");
+                || type.endsWith("ComparisonFailureWithFacts") || type.endsWith("MultipleFailuresError");
     }
 
-    /** Cucumber runs a @Before/@After hook through these runner frames; a step failure goes through
-     *  PickleStepDefinitionMatch/StepDefinitionMatch and carries the synthetic {@code ✽} step frame instead. */
-    static boolean hookStage(String trace) {
-        return trace.contains("HookDefinitionMatch") || trace.contains("TestCaseState.runHook")
-                || trace.contains("HookTestStep") || trace.contains("MethodHookDefinition")
-                || trace.contains("Runner.runHook") || trace.contains("runHook");
+    static boolean stepStage(String trace) {
+        return trace.contains("PickleStepDefinitionMatch") || trace.contains("StepDefinitionMatch")
+                || trace.contains("✽.");
     }
 
     // ---------------------------------------------------------------- helpers
@@ -7133,7 +7383,9 @@ public class IntegrityCheck {
     static final Pattern LAST_ID = Pattern.compile("([A-Za-z_$][\\w$]*)$");
     static final Pattern HARMLESS_NAME = Pattern.compile("(?i)^(?:" + HARMLESS_NAMES + ")$");
     /** Single named parameter of a task-configuration closure: {@code jar { t -> }} / {@code jar { Task t -> }}. */
-    static final Pattern CLOSURE_PARAM = Pattern.compile("^\\s*(?:[\\w.$]+(?:<[^>]*>)?(?:\\[\\])?\\s+)?(\\w+)\\s*->");
+    static final Pattern CLOSURE_PARAM = Pattern.compile("^\\s*(?:final\\s+)?"
+            + "(?:[\\p{javaJavaIdentifierStart}][\\p{javaJavaIdentifierPart}$.]*(?:\\s*<[^>]*>)?(?:\\[\\])?\\s+)?"
+            + "([\\p{javaJavaIdentifierStart}][\\p{javaJavaIdentifierPart}$]*)\\s*->");
 
     static final List<Rule> RULES = List.of(
             rule("T1", Kind.TEST, "@Disabled\\w*", false, "disabled test"),
@@ -7365,7 +7617,7 @@ public class IntegrityCheck {
             if (depth < 0) {
                 // the innermost enclosing block opener must be harmless AND the assignment on this line
                 // must target that harmless task itself, not a gate task (jar { test.enabled = false }).
-                return harmlessOpener(line) && disabledTargetsHarmless(lines.get(index), closureParam(line));
+                return harmlessOpener(line) && disabledTargetsHarmless(lines.get(index), closureParam(lines, j));
             }
         }
         return false;
@@ -7435,14 +7687,36 @@ public class IntegrityCheck {
         return true;
     }
 
-    /** The closure's single named parameter ({@code jar { t -> }}), bound to the task itself; null for the
-     *  implicit {@code it} or a closure with no/other parameters. Only consulted once the opener is harmless. */
-    static String closureParam(String openerLine) {
-        int brace = openerLine.indexOf('{');
+    /** The closure's single named parameter ({@code jar { t -> }}), bound to the task itself; null for a
+     *  closure with no/other parameters. The declaration may continue on the line after the opening brace. */
+    static String closureParam(List<String> lines, int openerIndex) {
+        String opener = lines.get(openerIndex);
+        int brace = opener.indexOf('{');
         if (brace < 0) {
             return null;
         }
-        Matcher m = CLOSURE_PARAM.matcher(openerLine.substring(brace + 1));
+        String tail = opener.substring(brace + 1);
+        String param = closureParamText(tail);
+        if (param != null || !tail.trim().isEmpty()) {
+            return param;
+        }
+        for (int i = openerIndex + 1; i < lines.size(); i++) {
+            String next = lines.get(i);
+            if (next.trim().isEmpty()) {
+                continue;
+            }
+            return closureParamText(next);
+        }
+        return null;
+    }
+
+    static String closureParam(String openerLine) {
+        int brace = openerLine.indexOf('{');
+        return brace < 0 ? null : closureParamText(openerLine.substring(brace + 1));
+    }
+
+    static String closureParamText(String text) {
+        Matcher m = CLOSURE_PARAM.matcher(text);
         return m.find() ? m.group(1) : null;
     }
 

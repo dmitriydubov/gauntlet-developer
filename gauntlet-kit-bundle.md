@@ -345,6 +345,21 @@ ArchUnit-тест, шаблоны, установку и документаци�
   `Rules` исключён; CRAP: 4 метода в changed и 2 для `Rules.java`; Cucumber 7.23.0 + Truth `isTrue()` — 12/12 kill;
   Gradle-комментарий — только `jar`/`sourcesJar` выключены, `test` зелёный. Пороги не ослаблены.
 
+**Управление версиями проекта и Gauntlet при `start`.**
+- `config/gauntlet.properties`: `project.java.version`, `project.gradle.version`, `project.framework.*.version`,
+  `project.test.*.version` — фактические версии целевого проекта (шаблон не наследуется); `gate.java.version`
+  и локальный `gate.java.home` — независимая JVM инструментов. Версии Gauntlet выбираются по совместимости и
+  фиксируются после реального прогона. Обновление зависимостей приложения — только отдельное решение владельца.
+- `gauntlet.gradle`: gate JVM применяется к инструментам JavaExec/Exec и acceptance/arch/mutant Test-задачам,
+  не меняя toolchain приложения; `gauntletInfo` показывает `project.*`, версии инструментов и executable гейта.
+- `.github/workflows/gauntlet.yml`: CI читает `gate.java.version` (fallback `project.java.version`), вызывает
+  wrapper обнаруженной версии Gradle, печатает `--version` и `gauntletInfo`.
+- `.claude/agents/*`, `CLAUDE.md`, `INSTALL.md`, `README.md`: роли и источники используют `project.*` и фактически
+  разрешённые зависимости; убрана автоматическая рекомендация обновлять JUnit приложения ради Cucumber.
+- Проверено: Java 17 + Gradle 8.14.3 + JUnit 5.12.2 + Cucumber 7.23.0 с JVM 21 гейта — 12/12 kill, манифест
+  приложения не изменился; второй проект — `gauntletInfo`/`integrityCheck` и PIT 8/8 OK; YAML workflow распарсен (7 шагов),
+  чтение CI-версии проверено. GitHub Actions в этой среде не запускался.
+
 ## Как распаковать (Claude выполняет это на шаге 2 протокола `start`)
 
 Каждый файл лежит между строками `===== BEGIN FILE <путь> =====` и `===== END FILE <путь> =====`.
@@ -370,24 +385,24 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 
 ## Манифест
 
-- `.claude/agents/hardener.md` (4210 байт)
-- `.claude/agents/reviewer.md` (7473 байт)
-- `.claude/agents/specifier.md` (4920 байт)
+- `.claude/agents/hardener.md` (4233 байт)
+- `.claude/agents/reviewer.md` (7509 байт)
+- `.claude/agents/specifier.md` (5026 байт)
 - `.claude/settings.json` (2211 байт)
-- `.github/workflows/gauntlet.yml` (1978 байт)
+- `.github/workflows/gauntlet.yml` (2827 байт)
 - `CLAUDE.md` (279 байт)
-- `gauntlet/CLAUDE.md` (63625 байт)
-- `gauntlet/INSTALL.md` (11426 байт)
-- `gauntlet/README.md` (48638 байт)
+- `gauntlet/CLAUDE.md` (64492 байт)
+- `gauntlet/INSTALL.md` (13962 байт)
+- `gauntlet/README.md` (50708 байт)
 - `gauntlet/archtest/gauntlet/architecture/ArchitectureTest.java` (7906 байт)
 - `gauntlet/config/architecture.properties` (1420 байт)
 - `gauntlet/config/checkstyle.xml` (4593 байт)
 - `gauntlet/config/crap-allowlist.txt` (924 байт)
-- `gauntlet/config/gauntlet.properties` (5921 байт)
+- `gauntlet/config/gauntlet.properties` (6379 байт)
 - `gauntlet/config/integrity-allowlist.txt` (445 байт)
 - `gauntlet/config/pit-runerror-allowlist.txt` (1485 байт)
 - `gauntlet/config/pmd-ruleset.xml` (11398 байт)
-- `gauntlet/gauntlet.gradle` (36816 байт)
+- `gauntlet/gauntlet.gradle` (38557 байт)
 - `gauntlet/hooks/guard.py` (44247 байт)
 - `gauntlet/hooks/selftest.py` (69006 байт)
 - `gauntlet/hooks/session_start.sh` (3116 байт)
@@ -446,10 +461,10 @@ tests would notice if it were wrong. (Role adapted from Robert C. Martin's swarm
   checks that `git diff --stat -- '*/src/main/*'` is clean before committing.
 - Never weaken or delete an existing assertion, never tag a test `no-mutate` to hide a survivor.
 - Assert on behaviour, not on implementation details (no verifying private calls, no reflection).
-- Check the API of test libraries (JUnit 6, AssertJ, Mockito, Cucumber, Testcontainers, Awaitility, Spring
-  Test's MockMvcTester) against the official sources in gauntlet/CLAUDE.md, section «Источники
-  документации», for the versions the build resolves - not from memory - and name the source in your
-  final message.
+- Check the API of the project's test libraries against the official sources in gauntlet/CLAUDE.md,
+  section «Источники документации». Use the `project.*` versions recorded by start
+  (`./gradlew gauntletInfo`) and the versions the build actually resolves - not the reference versions or
+  memory - and name the source in your final message.
 - Tests that need a database or a broker use the module's existing Testcontainers support; they fail without Docker - start `dockerd` as gauntlet/CLAUDE.md says rather
   than skipping anything. No `Thread.sleep`: wait with Awaitility and a timeout. Test data carries no real
   personal data.
@@ -484,9 +499,10 @@ coder/reviewer loop of Robert C. Martin's swarm-forge "adversaries" branch.)
 - The approved feature files touched by the change, and the module's architecture policy `gauntlet/config/<module>/architecture.properties` (fallback: the common
   template `gauntlet/config/architecture.properties`; `./gradlew gauntletInfo` shows which applies).
 - When the change relies on framework behaviour, property names or an API contract: the official
-  reference for the versions the build resolves (Spring Boot 4.0 / Framework 7.0 / Spring AMQP 4.0 /
-  Hibernate 7.2 / Jackson 3 / Java 21 - docs.spring.io, docs.hibernate.org, docs.oracle.com, Javadoc), or offline `META-INF/spring-configuration-metadata.json` and `javap` on the
-  jars in the Gradle cache. Do not review API use from memory. Allowed sources are listed in
+  reference for the `project.*` versions recorded by start in `gauntlet/config/gauntlet.properties`
+  (`./gradlew gauntletInfo` prints them) and for the versions the build actually resolves. Use the matching
+  official documentation, or offline metadata and `javap` on the jars in the build cache. Do not review API use
+  from memory or inherit the reference project's versions. Allowed sources are listed in
   gauntlet/CLAUDE.md, section «Источники документации». A decision that depends on framework, library
   or protocol behaviour without a cited official source of the resolved version (in the report's
   «Сверка по документации» or in the code's Javadoc), or backed by a source outside that list, is a
@@ -598,8 +614,9 @@ before any code is written; the coder must then make your scenarios pass without
   use obviously fictional ones, and pin down that such data does not leave the service where the rules say so.
 - When a scenario relies on protocol or framework semantics (broker confirms and returns, redelivery,
   dead-lettering, HTTP status codes, transaction outcomes), confirm them in the official sources listed
-  in gauntlet/CLAUDE.md, section «Источники документации», for the versions the build resolves - not
-  from memory - and name the source next to the assumption in your final message.
+  in gauntlet/CLAUDE.md, section «Источники документации». Use the `project.*` versions recorded by start
+  (`./gradlew gauntletInfo`) and the versions the build actually resolves - not the reference versions or
+  memory - and name the source next to the assumption in your final message.
 - Reuse existing step wording: grep other feature files and the step definitions in
   `src/acceptanceTest/java` first. Consistent phrasing keeps step definitions DRY.
 - Features in this repository are written in Russian: start every file with `# language: ru` and use
@@ -715,6 +732,7 @@ before any code is written; the coder must then make your scenarios pass without
 
 ===== BEGIN FILE .github/workflows/gauntlet.yml =====
 # Gauntlet gate for pull requests. Installed to .github/workflows/gauntlet.yml by gauntlet/install.sh.
+# start records project.* and gate.java.* in the properties; CI uses gate Java and the project's Gradle wrapper.
 # The agent's hooks run only inside Claude Code; this job is the check nobody can skip.
 name: gauntlet
 
@@ -736,10 +754,23 @@ jobs:
         with:
           fetch-depth: 0                      # scope=changed needs the merge base with the base branch
 
+      - name: Resolve the configured gate JVM
+        id: versions
+        run: |
+          version=$(sed -n 's#^[[:space:]]*gate.java.version[[:space:]]*=[[:space:]]*##p' gauntlet/config/gauntlet.properties | tail -1)
+          if [ -z "$version" ]; then
+            version=$(sed -n 's#^[[:space:]]*project.java.version[[:space:]]*=[[:space:]]*##p' gauntlet/config/gauntlet.properties | tail -1)
+          fi
+          if [ -z "$version" ]; then
+            echo '::error::Set gate.java.version (or project.java.version) in gauntlet/config/gauntlet.properties'
+            exit 1
+          fi
+          echo "gate_java=$version" >> "$GITHUB_OUTPUT"
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: ${{ steps.versions.outputs.gate_java }}
 
       - uses: gradle/actions/setup-gradle@v4
 
@@ -760,7 +791,7 @@ jobs:
           status=0
           for dir in ${{ steps.base.outputs.modules }}; do
             echo "::group::gauntlet in $dir"
-            ( cd "$dir" && ./gradlew gauntlet --continue --console=plain -Pgauntlet.baseRef="${{ steps.base.outputs.ref }}" ) || status=1
+            ( cd "$dir" && ./gradlew --version && ./gradlew gauntletInfo && ./gradlew gauntlet --continue --console=plain -Pgauntlet.baseRef="${{ steps.base.outputs.ref }}" ) || status=1
             echo "::endgroup::"
           done
           exit $status
@@ -1012,20 +1043,24 @@ Gradle-сборки живут в этих каталогах: `./gradlew …` �
     от методов, которые не вызывает. DIP: сервис зависит от абстракции (интерфейс, порт, `List`/`Map`),
     конкретный класс выбирает конфигурация или адаптер. Измеримую часть ловит `pmdGate` (god class,
     число методов, loose coupling), остальное — `reviewer`, который называет принцип и место.
-12. **Сверяйся с официальной документацией, а не с памятью — строго и на каждом шаге.** Стек — Spring
-    Boot 4.0 / Framework 7.0 / Java 21 / Hibernate 7.2 / Jackson 3: многое из «привычного» устарело. Правило действует для всех ролей:
+12. **Сверяйся с официальной документацией, а не с памятью — строго и на каждом шаге.** Версии языка,
+    сборщика и фреймворков бери из `project.*` в `gauntlet/config/gauntlet.properties` (их показывает
+    `./gradlew gauntletInfo`), а версии библиотек — из фактического разрешения зависимостей сборки
+    (`./gradlew dependencies`), а не из эталонных примеров или «latest». Правило действует для всех ролей:
     `specifier` сверяет семантику протоколов и фреймворка, на которую опираются сценарии (подтверждения
     брокера, повторная доставка, коды HTTP); кодер — каждый API, аннотацию, свойство, поведение потоков,
     транзакций и таймаутов до того, как написать код; `hardener` — тестовые библиотеки; `reviewer` —
-    что сверка была и источник подходит к версии. Версии — из BOM проекта (`./gradlew dependencies`),
-    документация — той же версии, не «latest». Источники — только из раздела «Источники документации»
+    что сверка была и источник подходит к версии. Документация — той же версии. Источники — только из раздела «Источники документации»
     ниже. Никогда не выдумывай имя свойства, атрибут аннотации, метод или поведение: нет подтверждения
     ни в одном источнике — не используй, остановись и опиши. Офлайн-источники, которые есть всегда:
     имена, типы и значения по умолчанию свойств Spring Boot — `META-INF/spring-configuration-metadata.json`
     внутри jar в кэше Gradle (`~/.gradle/caches/modules-2/files-2.1/`), сигнатуры и поведение —
     `javap -p -c -cp <jar>`. Сайт недоступен — запасные пути раздела «Источники документации» по порядку:
     javadoc-jar и sources-jar нужной версии, исходники документации по тегу, jar в кэше Gradle; каждый случай
-    — в отчёт.
+    — в отчёт. Версии инструментов Gauntlet фиксируются в `gauntlet/config/gauntlet.properties`; JVM инструментов
+    задаётся отдельно через `gate.java.version`/`gate.java.home` и не меняет Java приложения. Обновлять версии
+    языка, сборщика, фреймворков или библиотек самого приложения ради зелёного гейта нельзя: это требует
+    отдельного решения владельца и отдельной задачи. Зависимости Gauntlet держим отдельно от приложения.
 13. **Антипаттерны запрещены**, не только те, что ловит `pmdGate`: god class и класс-«сервис» со всем
     подряд, логика в листенере/контроллере/планировщике вместо домена, магические строки и числа,
     boolean-параметр-переключатель, `null` вместо `Optional` или пустой коллекции, проглоченное
@@ -1200,8 +1235,11 @@ PR открыт. Бизнес-код и существующие тесты не
 относятся к каталогу модуля.
 
 ## 1. Разведка
-Определи и запиши для отчёта:
-- версию Spring Boot (`build.gradle(.kts)`, `gradle/libs.versions.toml`) и DSL сборки (Groovy или Kotlin);
+Определи и запиши для отчёта с доказательством (файл:строка или вывод команды):
+- Java приложения (`sourceCompatibility`/`targetCompatibility`/toolchain), Gradle (`gradle/wrapper/gradle-wrapper.properties`
+  и `./gradlew --version`), DSL сборки (Groovy или Kotlin);
+- Spring Boot и остальные фреймворки (`build.gradle(.kts)`, `gradle/libs.versions.toml`, lock-файлы и
+  `./gradlew dependencies`), JUnit и другие тестовые библиотеки; не угадывай версии по эталону;
 - корневой пакет сервиса (`@SpringBootApplication`) и его прямые подпакеты;
 - какие подпакеты от каких зависят сейчас (импорты между ними);
 - основную ветку репозитория (`git remote show origin` → HEAD branch);
@@ -1213,10 +1251,18 @@ PR открыт. Бизнес-код и существующие тесты не
 - `basePackage` — корневой пакет модуля.
 - `acceptance.glue` — `<basePackage>.acceptance`.
 - `baseRef` — `origin/<основная ветка>`, если это не `main`.
-- `cucumber.version`: Boot 3.5.x → `7.23.0` (как есть); Boot 4.x → `8.0.1` плюс версия JUnit 6.1.2 в
-  сборке: Kotlin DSL `extra["junit-jupiter.version"] = "6.1.2"`, Groovy DSL `ext['junit-jupiter.version'] = '6.1.2'`
-  (для плагина `io.spring.dependency-management`; если BOM подключён через `platform(...)`, задай
-  версию `junit-bom` явно).
+- `project.java.version`, `project.gradle.version`, `project.framework.<имя>.version`,
+  `project.test.<имя>.version` — фактические версии из шага 1, не значения шаблона. CI и роли используют
+  эти записи; `./gradlew gauntletInfo` показывает их вместе с версиями инструментов.
+- `gate.java.version` — major-версия JVM инструментов Gauntlet, `gate.java.home` — необязательный локальный
+  абсолютный путь к ней. Если гейту нужна другая JVM, меняй только эти ключи, не Java приложения и не его
+  toolchain. CI устанавливает `gate.java.version`; если она пуста, использует `project.java.version`.
+- `cucumber.version`, `archunit.version`, `pit.version`, `pit.junit5PluginVersion`, `jacoco.version`,
+  `checkstyle.version`, `pmd.version` и плагин PIT — совместимые с обнаруженными Java/Gradle/JUnit/Spring
+  версии, зафиксированные после реального прогона. Например, Boot 3.5 с JUnit 5.12 → Cucumber 7.23.0;
+  Boot 4 с JUnit 6 → Cucumber 8.0.1. Это примеры, не разрешение менять зависимости проекта.
+- Не обновляй JUnit, Spring Boot, Java, Gradle или другие зависимости приложения для совместимости гейтов.
+  Если подходящей связки нет, остановись и вынеси владельцу варианты отдельным решением и отдельной задачей.
 - `exclude.classes` — добавь маски тонких IO-адаптеров, которых достигают только интеграционные тесты
   (`*Repository`, `*Client`, `*Listener`, `*Publisher`…): их не мутируем и не считаем в CRAP.
   Не добавляй туда классы с бизнес-логикой.
@@ -1274,7 +1320,9 @@ DRY, PIT и Gherkin-мутация проверят пустое множест�
 - `gauntletScope` не находит merge-base → `git fetch origin +refs/heads/<ветка>:refs/remotes/origin/<ветка>`
   (именно с refspec: клон облачной сессии может быть single-branch, и обычный `git fetch origin main`
   не создаст `origin/main`); если клон shallow — сначала `git fetch --unshallow origin`.
-Повторяй до зелёного.
+Повторяй до зелёного. В отчёт выпиши фактически проверенную матрицу `project.*`, `gate.java.*` и версий
+инструментов. Просмотри diff манифестов сборки: там только подключение Gauntlet, никаких обновлений версий
+приложения или его зависимостей. Такое обновление прекращает установку и уходит владельцу отдельным решением.
 
 ## 7. Подключение хуков — последним
 Сначала `python3 gauntlet/hooks/selftest.py` — самопроверка хуков на этой VM, ожидается `0 failed`.
@@ -1287,7 +1335,8 @@ DRY, PIT и Gherkin-мутация проверят пустое множест�
 `git add -A && git commit -m "chore: install the gauntlet"`, `git push -u origin HEAD`, затем
 `gh pr create` с отчётом:
 - модуль (если монорепо) и как подключены соседние библиотеки;
-- версии (Boot, Cucumber, JUnit), заполненные `basePackage`/`glue`/`baseRef`;
+- обнаруженные версии проекта (`project.*`), отдельная JVM гейта (`gate.java.*`), совместимые версии
+  инструментов и доказательство их реального прогона; заполненные `basePackage`/`glue`/`baseRef`;
 - `exclude.classes` и почему;
 - архитектура: заявленные компоненты, рёбра против направления, снятые `forbidden`;
 - integrity-исключения с причинами;
@@ -1369,6 +1418,12 @@ gauntlet/
 
 Значения Мартина и их источники — в комментариях `config/gauntlet.properties`
 (CRAP > 8 у crap4java, «ни один покрытый мутант не выживает» у mutate4java, DRY 0.82 у dry4java, CC < 4).
+Версии инструментов в таблице — примеры эталона. При `start` фактические версии языка, сборщика,
+фреймворков и тестовых библиотек определяются по файлам целевого проекта и записываются в `project.*`;
+совместимые версии инструментов фиксируются после реального прогона. `gate.java.version` и
+`gate.java.home` задают JVM только для гейтов, отдельно от Java приложения. CI и роли читают эту
+конфигурацию (`./gradlew gauntletInfo`). Обновление зависимостей приложения — только отдельным решением
+владельца и отдельной задачей, не часть установки Gauntlet.
 
 **Монорепо.** Если в репозитории несколько независимых Gradle-сборок (у каждой свой `build.gradle` и
 `gradlew` в подкаталоге), в `config/gauntlet.properties` перечисляются охраняемые:
@@ -1422,7 +1477,9 @@ gauntlet/
 строка статуса SessionStart в начале сессии: `guard: on; stop hook: on`. Имя окружения ничего не гарантирует:
 переменную видно только в его настройках.
 
-**CI и защита ветки.** `.github/workflows/gauntlet.yml` гоняет `./gradlew gauntlet` на каждый PR с
+**CI и защита ветки.** `.github/workflows/gauntlet.yml` устанавливает `gate.java.version` (при пустой —
+`project.java.version`), вызывает Gradle wrapper той версии, которую `start` нашёл в проекте, печатает
+`./gradlew --version` и `gauntletInfo`, затем гоняет `./gradlew gauntlet` на каждый PR с
 полной историей (`fetch-depth: 0`) — это проверка, которую агент не может обойти (хуки работают только
 внутри Claude Code). Если репозиторий приватный на бесплатном плане GitHub, правила защиты веток
 недоступны; тогда гейт — это ваше правило не мержить красный PR. Агент мержить не может в любом случае.
@@ -1450,8 +1507,9 @@ Auto-fix (кнопка в CI status bar сессии): на упавший CI и
    запасными путями (javadoc-jar и sources-jar с Maven Central, javadoc.io, исходники документации на
    raw.githubusercontent.com, `javap`) и отмечает это в отчёте.
 3. Промпт: `Выполни gauntlet/INSTALL.md.` (в монорепо — `Выполни gauntlet/INSTALL.md для модулей core и adapter.`)
-   Claude настроит `basePackage`, архитектуру, версии Cucumber
-   под ваш Spring Boot, подключит скрипт в `build.gradle.kts`, добьётся зелёного прогона на текущем коде,
+   Claude определит по файлам проекта и зафиксирует версии языка, сборщика, фреймворков и тестовых
+   библиотек (`project.*`), подберёт и проверит совместимые инструменты, настроит `basePackage` и архитектуру,
+   подключит скрипт в `build.gradle.kts`, добьётся зелёного прогона на текущем коде,
    подключит хуки и откроет PR с отчётом.
 4. Прочитайте отчёт (исключения для старого кода, рёбра архитектуры против направления) — merge.
 
@@ -1608,6 +1666,11 @@ protection базовой ветки и то, что любая попытка �
   после `{` перед параметром замыкания. Регрессии: selftest 985 → 994, Java/XML 32/32, install 16/16; реальные
   PIT — `domain.Prices` найден, чужой `Rules` исключён; CRAP — 4 метода в changed и 2 для `Rules.java`;
   Cucumber 7.23.0 + Truth `isTrue()` — 12/12 kill; Gradle-комментарий — только `jar`/`sourcesJar` выключены.
+- Управление версиями: на учебном проекте Java 17 + Gradle 8.14.3 + JUnit 5.12.2 + Cucumber 7.23.0
+  `gauntletInfo` показал отдельную JVM 21 гейта, реальный `gherkinMutation` дал 12/12 kill, а манифест
+  приложения не изменился. На втором проекте `gauntletInfo`/`integrityCheck` и PIT 8/8 прошли с той же настройкой.
+  Workflow распарсен как YAML (7 шагов), чтение `gate.java.version` для CI проверено; GitHub Actions здесь
+  не запускался.
 - `install.sh` на демо-проекте: чистая установка; слияние с существующим `.claude/settings.json`
   (хуки и права добавлены, `disableAllHooks=false`); обновление 4.2 → 4.3 освежает поля gauntlet-хуков и
   масштабирует таймауты по модулям, чужие хуки и роль/`CLAUDE.md` не перезаписаны; идемпотентно (без дублей);
@@ -2084,6 +2147,17 @@ jacoco.version=0.8.15
 checkstyle.version=12.3.1
 pmd.version=7.27.0
 
+# --- Project versions detected by start (examples for the reference project; replace, do not inherit) ---
+project.java.version=21
+project.gradle.version=8.14.3
+project.framework.springBoot.version=4.0.7
+project.test.junit-jupiter.version=6.1.2
+
+# JVM for Gauntlet tools only. The application keeps its own Java/toolchain and dependencies.
+# gate.java.home is an optional local absolute path; CI uses gate.java.version.
+gate.java.version=21
+gate.java.home=
+
 ===== END FILE gauntlet/config/gauntlet.properties =====
 
 ===== BEGIN FILE gauntlet/config/integrity-allowlist.txt =====
@@ -2358,7 +2432,6 @@ def glue = setting('acceptance.glue', '')
 def basePackage = setting('basePackage', '')
 def excludedClassGlobs = listSetting('exclude.classes', '*Application,*MapperImpl')  // not 'excludedClasses': a local of that name would shadow pitest.excludedClasses
 def tools = gauntletFile('tools').absolutePath
-def javaBin = "${System.getProperty('java.home')}/bin/java"
 def buildDirFile = { String path -> layout.buildDirectory.file(path).get().asFile }
 
 // ------------------------------------------------------------------------------ changed files
@@ -2515,6 +2588,27 @@ def changedClassGlobs = { ->
 apply plugin: 'java'
 apply plugin: 'jacoco'
 
+def gateJavaHome = setting('gate.java.home', '')
+def gateJavaVersion = setting('gate.java.version', '')
+def gateJavaLauncher = gateJavaVersion ? javaToolchains.launcherFor {
+    languageVersion = JavaLanguageVersion.of(gateJavaVersion)
+} : null
+def javaBin = gateJavaHome ? "${gateJavaHome}/bin/java" :
+        gateJavaLauncher != null ? gateJavaLauncher.get().executablePath.asFile.absolutePath :
+                "${System.getProperty('java.home')}/bin/java"
+def gateJava = { task ->
+    if (task instanceof JavaExec) {
+        if (gateJavaHome) {
+            task.executable = javaBin
+        } else if (gateJavaLauncher != null) {
+            task.javaLauncher = gateJavaLauncher
+        }
+    }
+    if (task instanceof Test && (gateJavaHome || gateJavaLauncher != null)) {
+        task.executable = javaBin
+    }
+}
+
 sourceSets {
     acceptanceTest {
         compileClasspath += sourceSets.main.output
@@ -2570,7 +2664,15 @@ tasks.register('gauntletInfo') {
                     "${gauntletDir.toPath().relativize(configFile('pit-runerror-allowlist.txt').toPath())}",
             "basePackage  : ${basePackage ?: '(not set)'}    glue: ${glue ?: '(not set)'}",
             "cucumber     : ${setting('cucumber.version', '7.23.0')}    scope: ${scope}    baseRef: ${baseRef}",
-            "features     : ${featuresPath}"].collect { it.toString() }
+            "features     : ${featuresPath}",
+            "tools        : PIT ${setting('pit.version', '1.22.1')}, ArchUnit ${setting('archunit.version', '1.5.1')}, " +
+                    "Checkstyle ${setting('checkstyle.version', '12.3.1')}, PMD ${setting('pmd.version', '7.27.0')}, " +
+                    "JaCoCo ${setting('jacoco.version', '0.8.15')}",
+            "gate JVM    : version=${gateJavaVersion ?: '(Gradle JVM)'}; home=${gateJavaHome ?: '(from toolchain)'}; " +
+                    "executable=${javaBin}"].collect { it.toString() }
+    gauntletConfig.stringPropertyNames().findAll { it.startsWith('project.') }.sort().each { key ->
+        lines.add("${key} = ${gauntletConfig.getProperty(key)}".toString())
+    }
     doLast { lines.each { println it } }
 }
 
@@ -3041,6 +3143,15 @@ tasks.configureEach { Task task ->
     task.usesService(buildLock)
     def path = task.path
     task.doFirst { buildLock.get().hold(path) }
+}
+
+// ------------------------------------------------------------------------------ gate JVM
+
+['checkstyleGate', 'pmdGate', 'cpdReport', 'acceptanceTest', 'archTest', 'gherkinMutantsRun'].each {
+    tasks.named(it) { gateJava(it) }
+}
+plugins.withId('info.solidsoft.pitest') {
+    tasks.named('pitest') { gateJava(it) }
 }
 
 // ------------------------------------------------------------------------------ configuration cache

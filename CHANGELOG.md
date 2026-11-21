@@ -336,6 +336,27 @@
       Cucumber 7.23.0 + Truth `isTrue()` — 12/12 kill; Gradle-комментарий — только `jar`/`sourcesJar` выключены,
       `test` зелёный. Бандл пересобран с round-trip 30/30.
 
+18. **Управление версиями проекта и Gauntlet при `start`.**
+    - Сначала читаются манифесты, toolchain, wrapper, version catalogs, lock-файлы и существующий CI; при
+      диапазонах — фактическое разрешение зависимостей read-only командой. Версии языка, сборщика,
+      фреймворков и тестовых библиотек фиксируются в `project.*` с доказательствами (файл:строка/команда).
+      Владельцу показывается обнаруженная таблица, а не просьба заново назвать то, что уже есть в проекте.
+    - Инструменты Gauntlet выбираются по совместимости с этой матрицей, закрепляются точными версиями в
+      `gauntlet.properties` (Python/JS — отдельный lock/хэши набора) и считаются проверенными только после
+      реального прогона. `latest` и унаследованные версии эталона не допускаются.
+    - `gate.java.version`/`gate.java.home` задают JVM инструментов отдельно от Java приложения. `gauntlet.gradle`
+      применяет её к своим JavaExec/Exec и acceptance/arch/mutant Test-задачам, не меняя toolchain приложения;
+      `gauntletInfo` печатает `project.*`, версии инструментов и фактический executable JVM гейта.
+    - CI читает `gate.java.version` (fallback `project.java.version`), использует Gradle wrapper проекта,
+      печатает `./gradlew --version` и `gauntletInfo`. Роли specifier/hardener/reviewer и правило 12 используют
+      `project.*` и фактически разрешённые зависимости, а не Java 21/Spring Boot 4/JUnit 6 из эталона.
+    - INSTALL больше не предписывает обновлять JUnit приложения ради Cucumber. Любое обновление языка,
+      сборщика, фреймворка или зависимости приложения — отдельное решение владельца и отдельная задача/PR.
+    - Проверено: selftest 994/994, пять Java-инструментов компилируются; Java 17 + Gradle 8.14.3 + JUnit
+      5.12.2 + Cucumber 7.23.0 с JVM 21 гейта — 12/12 kill, манифест приложения не изменился. На втором
+      проекте `gauntletInfo`/`integrityCheck` и PIT 8/8 зелёные; workflow распарсен как YAML (7 шагов), чтение версии
+      CI проверено. GitHub Actions в этой среде не запускался.
+
 ### Остаток эвристики guard (честно)
 
 guard — растяжка, а не сейф (это заявлено в наборе). Статический разбор shell не видит:
@@ -350,12 +371,15 @@ guard — растяжка, а не сейф (это заявлено в наб�
 ### Где именно (по файлам)
 
 **`gauntlet-method-universal.md`:** шапка (ревизия 4.3, дата, ссылка на бандл 4.3, блок «Ревизия 4.3»);
-раздел 1.1, п. 10 (оговорка типа «дефект»); раздел 8.4 (сборщик бандла вкладывает канонический распаковщик
-своей версии и сверяет round-trip побайтно — F12).
+раздел 1.1, п. 10 (оговорка типа «дефект») и п. 26 (версии/зависимости приложения); раздел 8.1 (матрица
+версий при `start`, CI, роли, реальный прогон); раздел 8.4 (сборщик бандла вкладывает канонический
+распаковщик своей версии и сверяет round-trip побайтно — F12).
 
 **`gauntlet-kit-bundle.md`** (встроенные файлы эталона):
 - шапка: ревизия 4.3, дата; блок «Изменения против ревизии 4.2»; блоки правок Kimi, Grok, Codex (V1–V7 и
-  второй раунд F1–F14, третий и четвёртый раунды);
+  второй раунд F1–F14, третий и четвёртый раунды) и управления версиями при `start`;
+- `.claude/agents/{specifier,hardener,reviewer}.md`, `.github/workflows/gauntlet.yml`, `gauntlet/CLAUDE.md`,
+  `INSTALL.md`, `config/gauntlet.properties` (обнаруженные версии проекта и отдельная JVM гейта);
 - `gauntlet/tools/IntegrityCheck.java`, `CrapGate.java`, `GherkinMutator.java`, `PitSummary.java`;
 - `gauntlet/hooks/guard.py`, `stop_gate.py`, `selftest.py` (994 проверки в трёх раскладках);
 - `gauntlet/install.sh` (обновление gauntlet-хуков при слиянии, бюджет таймаута по модулям);
@@ -364,7 +388,7 @@ guard — растяжка, а не сейф (это заявлено в наб�
 - `.claude/settings.json` (deny; таймаут SubagentStop 3600 → 7200 с);
 - `gauntlet/templates/acceptanceTest/resources/features/example_discount.feature`;
 - `gauntlet/README.md` (таблица лазеек, раздел 8, остаток, пункт `install.sh`);
-- манифест: пересчитаны байтовые размеры 13 изменённых файлов (см. ниже).
+- манифест: пересчитаны байтовые размеры 20 изменённых файлов (см. ниже).
 
 ### Манифест бандла
 
@@ -373,10 +397,17 @@ guard — растяжка, а не сейф (это заявлено в наб�
 
 | Файл | 4.2 | 4.3 |
 |---|---|---|
+| `.claude/agents/hardener.md` | 4210 | 4233 |
+| `.claude/agents/reviewer.md` | 7473 | 7509 |
+| `.claude/agents/specifier.md` | 4920 | 5026 |
 | `.claude/settings.json` | 1720 | 2211 |
-| `gauntlet/README.md` | 29851 | 48638 |
+| `.github/workflows/gauntlet.yml` | 1978 | 2827 |
+| `gauntlet/CLAUDE.md` | 63625 | 64492 |
+| `gauntlet/INSTALL.md` | 11426 | 13962 |
+| `gauntlet/README.md` | 29851 | 50708 |
 | `gauntlet/config/crap-allowlist.txt` | 448 | 924 |
-| `gauntlet/gauntlet.gradle` | 32451 | 36816 |
+| `gauntlet/config/gauntlet.properties` | 5921 | 6379 |
+| `gauntlet/gauntlet.gradle` | 32451 | 38557 |
 | `gauntlet/hooks/guard.py` | 26740 | 44247 |
 | `gauntlet/hooks/selftest.py` | 41192 | 69006 |
 | `gauntlet/hooks/stop_gate.py` | 16669 | 20644 |
@@ -387,11 +418,12 @@ guard — растяжка, а не сейф (это заявлено в наб�
 | `gauntlet/tools/IntegrityCheck.java` | 15688 | 22678 |
 | `gauntlet/tools/PitSummary.java` | 11401 | 11633 |
 
-Остальные 17 файлов не правились; их размеры не изменились. Во втором раунде Codex (F1–F14) изменены 9 файлов:
+Остальные 10 файлов не правились; их размеры не изменились. Во втором раунде Codex (F1–F14) изменены 9 файлов:
 `README.md`, `gauntlet.gradle`, `guard.py`, `selftest.py`, `stop_gate.py`, `install.sh`, `CrapGate.java`,
 `GherkinMutator.java`, `IntegrityCheck.java` (размеры 4.3 выше — итоговые после всех раундов). В третьем раунде
 изменены те же 9 файлов эталона; в четвёртом — 8 (`stop_gate.py` не менялся); описание и счётчики внешних
-документов обновлены синхронно.
+документов обновлены синхронно. Управление версиями дополнительно изменило роли, workflow, `CLAUDE.md`,
+`INSTALL.md` и `gauntlet.properties` — всего 20 файлов отличаются от 4.2.
 
 ### Проверено
 

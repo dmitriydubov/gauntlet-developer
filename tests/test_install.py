@@ -205,6 +205,11 @@ class UserHooksStayUntouched(InstallCase):
         self.assert_kept("SubagentStop", [f"{MUTATION}; ./tools/audit", f"{MUTATION} --profile ci"], MUTATION,
                          matcher="^hardener$")
 
+    def test_operator_glued_to_an_option_value_is_a_compound_command(self):
+        # shlex reads `3300&&./tools/audit` as ONE word: it is no timeout, and the user's auditor must survive
+        self.assert_kept("SubagentStop", [f"{MUTATION}&&./tools/audit", f"{MUTATION}&", f"{MUTATION}>/tmp/gate.log",
+                                          f"{MUTATION}2>&1"], MUTATION, matcher="^hardener$")
+
     def test_second_stop_gate_hook_with_another_task(self):
         # one script, several purposes: the user's own tasks are not the kit's gauntletFast hook
         integration = f'python3 {P}stop_gate.py" --task integrationTest --timeout 1200'

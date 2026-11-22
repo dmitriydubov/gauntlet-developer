@@ -492,7 +492,8 @@ ArchUnit-тест, шаблоны, установку и документаци�
   - `.github/workflows/gauntlet.yml`: `21` и `21.0.2` — один `JAVA_HOME_21_X64`, план теперь требует одну запись
     на major; `17-ea` и `1.8` (→ `8`); разделители `java.util.Properties` (`key: value`, `key value`); модуль с
     пробелом в имени; `actions/setup-java@v5` (v4 устарел upstream). `install.sh`, `hooks/guard.py`,
-    `hooks/stop_gate.py` читают `gauntlet.properties` и список модулей так же.
+    `hooks/stop_gate.py` читают `gauntlet.properties` и список модулей так же; `install.sh` не принимает за
+    штатный хук команду с оператором, приклеенным к значению опции (`--timeout 3300&&./audit`).
   - Роли: `hardener` чинит красный контроль в тестовом коде (`@Before`), правка фичи — вопрос человеку.
 - `.claude/agents/specifier.md`, `hardener.md`, `gauntlet/CLAUDE.md`: сценарий обязан исполняться сам по себе;
   красный контроль — зависимость сценария от соседнего или от стенда, а не слабое step-определение.
@@ -552,7 +553,7 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 - `gauntlet/hooks/selftest.py` (123649 байт)
 - `gauntlet/hooks/session_start.sh` (3116 байт)
 - `gauntlet/hooks/stop_gate.py` (21211 байт)
-- `gauntlet/install.sh` (11961 байт)
+- `gauntlet/install.sh` (12194 байт)
 - `gauntlet/templates/acceptanceTest/java/com/example/service/acceptance/CucumberSpringConfiguration.java` (615 байт)
 - `gauntlet/templates/acceptanceTest/resources/features/example_discount.feature` (1258 байт)
 - `gauntlet/tools/CrapGate.java` (31322 байт)
@@ -8151,6 +8152,8 @@ import json, os, re, shlex
 INTERPRETERS = {"python", "python3", "bash", "sh", "zsh", "dash", "ksh"}
 
 VALUE_OPTIONS = ("--task", "--max-attempts", "--timeout")
+# what each value may look like: a Gradle task (path) or a number - `--timeout 3300&&./audit.sh` is no timeout
+VALUE_SHAPES = {"--task": r"[A-Za-z0-9_.:-]+", "--max-attempts": r"\d+", "--timeout": r"\d+"}
 
 def stop_gate_options(args):
     # The options of a stop_gate.py call this installer understands ({"--task": "gauntletFast", ...}), else None.
@@ -8160,10 +8163,10 @@ def stop_gate_options(args):
         if args[i] == "--record-start":
             options[args[i]] = True
             i += 1
-        elif eq and name in VALUE_OPTIONS:
+        elif eq and name in VALUE_OPTIONS and re.fullmatch(VALUE_SHAPES[name], value):
             options[name] = value
             i += 1
-        elif args[i] in VALUE_OPTIONS and i + 1 < len(args):
+        elif args[i] in VALUE_OPTIONS and i + 1 < len(args) and re.fullmatch(VALUE_SHAPES[args[i]], args[i + 1]):
             options[args[i]] = args[i + 1]
             i += 2
         else:
@@ -8208,8 +8211,7 @@ def gkey(cmd):
     root_script = os.path.join(os.getcwd(), managed).replace(os.sep, "/")
     if script not in (managed, "$CLAUDE_PROJECT_DIR/" + managed, "${CLAUDE_PROJECT_DIR}/" + managed, root_script):
         return None
-    if any(re.search(r"[\r\n;|`]|\$\(", t) or t.startswith(("&", ">", "<"))
-           or re.match(r"^\d+[<>]", t) for t in tokens[2:]):
+    if any(re.search(r"[\r\n;|&<>`]|\$\(", t) for t in tokens[2:]):
         return None   # a compound user command (hook && auditor, redirection) is not ours to rewrite
     return hook_key(m.group(1), tokens[2:])
 

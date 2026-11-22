@@ -169,12 +169,16 @@ FEATURES = "src/acceptanceTest/resources/features/"
 
 
 def jdk_homes():
-    """Installed JDK homes by major version (for the two-JVM scenario)."""
+    """Installed JDK homes by major version (for the two-JVM scenario): under /usr/lib/jvm, and wherever the
+    JAVA_HOME_<major>_<ARCH> variables of a CI runner (actions/setup-java) point."""
     homes = {}
-    for release in glob.glob("/usr/lib/jvm/*/release"):
-        m = re.search(r'JAVA_VERSION="(\d+)', kit.read(release))
-        if m and os.access(os.path.join(os.path.dirname(release), "bin", "java"), os.X_OK):
-            homes.setdefault(int(m.group(1)), os.path.realpath(os.path.dirname(release)))
+    candidates = [os.path.dirname(release) for release in sorted(glob.glob("/usr/lib/jvm/*/release"))]
+    candidates += [home for name, home in sorted(os.environ.items()) if re.fullmatch(r"JAVA_HOME(_\d+_\w+)?", name)]
+    for home in candidates:
+        release = os.path.join(home, "release")
+        m = re.search(r'JAVA_VERSION="(\d+)', kit.read(release)) if os.path.isfile(release) else None
+        if m and os.access(os.path.join(home, "bin", "java"), os.X_OK):
+            homes.setdefault(int(m.group(1)), os.path.realpath(home))
     return homes
 
 

@@ -27,5 +27,9 @@ python3 tests/run.py -k crap      # только тесты, в идентифи
 | `test_gherkin_mutator.py` | `GherkinMutator`: генерация мутантов и контрольных сценариев, вердикт по JUnit XML в формате Gradle (стадия падения, контроли), `no-skipped` |
 | `test_gradle_e2e.py` | только с `--gradle`: настоящий проект на Gradle — полный `gauntlet` на примере из набора и сценарии, найденные ревью (вердикт Gherkin-мутаций, область `changed`, JVM гейтов) |
 
-GitHub Actions локально не запускается: шаги workflow проверяются как shell-скрипты, сам workflow — только
-настоящим прогоном в репозитории, куда набор установлен.
+В GitHub Actions набор гоняет `.github/workflows/kit-tests.yml` этого репозитория: на каждый pull request и
+push в `main` — `python3 tests/run.py --gradle` на ubuntu-24.04 с Python 3.13, Temurin 21 (по умолчанию) и 25,
+Gradle 8.14.3.
+
+Workflow самого набора (`.github/workflows/gauntlet.yml` в бандле) здесь не исполняется: его шаги проверяются
+как shell-скрипты, сам workflow — только настоящим прогоном в репозитории, куда набор установлен.

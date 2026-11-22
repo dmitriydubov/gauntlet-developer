@@ -374,6 +374,33 @@ ArchUnit-тест, шаблоны, установку и документаци�
 - Проверки: selftest 997/997, Java/XML 35/35, installer 20/20; PIT 2/2 и CRAP 2 метода для ISO-8859-1 `Tarifé`;
   `archTest` 17/21 зелёный; round-trip 30/30. GitHub Actions в этой среде не запускался.
 
+**Ревью `166287c` (семь находок и граничный случай) и независимое ревью набора: CI по модулям, область `changed`,
+кодировки, установщик.** Все находки воспроизведены на `166287c`; регрессии лежат в `tests/` репозитория набора.
+- `.github/workflows/gauntlet.yml`: шаг прогона больше не выполняет корневой wrapper под именем отсутствующего
+  модуля (`cd -- "$dir" || exit 1`: внутри `( … ) || status=1` errexit выключен — регрессия `166287c`); версии
+  `project.java.version`/`gate.java.version` разрешаются для каждого модуля с оверлеем `config/<module>/`, как в
+  Gradle; все нужные JDK ставит один шаг `setup-java`, каждая сборка получает свои `JAVA_HOME`,
+  `GAUNTLET_GATE_JAVA_HOME` и `PATH` (обычный `java` в задаче — JVM приложения); план читается через fd 3, чтобы
+  wrapper не съел stdin и не скрыл остальные модули; пустой план — красный. Скрипты шагов не содержат `${{ }}`.
+- `gauntlet.gradle`: кодировка исходников берётся и из `-encoding` в `options.compilerArgs` (javac берёт
+  последний); изменённый исходник, не читаемый в этой кодировке, — ошибка `gauntletScope`, а не молчаливая замена
+  символов; страховка области `changed`: каждый выведенный тип обязан существовать как скомпилированный класс,
+  иначе PIT нашёл бы «No mutations» и прошёл (например, класс с Unicode-escape в имени); gate-JVM по версии
+  согласует `executable` с launcher'ом — проект с `tasks.withType(Test) { executable = … }` больше не ломает
+  `archTest`; `integrityCheck`, PMD и CPD читают исходники в кодировке проекта; CRAP получает корни исходников.
+- `tools/CrapGate.java`: два изменённых файла с одним именем и одним объявленным пакетом не затирают типы друг
+  друга (индекс объединяется); при debug-информации класс, не объявленный изменённым файлом, исключается только
+  когда его объявляет неизменённый одноимённый файл другого корня (`--sources`) — молчание разбора класс не
+  исключает; нечитаемый изменённый исходник — ошибка с именем исходника, а не «cannot read <отчёт>».
+- `tools/IntegrityCheck.java`: `--encoding` для Java-исходников; чтение не падает на байтах вне кодировки (раньше
+  `MalformedInputException` и exit 2 на любом ISO-8859-1 исходнике); `/* … */` между `{` и параметром замыкания
+  (на своей строке, на нескольких строках, на строке скобки, в однострочном блоке) не даёт ложный B1.
+- `install.sh`: штатный хук узнаётся по скрипту и назначению (`stop_gate.py --task <задача>`): пользовательский
+  `stop_gate.py --task integrationTest` рядом со штатным `gauntletFast` сохраняется; понимается `--opt=value`.
+- `hooks/stop_gate.py`: `buildSrc` входит в отслеживаемые пути — правка только build-логики запускает гейт (была
+  вынесена «в отдельную задачу» с ревью Kimi); при таймауте Gradle агент получает частичный вывод (на POSIX он
+  приходит как bytes и терялся).
+
 ## Как распаковать (Claude выполняет это на шаге 2 протокола `start`)
 
 Каждый файл лежит между строками `===== BEGIN FILE <путь> =====` и `===== END FILE <путь> =====`.
@@ -403,7 +430,7 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 - `.claude/agents/reviewer.md` (7509 байт)
 - `.claude/agents/specifier.md` (5026 байт)
 - `.claude/settings.json` (2211 байт)
-- `.github/workflows/gauntlet.yml` (3407 байт)
+- `.github/workflows/gauntlet.yml` (5615 байт)
 - `CLAUDE.md` (279 байт)
 - `gauntlet/CLAUDE.md` (64586 байт)
 - `gauntlet/INSTALL.md` (14369 байт)
@@ -416,18 +443,18 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 - `gauntlet/config/integrity-allowlist.txt` (445 байт)
 - `gauntlet/config/pit-runerror-allowlist.txt` (1485 байт)
 - `gauntlet/config/pmd-ruleset.xml` (11398 байт)
-- `gauntlet/gauntlet.gradle` (39133 байт)
+- `gauntlet/gauntlet.gradle` (43456 байт)
 - `gauntlet/hooks/guard.py` (44168 байт)
 - `gauntlet/hooks/selftest.py` (69153 байт)
 - `gauntlet/hooks/session_start.sh` (3116 байт)
-- `gauntlet/hooks/stop_gate.py` (20644 байт)
-- `gauntlet/install.sh` (10570 байт)
+- `gauntlet/hooks/stop_gate.py` (20978 байт)
+- `gauntlet/install.sh` (11572 байт)
 - `gauntlet/templates/acceptanceTest/java/com/example/service/acceptance/CucumberSpringConfiguration.java` (615 байт)
 - `gauntlet/templates/acceptanceTest/resources/features/example_discount.feature` (1258 байт)
-- `gauntlet/tools/CrapGate.java` (22946 байт)
+- `gauntlet/tools/CrapGate.java` (27932 байт)
 - `gauntlet/tools/DryGate.java` (6538 байт)
 - `gauntlet/tools/GherkinMutator.java` (42883 байт)
-- `gauntlet/tools/IntegrityCheck.java` (22710 байт)
+- `gauntlet/tools/IntegrityCheck.java` (24746 байт)
 - `gauntlet/tools/PitSummary.java` (11633 байт)
 
 ## Файлы
@@ -746,7 +773,8 @@ before any code is written; the coder must then make your scenarios pass without
 
 ===== BEGIN FILE .github/workflows/gauntlet.yml =====
 # Gauntlet gate for pull requests. Installed to .github/workflows/gauntlet.yml by gauntlet/install.sh.
-# start records project.* and gate.java.*; CI runs the application on project Java and tools on gate Java.
+# start records project.* and gate.java.*; CI runs every guarded build's application on ITS project Java and the
+# tools on ITS gate Java (gauntlet/config/<module>/gauntlet.properties overlays the common file, as in Gradle).
 # The agent's hooks run only inside Claude Code; this job is the check nobody can skip.
 name: gauntlet
 
@@ -768,64 +796,101 @@ jobs:
         with:
           fetch-depth: 0                      # scope=changed needs the merge base with the base branch
 
-      - name: Resolve project and gate Java
-        id: versions
+      - name: Resolve the guarded builds and their Java versions
+        id: plan
         run: |
-          project=$(sed -n 's#^[[:space:]]*project.java.version[[:space:]]*=[[:space:]]*##p' gauntlet/config/gauntlet.properties | tail -1)
-          gate=$(sed -n 's#^[[:space:]]*gate.java.version[[:space:]]*=[[:space:]]*##p' gauntlet/config/gauntlet.properties | tail -1)
-          if [ -z "$project" ]; then
-            echo '::error::Set project.java.version in gauntlet/config/gauntlet.properties'
-            exit 1
-          fi
-          echo "project_java=$project" >> "$GITHUB_OUTPUT"
-          echo "gate_java=${gate:-$project}" >> "$GITHUB_OUTPUT"
+          props=gauntlet/config/gauntlet.properties
+          # The last assignment of a key in a properties file; surrounding whitespace and a CR are not the value.
+          value() {
+            [ -f "$2" ] || return 0
+            sed -n "s#^[[:space:]]*$1[[:space:]]*=[[:space:]]*##p" "$2" | tail -1 | tr -d '\r' | sed 's#[[:space:]]*$##'
+          }
+          # A key the module's overlay assigns (even to nothing) wins over the common file, as in gauntlet.gradle.
+          setting() {
+            overlay="gauntlet/config/$2/gauntlet.properties"
+            if [ "$2" != . ] && [ -f "$overlay" ] && grep -Eq "^[[:space:]]*$1[[:space:]]*=" "$overlay"; then
+              value "$1" "$overlay"
+            else
+              value "$1" "$props"
+            fi
+          }
+          modules=$(value module "$props" | tr ',' ' ')
+          plan="$RUNNER_TEMP/gauntlet-plan"
+          : > "$plan"
+          versions=""
+          for dir in ${modules:-.}; do
+            dir=${dir%/}
+            project=$(setting 'project\.java\.version' "$dir")
+            gate=$(setting 'gate\.java\.version' "$dir")
+            if [ -z "$project" ]; then
+              echo "::error::Set project.java.version for '$dir' in gauntlet/config/gauntlet.properties (or the module's overlay)"
+              exit 1
+            fi
+            gate=${gate:-$project}
+            printf '%s\t%s\t%s\n' "$dir" "$project" "$gate" >> "$plan"
+            versions="$versions $project $gate"
+          done
+          cat "$plan"
+          {
+            echo 'java<<GAUNTLET_EOF'
+            printf '%s\n' $versions | awk '!seen[$0]++'
+            echo 'GAUNTLET_EOF'
+          } >> "$GITHUB_OUTPUT"
 
+      # Every JDK any guarded build needs, in one step: setup-java exports JAVA_HOME_<major>_<ARCH> for each of
+      # them (and puts the last one first on PATH - the run step below sets JAVA_HOME and PATH per build itself).
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: ${{ steps.versions.outputs.project_java }}
-
-      - name: Remember the application JVM
-        id: project_home
-        run: echo "home=$JAVA_HOME" >> "$GITHUB_OUTPUT"
-
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: ${{ steps.versions.outputs.gate_java }}
-
-      - name: Remember the gate JVM
-        id: gate_home
-        run: echo "home=$JAVA_HOME" >> "$GITHUB_OUTPUT"
+          java-version: ${{ steps.plan.outputs.java }}
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Resolve the base branch and the module
+      - name: Resolve the base branch
         id: base
+        env:
+          BASE_REF: ${{ github.base_ref }}
         run: |
-          base="${{ github.base_ref }}"
+          base="$BASE_REF"
           if [ -z "$base" ]; then
-            base=$(sed -n 's#^[[:space:]]*baseRef[[:space:]]*=[[:space:]]*origin/##p' gauntlet/config/gauntlet.properties | tail -1)
+            base=$(sed -n 's#^[[:space:]]*baseRef[[:space:]]*=[[:space:]]*origin/##p' gauntlet/config/gauntlet.properties | tail -1 | tr -d '\r' | sed 's#[[:space:]]*$##')
           fi
-          modules=$(sed -n 's#^[[:space:]]*module[[:space:]]*=[[:space:]]*##p' gauntlet/config/gauntlet.properties | tail -1 | tr ',' ' ')
           echo "ref=origin/${base:-main}" >> "$GITHUB_OUTPUT"
-          echo "modules=${modules:-.}" >> "$GITHUB_OUTPUT"
           git fetch --no-tags origin "${base:-main}"
 
       - name: Run the gauntlet in every guarded build
+        env:
+          GAUNTLET_BASE_REF: ${{ steps.base.outputs.ref }}
         run: |
+          # The JDK setup-java installed for a major version (JAVA_HOME_<major>_<ARCH>); fails when there is none.
+          jdk() {
+            major=${1%%.*}
+            [ "$major" != 1 ] || major=$(printf '%s' "$1" | cut -d. -f2)
+            var=$(compgen -v "JAVA_HOME_${major}_" | head -1)
+            [ -n "$var" ] && [ -x "${!var}/bin/java" ] && printf '%s' "${!var}"
+          }
           status=0
-          for dir in ${{ steps.base.outputs.modules }}; do
-            echo "::group::gauntlet in $dir"
+          ran=0
+          # fd 3: Gradle must not read the plan from stdin and swallow the remaining builds
+          while IFS=$'\t' read -r dir project gate <&3; do
+            ran=$((ran + 1))
+            echo "::group::gauntlet in $dir (application Java $project, gate Java $gate)"
             (
-              cd "$dir"
-              export JAVA_HOME="${{ steps.project_home.outputs.home }}"
-              export GAUNTLET_GATE_JAVA_HOME="${{ steps.gate_home.outputs.home }}"
-              ./gradlew --version && ./gradlew gauntletInfo &&
-                ./gradlew gauntlet --continue --console=plain -Pgauntlet.baseRef="${{ steps.base.outputs.ref }}"
+              # `( ... ) || status=1` switches errexit off inside: every step that must stop the build says so
+              cd -- "$dir" || { echo "::error::guarded build '$dir' (module= in gauntlet.properties) does not exist"; exit 1; }
+              JAVA_HOME=$(jdk "$project") || { echo "::error::no JDK $project for '$dir'"; exit 1; }
+              GAUNTLET_GATE_JAVA_HOME=$(jdk "$gate") || { echo "::error::no JDK $gate for the gates of '$dir'"; exit 1; }
+              export JAVA_HOME GAUNTLET_GATE_JAVA_HOME
+              export PATH="$JAVA_HOME/bin:$PATH"   # a task that runs plain `java` gets the application JVM too
+              ./gradlew --version </dev/null && ./gradlew gauntletInfo </dev/null &&
+                ./gradlew gauntlet --continue --console=plain -Pgauntlet.baseRef="$GAUNTLET_BASE_REF" </dev/null
             ) || status=1
             echo "::endgroup::"
-          done
+          done 3< "$RUNNER_TEMP/gauntlet-plan"
+          if [ "$ran" -eq 0 ]; then
+            echo "::error::no guarded build ran"
+            status=1
+          fi
           exit $status
 
       - uses: actions/upload-artifact@v4
@@ -2508,10 +2573,32 @@ def changedFiles = {
 }.memoize()
 def changedMainJava = { -> changedFiles()?.findAll { it.startsWith('src/main/java/') && it.endsWith('.java') } }
 def changedFeatures = { -> changedFiles()?.findAll { it.startsWith(featuresPath + '/') && it.endsWith('.feature') } }
+// The charset javac reads the sources with. javac takes the LAST -encoding on its command line and Gradle puts
+// options.compilerArgs after the one it derives from options.encoding, so an -encoding argument wins.
 def sourceEncoding = { ->
     def compileJava = tasks.findByName('compileJava')
-    return compileJava instanceof JavaCompile ? (compileJava.options.encoding ?: 'UTF-8') : 'UTF-8'
+    if (!(compileJava instanceof JavaCompile)) {
+        return 'UTF-8'
+    }
+    def compilerArgs = compileJava.options.allCompilerArgs.collect { it.toString() }
+    def flag = compilerArgs.lastIndexOf('-encoding')
+    return flag >= 0 && flag + 1 < compilerArgs.size() ? compilerArgs[flag + 1] : (compileJava.options.encoding ?: 'UTF-8')
+}.memoize()
+// The text of a source file, or null when its bytes are not valid in the source encoding. javac rejects such a
+// file as well ("unmappable character"), so on a project that compiles null means the encoding above is not the
+// one javac used - reading on with replacement characters would silently turn `Tarifé` into another name.
+def decodeSource = { File src ->
+    try {
+        return java.nio.charset.Charset.forName(sourceEncoding()).newDecoder()
+                .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+                .decode(java.nio.ByteBuffer.wrap(src.bytes)).toString()
+    } catch (java.nio.charset.CharacterCodingException | IllegalArgumentException ignored) {
+        return null
+    }
 }
+// Changed main sources the scope cannot read: reported by gauntletScope, which every scoped check depends on.
+def undecodableSources = { -> (changedMainJava() ?: []).findAll { file(it).isFile() && decodeSource(file(it)) == null } }.memoize()
 def javaTopLevelSource = { String source ->
     def code = new StringBuilder(source.length())
     def state = 'code'
@@ -2604,25 +2691,39 @@ def topLevelTypeNames = { String source ->
     while (matcher.find()) names << matcher.group(1)
     return names
 }
-def changedClassGlobs = { ->
-    changedMainJava()?.collectMany { path ->
-        def rel = path - 'src/main/java/'
-        def fqcn = rel.replaceAll(/\.java$/, '').replace('/', '.')
-        def globs = new LinkedHashSet<String>()
+// null = whole codebase; otherwise changed main source -> the fully qualified top-level types it declares
+def changedTypesBySource = { ->
+    changedMainJava()?.collectEntries { path ->
+        def names = new LinkedHashSet<String>()
         def src = file(path)
         if (src.isFile()) {
-            def source = src.getText(sourceEncoding())
-            def pkg = declaredJavaPackage(source)
-            topLevelTypeNames(source).each { simpleName ->
-                def name = (pkg ? pkg + '.' : '') + simpleName
-                globs << name
-                globs << name + '$*'
+            def source = decodeSource(src)
+            if (source != null) {            // an unreadable source fails gauntletScope before any scoped check runs
+                def pkg = declaredJavaPackage(source)
+                topLevelTypeNames(source).each { simpleName -> names << (pkg ? pkg + '.' : '') + simpleName }
             }
         } else {
-            globs << fqcn
-            globs << fqcn + '$*'
+            names << (path - 'src/main/java/').replaceAll(/\.java$/, '').replace('/', '.')
         }
-        return globs as List
+        return [(path): names as List]
+    }
+}.memoize()
+def changedClassGlobs = { -> changedTypesBySource()?.values()?.flatten()?.unique()?.collectMany { [it, it + '$*'] } }
+// Backstop for the derivation above (it reads sources, not classes): a top-level type that a compiled changed
+// source declares exists as <package>/<Name>.class. A name without a class was derived wrongly - a charset the
+// build hides from this script, a declaration the scan cannot read (a Unicode escape in the name) - and the scoped
+// check would look at nothing and pass. Called by the scoped checks once the classes are compiled.
+def requireChangedClasses = { ->
+    def compiled = sourceSets.main.java.files            // a source the build excludes from compilation has no class
+    def classDirs = sourceSets.main.output.classesDirs.files
+    def missing = (changedTypesBySource() ?: [:]).findAll { path, names -> compiled.contains(file(path)) }
+            .values().flatten().unique()
+            .findAll { name -> !classDirs.any { new File(it, name.replace('.', '/') + '.class').isFile() } }
+    if (missing) {
+        throw new GradleException("gauntlet: scope=changed derived ${missing.join(', ')} from the changed sources, but no " +
+                "such compiled class exists, so the changed types are unknown and the scoped checks would pass on " +
+                "nothing. Check the source encoding (JavaCompile options.encoding) and the type declaration, or run " +
+                "with -Pgauntlet.scope=all.")
     }
 }
 
@@ -2654,6 +2755,10 @@ def gateJava = { task ->
             task.executable = gateJavaBin()
         } else if (gateJavaLauncher != null) {
             task.javaLauncher = gateJavaLauncher
+            // A project may pin `executable` on every Test/JavaExec task (tasks.withType(Test) { executable = ... });
+            // Gradle refuses a launcher and an executable that disagree. The gate's own task follows the gate
+            // launcher - resolved when the task runs, never at configuration time.
+            task.doFirst { task.executable = gateJavaLauncher.get().executablePath.asFile.absolutePath }
         }
     }
 }
@@ -2734,7 +2839,14 @@ tasks.register('gauntletScope') {
     def problem = scopeProblem()
     def summary = scope == 'all' ? 'whole codebase' :
             "changed vs ${baseRef} (merge-base ${mergeBase()?.take(10)}): ${changedFiles()?.size() ?: 0} file(s)".toString()
+    def unreadable = undecodableSources()
+    def encoding = sourceEncoding()
     doLast {
+        if (unreadable) {
+            throw new GradleException("gauntlet: cannot read ${unreadable.join(', ')} as ${encoding}, so the types the " +
+                    "changed sources declare are unknown. Declare the real source encoding where javac takes it from: " +
+                    "JavaCompile options.encoding (or -encoding in options.compilerArgs).")
+        }
         if (problem) {
             def branch = baseRef.contains('/') ? baseRef.substring(baseRef.indexOf('/') + 1) : baseRef
             throw new GradleException("gauntlet: ${problem}, so the changed files are unknown. Fetch the base branch: " +
@@ -2752,7 +2864,7 @@ tasks.register('integrityCheck', Exec) {
     description = 'Finds disabled tests, coverage/mutation evasion, inline suppressions and gate tampering.'
     executable javaBin
     args "${tools}/IntegrityCheck.java", '--root', projectDir.absolutePath, '--features', featuresPath,
-            '--allowlist', configFile('integrity-allowlist.txt').absolutePath
+            '--allowlist', configFile('integrity-allowlist.txt').absolutePath, '--encoding', sourceEncoding()
 }
 
 // Checkstyle runs through its CLI on purpose: the Gradle checkstyle plugin would hook into `check`/`build`
@@ -2815,6 +2927,7 @@ tasks.register('pmdGate', JavaExec) {
     args(['check', '--rulesets', configFile('pmd-ruleset.xml').absolutePath,
           '--use-version', "java-${java.targetCompatibility.majorVersion}".toString(),
           '--format', 'xml', '--report-file', report.absolutePath, '--relativize-paths-with', projectDir.absolutePath,
+          '--encoding', sourceEncoding(),
           '--no-fail-on-violation', '--no-cache', '--no-progress', '--show-suppressed'] + targets.collectMany { ['--dir', it] })
     ignoreExitValue = true   // the verdict comes from the XML report, like checkstyleGate
     onlyIf { !targets.isEmpty() && new File(targets[0]).exists() }
@@ -2933,7 +3046,8 @@ tasks.register('crapGate', Exec) {
             '--encoding', sourceEncoding(), '--exclude', excludedClassGlobs.join(',')
     def only = changedMainJava()
     if (only != null) {
-        args '--only', only.join(',')
+        args '--only', only.join(','), '--sources', sourceSets.main.java.srcDirs*.absolutePath.join(',')
+        doFirst { requireChangedClasses() }   // CrapGate derives the changed types the same way
     }
 }
 
@@ -2944,7 +3058,7 @@ tasks.register('cpdReport', JavaExec) {
     classpath = configurations.gauntletCpd
     mainClass = 'net.sourceforge.pmd.cli.PmdCli'
     args 'cpd', '--language', 'java', '--dir', file('src/main/java').absolutePath,
-            '--minimum-tokens', setting('dry.minimumTokens', '60'), '--format', 'xml',
+            '--minimum-tokens', setting('dry.minimumTokens', '60'), '--format', 'xml', '--encoding', sourceEncoding(),
             '--report-file', report.absolutePath, '--no-fail-on-violation', '--ignore-annotations'
     if (setting('dry.ignoreIdentifiers', 'true').toBoolean()) {
         args '--ignore-identifiers'
@@ -3029,6 +3143,7 @@ plugins.withId('info.solidsoft.pitest') {
                 targetClasses.set(targets as Set)
             }
         }
+        doFirst { requireChangedClasses() }   // a wrongly derived target would make PIT find "no mutations" and pass
     }
 }
 
@@ -5253,7 +5368,8 @@ import subprocess
 import sys
 import time
 
-BUILD_FILES = ["src", "gradle", "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts",
+# buildSrc is build logic too: IntegrityCheck scans it, so a change there must reach the gate, not only CI
+BUILD_FILES = ["src", "gradle", "buildSrc", "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts",
                "gradle.properties"]
 PROPERTIES = "gauntlet/config/gauntlet.properties"
 DEFAULT_FEATURES = "src/acceptanceTest/resources/features"
@@ -5488,7 +5604,10 @@ def run_gradle(task, excluded, timeout, module="."):
         code, output = proc.returncode, proc.stdout
     except subprocess.TimeoutExpired as e:
         code = 124
-        output = (e.stdout or "") if isinstance(e.stdout, str) else ""
+        # On POSIX the partial output arrives as bytes even with text=True: keep it, the agent needs to see
+        # how far the run got before the timeout.
+        partial = e.stdout or ""
+        output = partial.decode("utf-8", "replace") if isinstance(partial, bytes) else partial
         output += f"\nTIMEOUT: {' '.join(cmd)} did not finish within {timeout}s"
     except FileNotFoundError:
         code, output = 127, f"Cannot run {gradle}: not found"
@@ -5718,28 +5837,48 @@ import json, os, re, shlex
 
 INTERPRETERS = {"python", "python3", "bash", "sh", "zsh", "dash", "ksh"}
 
-def known_args(name, args):
-    if name in ("guard.py", "session_start.sh"):
-        return not args
-    if name != "stop_gate.py":
-        return False
-    i = 0
+VALUE_OPTIONS = ("--task", "--max-attempts", "--timeout")
+
+def stop_gate_options(args):
+    # The options of a stop_gate.py call this installer understands ({"--task": "gauntletFast", ...}), else None.
+    options, i = {}, 0
     while i < len(args):
+        name, eq, value = args[i].partition("=")
         if args[i] == "--record-start":
+            options[args[i]] = True
             i += 1
-        elif args[i] in ("--task", "--max-attempts", "--timeout") and i + 1 < len(args):
+        elif eq and name in VALUE_OPTIONS:
+            options[name] = value
+            i += 1
+        elif args[i] in VALUE_OPTIONS and i + 1 < len(args):
+            options[args[i]] = args[i + 1]
             i += 2
         else:
-            return False
-    return True
+            return None
+    return options
+
+def hook_key(name, args):
+    # What a managed call is FOR. One script serves several purposes: `stop_gate.py --task gauntletFast` and a
+    # user's `stop_gate.py --task integrationTest` are different hooks, and only the first is ours to refresh.
+    if name in ("guard.py", "session_start.sh"):
+        return name if not args else None
+    if name != "stop_gate.py":
+        return None
+    options = stop_gate_options(args)
+    if options is None:
+        return None
+    if options.get("--record-start"):
+        return name + " --record-start"
+    return name + " --task " + options.get("--task", "gauntletFast")   # stop_gate.py's own default task
 
 def gkey(cmd):
     # Identify a gauntlet hook by the script it LAUNCHES, not by a path merely mentioned somewhere in the
     # command. The gauntlet runs `python3 "<...>/gauntlet/hooks/X.py" [flags]` / `bash "<...>/X.sh"`: the
     # script is the interpreter's first operand. A user hook like `sha256sum .../gauntlet/hooks/guard.py` or
     # `python3 -c '... guard.py ...'` only MENTIONS the path - treating it as the gauntlet's own hook would
-    # overwrite the user's command on upgrade. Matching the script (not the whole command) still lets the
-    # version-specific --timeout/--max-attempts flags change without duplicating the hook.
+    # overwrite the user's command on upgrade. The key is the script plus its purpose (stop_gate.py: the --task),
+    # so the version-specific --timeout/--max-attempts flags can change without duplicating the hook, while a
+    # user's second stop_gate.py call with another task keeps its own command.
     try:
         tokens = shlex.split(cmd or "")
     except ValueError:
@@ -5759,10 +5898,10 @@ def gkey(cmd):
     if any(re.search(r"[\r\n;|`]|\$\(", t) or t.startswith(("&", ">", "<"))
            or re.match(r"^\d+[<>]", t) for t in tokens[2:]):
         return None   # a compound user command (hook && auditor, redirection) is not ours to rewrite
-    return m.group(1) if known_args(m.group(1), tokens[2:]) else None
+    return hook_key(m.group(1), tokens[2:])
 
 def scale(event, hook, n):
-    m = re.search(r"--timeout\s+(\d+)", hook.get("command", ""))
+    m = re.search(r"--timeout(?:\s+|=)(\d+)", hook.get("command", ""))
     inner = int(m.group(1)) if m else 0
     if event == "Stop":
         hook["timeout"] = max(1800, n * inner + 100)
@@ -5937,6 +6076,7 @@ import java.io.FileDescriptor;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
+import java.nio.charset.CharacterCodingException;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -5954,6 +6094,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import org.w3c.dom.Document;
@@ -5972,7 +6113,8 @@ import org.w3c.dom.NodeList;
  * <pre>
  * java CrapGate.java --report build/reports/jacoco/test/jacocoTestReport.xml --threshold 8
  *      [--only src/main/java/a/B.java,src/main/java/a/C.java]   (scope: only these files)
- *      [--encoding UTF-8]                                        (JavaCompile.options.encoding)
+ *      [--sources src/main/java,src/compat/java]                 (main source roots, with --only)
+ *      [--encoding UTF-8]                                        (the charset javac reads the sources with)
  *      [--allowlist gauntlet/config/crap-allowlist.txt]           (human-approved exceptions)
  *      [--exclude *Application,*MapperImpl]                        (class-name globs)
  *      [--top 15]
@@ -6005,7 +6147,7 @@ public class CrapGate {
         } catch (IllegalArgumentException e) {
             err.println("CrapGate: " + e.getMessage());
             err.println("usage: java CrapGate.java --report <jacoco.xml> [--threshold 8] [--only f1,f2]"
-                    + " [--encoding UTF-8] [--allowlist file] [--exclude globs] [--top N]");
+                    + " [--sources dir1,dir2] [--encoding UTF-8] [--allowlist file] [--exclude globs] [--top N]");
             return 2;
         }
         if (a.only != null && a.only.isEmpty()) {
@@ -6021,6 +6163,9 @@ public class CrapGate {
         List<Score> scores;
         try {
             scores = score(parse(report), a);
+        } catch (SourceException e) {
+            err.println("CrapGate: " + e.getMessage());   // a changed source, not the report, is the unreadable input
+            return 2;
         } catch (Exception e) {
             err.println("CrapGate: cannot read " + a.report + ": " + e);
             return 2;
@@ -6042,6 +6187,7 @@ public class CrapGate {
         List<Pattern> excludes = globs(a.excludes);
         Set<String> allow = a.allow;
         Map<String, Set<String>> declared = a.only == null ? Map.of() : declaredTypes(a.only, a.encoding);
+        Namesakes elsewhere = new Namesakes(a);
         List<Score> result = new ArrayList<>();
         boolean missingSource = false;
         NodeList packages = doc.getElementsByTagName("package");
@@ -6052,17 +6198,27 @@ public class CrapGate {
                 String className = internal.replace('/', '.');
                 String sourceFile = cls.getAttribute("sourcefilename");
                 String pkgPath = pkg.getAttribute("name");
+                String simple = className.substring(className.lastIndexOf('.') + 1);
                 if (sourceFile.isEmpty()) {
                     missingSource = true;
-                    String resolved = resolveSource(declared, pkgPath, outerSimpleName(className));
+                    String resolved = resolveSource(declared, pkgPath, simple);
                     if (a.only != null && resolved == null) {
                         continue;   // this report class is not declared by any changed source file
                     }
                     sourceFile = resolved != null ? resolved : outerSimpleName(className) + ".java";
                 }
                 String sourcePath = (pkgPath.isEmpty() ? "" : pkgPath + "/") + sourceFile;
-                if (!inScope(sourcePath, declared, a.only)) {
-                    continue;
+                if (a.only != null) {
+                    Set<String> names = declared.get(sourcePath);
+                    if (names == null) {
+                        continue;   // package + file name of no changed source
+                    }
+                    // With debug info package + file name normally settle it. Two source roots may hold a file of
+                    // this name in this package, though: a class the changed file does not declare is left out
+                    // only when an UNCHANGED namesake provably declares it - never on the parser's silence alone.
+                    if (!declares(names, simple) && elsewhere.declares(pkgPath, sourceFile, simple)) {
+                        continue;
+                    }
                 }
                 if (matchesAny(outerSimpleName(className), excludes)) {
                     continue;
@@ -6140,7 +6296,7 @@ public class CrapGate {
         for (String f : only) {
             Path p = Path.of(f);
             String norm = f.replace('\\', '/');
-            String topLevel = topLevelSource(Files.readString(p, encoding));
+            String topLevel = topLevelSource(readSource(p, encoding));
             Matcher m = type.matcher(topLevel);
             Set<String> names = new HashSet<>();
             while (m.find()) {
@@ -6151,9 +6307,98 @@ public class CrapGate {
             String packagePath = packageName.replace('.', '/');
             String fileName = norm.substring(norm.lastIndexOf('/') + 1);
             String rel = (packagePath.isEmpty() ? "" : packagePath + "/") + fileName;
-            map.put(rel, names);
+            // merge, never overwrite: two changed files may share a name and a declared package
+            // (domain/Rules.java and domain/variant/Rules.java, both `package ...domain`)
+            map.computeIfAbsent(rel, k -> new HashSet<>()).addAll(names);
         }
         return map;
+    }
+
+    /** A changed source that cannot be read is an input error of its own - not "cannot read the report". */
+    static final class SourceException extends IOException {
+        private static final long serialVersionUID = 1L;
+
+        SourceException(String message) {
+            super(message);
+        }
+    }
+
+    static String readSource(Path file, Charset encoding) throws IOException {
+        try {
+            return Files.readString(file, encoding);
+        } catch (CharacterCodingException e) {
+            throw new SourceException("cannot read the changed source " + file + " as " + encoding + " - pass the charset"
+                    + " javac reads it with (--encoding; in Gradle: JavaCompile options.encoding)");
+        } catch (IOException e) {
+            throw new SourceException("cannot read the changed source " + file + ": " + e);
+        }
+    }
+
+    /** A report class belongs to a source that declares its top-level type: {@code Name}, {@code Name$Inner}. */
+    static boolean declares(Set<String> topLevelNames, String simpleClassName) {
+        for (String name : topLevelNames) {
+            if (simpleClassName.equals(name) || simpleClassName.startsWith(name + "$")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Unchanged sources under the main source roots, by file name: tells whether a report class with the package
+     * and file name of a changed source is in fact declared by an unchanged namesake in another root.
+     */
+    static final class Namesakes {
+        private final Args args;
+        private Map<String, List<Path>> byName;
+
+        Namesakes(Args args) {
+            this.args = args;
+        }
+
+        boolean declares(String pkgPath, String fileName, String simpleClassName) throws IOException {
+            if (args.only == null || args.sources.isEmpty()) {
+                return false;
+            }
+            if (byName == null) {
+                byName = index();
+            }
+            for (Path candidate : byName.getOrDefault(fileName, List.of())) {
+                Map<String, Set<String>> types;
+                try {
+                    types = declaredTypes(Set.of(candidate.toString()), args.encoding);
+                } catch (SourceException unreadable) {
+                    continue;   // proves nothing: the class stays in scope
+                }
+                Set<String> names = types.get((pkgPath.isEmpty() ? "" : pkgPath + "/") + fileName);
+                if (names != null && CrapGate.declares(names, simpleClassName)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private Map<String, List<Path>> index() throws IOException {
+            Set<Path> changed = new HashSet<>();
+            for (String f : args.only) {
+                changed.add(Path.of(f).toAbsolutePath().normalize());
+            }
+            Map<String, List<Path>> map = new HashMap<>();
+            for (String root : args.sources) {
+                Path dir = Path.of(root);
+                if (!Files.isDirectory(dir)) {
+                    continue;
+                }
+                try (Stream<Path> files = Files.walk(dir)) {
+                    for (Path p : files.filter(f -> f.toString().endsWith(".java")).toList()) {
+                        if (!changed.contains(p.toAbsolutePath().normalize())) {
+                            map.computeIfAbsent(p.getFileName().toString(), k -> new ArrayList<>()).add(p);
+                        }
+                    }
+                }
+            }
+            return map;
+        }
     }
 
     static String topLevelSource(String source) {
@@ -6250,13 +6495,13 @@ public class CrapGate {
         target.append(c == '\n' ? '\n' : ' ');
     }
 
-    static String resolveSource(Map<String, Set<String>> declared, String pkgPath, String outerName) {
+    static String resolveSource(Map<String, Set<String>> declared, String pkgPath, String simpleClassName) {
         String found = null;
         for (Map.Entry<String, Set<String>> e : declared.entrySet()) {
             String rel = e.getKey();
             int slash = rel.lastIndexOf('/');
             String parent = slash < 0 ? "" : rel.substring(0, slash);
-            if (!parent.equals(pkgPath) || !e.getValue().contains(outerName)) {
+            if (!parent.equals(pkgPath) || !declares(e.getValue(), simpleClassName)) {
                 continue;
             }
             String base = rel.substring(slash + 1);
@@ -6310,10 +6555,6 @@ public class CrapGate {
         out.println("  the remaining branches with focused unit tests. Exceptions are human-owned:");
         out.println("  gauntlet/config/crap-allowlist.txt");
         return 1;
-    }
-
-    static boolean inScope(String sourcePath, Map<String, Set<String>> declared, Set<String> only) {
-        return only == null || declared.containsKey(sourcePath);
     }
 
     static String outerSimpleName(String className) {
@@ -6377,6 +6618,7 @@ public class CrapGate {
         String report;
         double threshold = 8.0;
         Set<String> only;
+        List<String> sources = new ArrayList<>();
         Charset encoding = StandardCharsets.UTF_8;
         Set<String> allow = new HashSet<>();
         List<String> excludes = new ArrayList<>();
@@ -6395,6 +6637,7 @@ public class CrapGate {
                     case "--report" -> a.report = value;
                     case "--threshold" -> a.threshold = Double.parseDouble(value);
                     case "--only" -> a.only = splitToSet(value);
+                    case "--sources" -> a.sources = new ArrayList<>(splitToSet(value));
                     case "--encoding" -> a.encoding = Charset.forName(value);
                     case "--allowlist" -> a.allow = readAllowlist(value);
                     case "--exclude" -> a.excludes = new ArrayList<>(splitToSet(value));
@@ -7591,6 +7834,7 @@ import java.io.FileDescriptor;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
@@ -7612,7 +7856,9 @@ import java.util.stream.Stream;
  *   &lt;path glob relative to the project root&gt; &lt;RULE-ID&gt;   # reason
  *   src/test/java/**&#47;LegacyReportIT.java T4               # needs a real Oracle, runs in CI only
  * </pre>
- * Usage: {@code java IntegrityCheck.java --root . [--features <dir>] [--allowlist <file>]}
+ * Usage: {@code java IntegrityCheck.java --root . [--features <dir>] [--allowlist <file>] [--encoding <charset>]}
+ * {@code --encoding} is the charset javac reads the Java sources with (default UTF-8); feature files, build scripts
+ * and properties are UTF-8. Bytes that are not valid text never stop the scan: the rules are plain ASCII patterns.
  * Exit codes: 0 = clean, 1 = findings, 2 = usage or IO error.
  */
 public class IntegrityCheck {
@@ -7640,6 +7886,7 @@ public class IntegrityCheck {
     static final Pattern LAST_ID = Pattern.compile("([A-Za-z_$][\\w$]*)$");
     static final Pattern HARMLESS_NAME = Pattern.compile("(?i)^(?:" + HARMLESS_NAMES + ")$");
     /** Single named parameter of a task-configuration closure: {@code jar { t -> }} / {@code jar { Task t -> }}. */
+    static final int CLOSURE_PARAM_LOOKAHEAD = 20;   // lines after '{' in which the parameter may still follow
     static final Pattern CLOSURE_PARAM = Pattern.compile("^\\s*(?:final\\s+)?"
             + "(?:[\\p{javaJavaIdentifierStart}][\\p{javaJavaIdentifierPart}$.]*(?:\\s*<[^>]*>)?(?:\\[\\])?\\s+)?"
             + "([\\p{javaJavaIdentifierStart}][\\p{javaJavaIdentifierPart}$]*)\\s*->");
@@ -7689,12 +7936,14 @@ public class IntegrityCheck {
         Path root = Path.of(".");
         Path features = null;
         Path allowlist = null;
+        Charset javaEncoding = StandardCharsets.UTF_8;
         try {
             for (int i = 0; i < args.length; i += 2) {
                 switch (args[i]) {
                     case "--root" -> root = Path.of(args[i + 1]);
                     case "--features" -> features = Path.of(args[i + 1]);
                     case "--allowlist" -> allowlist = Path.of(args[i + 1]);
+                    case "--encoding" -> javaEncoding = Charset.forName(args[i + 1]);
                     default -> throw new IllegalArgumentException("unknown option " + args[i]);
                 }
             }
@@ -7711,10 +7960,10 @@ public class IntegrityCheck {
         try {
             List<Allow> allows = readAllowlist(allowlist == null ? null : root.resolve(allowlist));
             List<Finding> findings = new ArrayList<>();
-            scanTree(root, root.resolve("src/test/java"), Kind.TEST, findings);
-            scanTree(root, root.resolve("src/acceptanceTest/java"), Kind.TEST, findings);
-            scanTree(root, root.resolve("src/main/java"), Kind.MAIN, findings);
-            scanTree(root, features, Kind.FEATURE, findings);
+            scanTree(root, root.resolve("src/test/java"), Kind.TEST, javaEncoding, findings);
+            scanTree(root, root.resolve("src/acceptanceTest/java"), Kind.TEST, javaEncoding, findings);
+            scanTree(root, root.resolve("src/main/java"), Kind.MAIN, javaEncoding, findings);
+            scanTree(root, features, Kind.FEATURE, StandardCharsets.UTF_8, findings);
             for (String f : List.of("build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts",
                     "gradle.properties")) {
                 scanFile(root, root.resolve(f), Kind.BUILD, findings);
@@ -7816,7 +8065,7 @@ public class IntegrityCheck {
         return 1;
     }
 
-    static void scanTree(Path root, Path dir, Kind kind, List<Finding> findings) throws IOException {
+    static void scanTree(Path root, Path dir, Kind kind, Charset encoding, List<Finding> findings) throws IOException {
         if (!Files.isDirectory(dir)) {
             return;
         }
@@ -7826,16 +8075,22 @@ public class IntegrityCheck {
             files = s.filter(p -> p.toString().endsWith(ext)).sorted().toList();
         }
         for (Path p : files) {
-            scanFile(root, p, kind, findings);
+            scanFile(root, p, kind, encoding, findings);
         }
     }
 
     static void scanFile(Path root, Path file, Kind kind, List<Finding> findings) throws IOException {
+        scanFile(root, file, kind, StandardCharsets.UTF_8, findings);
+    }
+
+    static void scanFile(Path root, Path file, Kind kind, Charset encoding, List<Finding> findings) throws IOException {
         if (!Files.isRegularFile(file)) {
             return;
         }
         String rel = root.relativize(file.toAbsolutePath().normalize()).toString().replace('\\', '/');
-        List<String> lines = Files.readAllLines(file, StandardCharsets.UTF_8);
+        // Lenient on purpose: a byte that is not valid in the charset becomes U+FFFD instead of an exception.
+        // Files.readAllLines would stop the whole check with exit 2 on the first Latin-1 comment in a UTF-8 scan.
+        List<String> lines = new String(Files.readAllBytes(file), encoding).lines().toList();
         for (int i = 0; i < lines.size(); i++) {
             String line = lines.get(i);
             boolean comment = isComment(line, kind);
@@ -7952,28 +8207,50 @@ public class IntegrityCheck {
         if (brace < 0) {
             return null;
         }
-        String tail = opener.substring(brace + 1);
-        int lineComment = tail.indexOf("//");
-        if (lineComment >= 0) {
-            tail = tail.substring(0, lineComment);
-        }
-        String param = closureParamText(tail);
-        if (param != null || !tail.trim().isEmpty()) {
-            return param;
-        }
-        for (int i = openerIndex + 1; i < lines.size(); i++) {
-            String next = lines.get(i);
-            if (next.trim().isEmpty() || next.trim().startsWith("//")) {
-                continue;
+        // The first code after '{' decides. Blank lines and comments - a trailing or standalone "//", a block
+        // comment on one line or over several - may sit between the brace and the parameter.
+        StringBuilder text = new StringBuilder(opener.substring(brace + 1));
+        for (int i = openerIndex + 1; ; i++) {
+            String code = stripComments(text.toString());
+            if (code != null && !code.trim().isEmpty()) {
+                return closureParamText(code);
             }
-            return closureParamText(next);
+            if (i >= lines.size() || i > openerIndex + CLOSURE_PARAM_LOOKAHEAD) {
+                return null;
+            }
+            text.append('\n').append(lines.get(i));
         }
-        return null;
     }
 
     static String closureParam(String openerLine) {
         int brace = openerLine.indexOf('{');
-        return brace < 0 ? null : closureParamText(openerLine.substring(brace + 1));
+        if (brace < 0) {
+            return null;
+        }
+        String code = stripComments(openerLine.substring(brace + 1));
+        return code == null ? null : closureParamText(code);
+    }
+
+    /** The text with block and line comments blanked out; null while a block comment is still open. */
+    static String stripComments(String text) {
+        StringBuilder code = new StringBuilder();
+        int i = 0;
+        while (i < text.length()) {
+            if (text.startsWith("/*", i)) {
+                int end = text.indexOf("*/", i + 2);
+                if (end < 0) {
+                    return null;
+                }
+                code.append(' ');
+                i = end + 2;
+            } else if (text.startsWith("//", i)) {
+                int end = text.indexOf('\n', i);
+                i = end < 0 ? text.length() : end;
+            } else {
+                code.append(text.charAt(i++));
+            }
+        }
+        return code.toString();
     }
 
     static String closureParamText(String text) {

@@ -537,6 +537,9 @@
       аннотации с пакетом и `tasks.jar { … }` в Kotlin DSL, байт не-UTF-8 в скрипте сборки, CI — `1.8`,
       `key: value`, модуль с пробелом, `setup-java@v5`; `install.sh` больше не принимает за штатный хук команду с
       оператором, приклеенным к значению опции (`--timeout 3300&&./audit`, остаток R5-4a на `166287c`).
+      Первый прогон CI репозитория нашёл ещё один: блокировка каталога `build/` писала PID через `ProcessHandle`
+      (Java 9+), а скрипт исполняется в JVM Gradle, то есть на JDK проекта — проект на Java 8 падал на первой
+      задаче; PID теперь берётся из `ManagementFactory`.
       Подробно — в шапке бандла, в `docs/decisions.md`; сводка аудита всех раундов — `docs/review-audit.md`.
       Самопроверка хуков: 2353 → 2365 (разделители `gauntlet.properties`).
     - **Роли и процесс.** `specifier`: сценарий обязан исполняться сам по себе; `hardener` и `gauntlet/CLAUDE.md`:
@@ -619,7 +622,7 @@ Gherkin-мутаций в таблице и абзац о приёмочном �
 | `gauntlet/README.md` | 29851 | 70780 |
 | `gauntlet/config/crap-allowlist.txt` | 448 | 924 |
 | `gauntlet/config/gauntlet.properties` | 5921 | 6568 |
-| `gauntlet/gauntlet.gradle` | 32451 | 57790 |
+| `gauntlet/gauntlet.gradle` | 32451 | 57966 |
 | `gauntlet/hooks/guard.py` | 26740 | 94884 |
 | `gauntlet/hooks/selftest.py` | 41192 | 123649 |
 | `gauntlet/hooks/stop_gate.py` | 16669 | 21211 |

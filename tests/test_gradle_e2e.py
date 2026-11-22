@@ -525,7 +525,7 @@ class GateJvm(GradleCase):
         homes = jdk_homes()
         if len(homes) < 2:
             self.skipTest("needs two installed JDKs")
-        project, gate = sorted(homes)[0], sorted(homes)[-1]
+        project, gate = sorted(homes)[-2:]            # the two newest: a runner also carries JDK 8, 11, 17
         self.project(build_extra=f"tasks.withType(Test).configureEach {{ executable = '{homes[project]}/bin/java' }}")
         kit.set_property(self.lab, "gate.java.version", str(gate))
         r = self.gradle("archTest", "gauntletInfo", env={"JAVA_HOME": homes[project]})
@@ -538,7 +538,7 @@ class GateJvm(GradleCase):
         homes = jdk_homes()
         if len(homes) < 2:
             self.skipTest("needs two installed JDKs")
-        project, gate = sorted(homes)[0], sorted(homes)[-1]
+        project, gate = sorted(homes)[-2:]            # the two newest: a runner also carries JDK 8, 11, 17
         self.project(build_extra="afterEvaluate {\n    tasks.withType(Test).configureEach {\n        javaLauncher = "
                                  f"javaToolchains.launcherFor {{ languageVersion = JavaLanguageVersion.of({project}) }}\n    }}\n}}")
         kit.set_property(self.lab, "gate.java.version", str(gate))

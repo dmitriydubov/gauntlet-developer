@@ -494,6 +494,9 @@ ArchUnit-тест, шаблоны, установку и документаци�
     пробелом в имени; `actions/setup-java@v5` (v4 устарел upstream). `install.sh`, `hooks/guard.py`,
     `hooks/stop_gate.py` читают `gauntlet.properties` и список модулей так же; `install.sh` не принимает за
     штатный хук команду с оператором, приклеенным к значению опции (`--timeout 3300&&./audit`).
+  - `gauntlet.gradle`: блокировка каталога `build/` писала PID через `ProcessHandle` (Java 9+); скрипт исполняется
+    в JVM Gradle, то есть на JDK проекта, и проект на Java 8 падал на первой задаче (найдено первым прогоном CI
+    репозитория на раннере с JDK 8).
   - Роли: `hardener` чинит красный контроль в тестовом коде (`@Before`), правка фичи — вопрос человеку.
 - `.claude/agents/specifier.md`, `hardener.md`, `gauntlet/CLAUDE.md`: сценарий обязан исполняться сам по себе;
   красный контроль — зависимость сценария от соседнего или от стенда, а не слабое step-определение.
@@ -548,7 +551,7 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 - `gauntlet/config/integrity-allowlist.txt` (445 байт)
 - `gauntlet/config/pit-runerror-allowlist.txt` (1485 байт)
 - `gauntlet/config/pmd-ruleset.xml` (11398 байт)
-- `gauntlet/gauntlet.gradle` (57790 байт)
+- `gauntlet/gauntlet.gradle` (57966 байт)
 - `gauntlet/hooks/guard.py` (94884 байт)
 - `gauntlet/hooks/selftest.py` (123649 байт)
 - `gauntlet/hooks/session_start.sh` (3116 байт)
@@ -3770,7 +3773,9 @@ abstract class GauntletBuildLock implements BuildService<GauntletBuildLock.Param
             Thread.sleep(2000)
         }
         channel.truncate(0)
-        channel.write(java.nio.ByteBuffer.wrap("pid ${ProcessHandle.current().pid()}".getBytes('UTF-8')), 0)
+        // the daemon runs on the project's JDK, which may be Java 8: no ProcessHandle (Java 9+) in this script
+        def pid = java.lang.management.ManagementFactory.runtimeMXBean.name.split('@')[0]
+        channel.write(java.nio.ByteBuffer.wrap("pid ${pid}".getBytes('UTF-8')), 0)
         channel.force(false)
     }
 

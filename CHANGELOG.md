@@ -457,7 +457,8 @@
       выключить саму проверку «которую нельзя обойти»: `gh workflow disable`, не-GET `gh api` к защите ветки,
       rulesets и разрешениям Actions — теперь human-only. Сняты ложные блокировки, где значение опции принималось
       за кластер флагов: `commit -uno`, `branch --sort -committerdate`, `branch --contains HEAD` у ревьюера;
-      сообщение коммита `-m "--amend"` — не опция. `permissions.deny` дополнен 11 префиксными формами.
+      сообщение коммита `-m "--amend"` — не опция. `permissions.deny` дополнен 10 префиксными формами
+      (`git config core.hooksPath` в deny не внесён: префикс закрыл бы и чтение, запись отклоняет guard).
       Самопроверка: 997 → 1429 (+144 на раскладку: запреты с парными разрешающими контролями).
     - **guard: оболочки, обёртки и вложенный shell-код (независимое ревью и проверка исторических находок).**
       Правила применялись к inline-коду только после отдельного слова `-c`. `bash -lc '…'`, `sh -ec`, `bash -xc`,
@@ -498,6 +499,29 @@
       `node -pe`, несколько `-e`), argv-вызовы `run([...])`, `execvp('git', [...])`, `spawnSync('git', [...])` и
       вызовы с программой и аргументами отдельными строками (`system("git", "push", "--force")` в perl и ruby,
       `os.execlp('git', 'git', …)`) разбираются. Самопроверка: 1708 → 2089 (+127 на раскладку).
+    - **guard: что команда делает (ревью переблокировок, 18 находок).** Два обхода обычной формой и десяток
+      ложных отказов с одной причиной: хук судил слова, а не действие. (1) Цель `cd`, которую он не умел
+      вычислить, склеивалась с текущим каталогом как текст: после `cd "$(git rev-parse --show-toplevel)"`,
+      `cd "$CLAUDE_PROJECT_DIR"` или `cd -` все пути считались от несуществующего каталога — запись в
+      `gauntlet/config/gauntlet.properties` и `.claude/settings.json` проходила, а hardener и specifier получали
+      отказ в собственной зоне. Каталог теперь вычисляется (`~`, `$HOME`, `$PWD`, `$CLAUDE_PROJECT_DIR`, корень
+      git, также без кавычек); после `cd -`, `popd` и неизвестной цели команда судится по всем каталогам, где она
+      уже была, и по корню проекта. (2) Перенаправление считалось аргументом: `git push origin 2>&1` на базовой
+      ветке проходил (`2>` — «refspec»), `echo '…' | bash 2>&1` не считался оболочкой, читающей программу, а
+      `git config core.hooksPath 2>/dev/null` отклонялся как запись. Перенаправления и here-string убираются из
+      аргументов до правил; `&` в `2>&1` больше не делит команду. (3) `gh api` судится по адресу и методу, для
+      GraphQL — по имени мутации: слова `merge`, `/protection`, `ruleset` в ответе ревьюеру или в `--jq` больше не
+      отказ (ответ в треде ревью — порядок, который набор сам предписывает). (4) Текстовое сопоставление смотрит
+      на оператор, который пишет: `git pull && cat gauntlet/config/…`, `rm -rf build; ./gradlew gauntlet || echo
+      gauntlet failed`, `tee /tmp/gauntlet.log` разрешены; `gauntlet.log` — не набор. (5) Чтения ревьюера:
+      `git branch --all`/`--remotes`/`--verbose`, `git tag --contains HEAD`, `unzip -l`, `tar tf`, `tee` и `mkdir` вне
+      проекта, сравнение в `(( … ))` — не перенаправление. (6) У `cp`, `rsync`, `ln`, `tar`, `unzip` судится то, что
+      пишется: копирование конфига из набора наружу разрешено, распаковка в корень проекта отклоняется;
+      `git restore --staged` и `git reset <путь>` трогают только индекс; `--no-verify` как значение `--grep` — не
+      опция; `git branch -u<upstream>` — не кластер флагов. (7) Текст слева от pipe в оболочку берётся из того же
+      конвейера (шаблон `grep` из соседней команды — не программа), многострочная нагрузка `bash -lc '…'` судится
+      как однострочная. Сверка до и после на 1884 командах двух корпусов ревьюеров: 109 отказов снято, ни одного
+      нового. Самопроверка: 2089 → 2353 (+88 на раскладку).
     - **Роли и процесс.** `specifier`: сценарий обязан исполняться сам по себе; `hardener` и `gauntlet/CLAUDE.md`:
       красный контроль — это зависимость сценария от соседнего или от стенда, а не слабое step-определение.
     - **Регрессионный набор в репозитории.** Третий раунд ревью советовал «сохранить небольшой Gradle-проект в
@@ -539,7 +563,7 @@ guard — растяжка, а не сейф (это заявлено в наб�
 - `.claude/agents/{specifier,hardener,reviewer}.md`, `.github/workflows/gauntlet.yml`, `gauntlet/CLAUDE.md`,
   `INSTALL.md`, `config/gauntlet.properties` (обнаруженные версии проекта и отдельная JVM гейта);
 - `gauntlet/tools/IntegrityCheck.java`, `CrapGate.java`, `GherkinMutator.java`, `PitSummary.java`;
-- `gauntlet/hooks/guard.py`, `stop_gate.py`, `selftest.py` (2089 проверок в трёх раскладках);
+- `gauntlet/hooks/guard.py`, `stop_gate.py`, `selftest.py` (2353 проверки в трёх раскладках);
 - `gauntlet/install.sh` (обновление gauntlet-хуков при слиянии, бюджет таймаута по модулям);
 - `gauntlet/gauntlet.gradle` (входы `acceptanceTest`, `mutationGate` source → compiled types);
 - `gauntlet/config/crap-allowlist.txt` (пример записи с сигнатурой перегрузки);
@@ -560,16 +584,16 @@ guard — растяжка, а не сейф (это заявлено в наб�
 | `.claude/agents/hardener.md` | 4210 | 4659 |
 | `.claude/agents/reviewer.md` | 7473 | 7509 |
 | `.claude/agents/specifier.md` | 4920 | 5312 |
-| `.claude/settings.json` | 1720 | 2586 |
+| `.claude/settings.json` | 1720 | 2543 |
 | `.github/workflows/gauntlet.yml` | 1978 | 5615 |
 | `gauntlet/CLAUDE.md` | 63625 | 65106 |
 | `gauntlet/INSTALL.md` | 11426 | 14544 |
-| `gauntlet/README.md` | 29851 | 63014 |
+| `gauntlet/README.md` | 29851 | 65187 |
 | `gauntlet/config/crap-allowlist.txt` | 448 | 924 |
 | `gauntlet/config/gauntlet.properties` | 5921 | 6568 |
 | `gauntlet/gauntlet.gradle` | 32451 | 43456 |
-| `gauntlet/hooks/guard.py` | 26740 | 80104 |
-| `gauntlet/hooks/selftest.py` | 41192 | 110813 |
+| `gauntlet/hooks/guard.py` | 26740 | 94659 |
+| `gauntlet/hooks/selftest.py` | 41192 | 122893 |
 | `gauntlet/hooks/stop_gate.py` | 16669 | 20978 |
 | `gauntlet/install.sh` | 4933 | 11572 |
 | `gauntlet/templates/acceptanceTest/resources/features/example_discount.feature` | 928 | 1258 |
@@ -587,7 +611,7 @@ guard — растяжка, а не сейф (это заявлено в наб�
 
 ### Проверено
 
-- `python3 gauntlet/hooks/selftest.py` — 2089 проверок, 0 падений, три раскладки (корень; `core/`;
+- `python3 gauntlet/hooks/selftest.py` — 2353 проверки, 0 падений, три раскладки (корень; `core/`;
   `core/` + `adapter/`); в том числе из распакованной копии пересобранного бандла.
 - `python3 tests/run.py --gradle` — регрессионный набор дистрибутива по бандлу, распакованному скриптом из его
   шапки: манифест и побайтная пересборка сборщиком из раздела 8.4, единство ревизии и таблицы размеров, хуки,

@@ -417,8 +417,8 @@ ArchUnit-тест, шаблоны, установку и документаци�
   `/actions/permissions`, `/actions/workflows/…/disable`, GraphQL-мутации защиты ветки запрещены. Сняты ложные
   блокировки: значение опции не считается кластером флагов (`commit -uno`, `branch --sort -committerdate`,
   `branch --contains HEAD` у ревьюера), сообщение коммита `-m "--amend"` — не опция.
-- `.claude/settings.json`: `permissions.deny` дополнен префиксными формами сокращений, `git config core.hooksPath`
-  и `gh workflow disable` (11 записей).
+- `.claude/settings.json`: `permissions.deny` дополнен префиксными формами сокращений и `gh workflow disable`
+  (10 записей; `git config core.hooksPath` в deny не внесён — префикс закрыл бы и чтение, запись отклоняет guard).
 - `hooks/guard.py`, оболочки и обёртки: на `166287c` правила не действовали внутри `bash -lc '…'`, `sh -ec`,
   `bash -euo pipefail -c`, `dash -c`/`ksh -c`, под обёрткой с полным путём или опцией-значением (`/usr/bin/env …`,
   `nice -n 10 …`, `timeout -s KILL 60 …`, `xargs -n 1 …`, `setsid`, `stdbuf`), в `su -c`, `find … -exec`, `eval` —
@@ -445,13 +445,29 @@ ArchUnit-тест, шаблоны, установку и документаци�
   кластеры флагов интерпретаторов (`python3 -Bc`, `perl -we`, `node -pe`, несколько `-e`), argv-вызовы
   `run([...])`, `execvp('git', [...])`, `spawnSync('git', [...])` и вызовы с программой и аргументами отдельными
   строками (`system("git", "push", "--force")`, `os.execlp('git', 'git', …)`) разбираются.
+- `hooks/guard.py`, что команда делает (ревью переблокировок, 18 находок): цель `cd`, которую хук не умел вычислить,
+  склеивалась с текущим каталогом как текст — `cd "$(git rev-parse --show-toplevel)" && echo … >> gauntlet/config/gauntlet.properties`,
+  `cd "$CLAUDE_PROJECT_DIR" && echo '{}' > .claude/settings.json` и `cd src && ls; cd - && rm -rf gauntlet/config`
+  проходили, а hardener и specifier после такого `cd` получали отказ в своей зоне. Каталог теперь вычисляется для
+  `~`, `$HOME`, `$PWD`, `$CLAUDE_PROJECT_DIR` и корня git; после `cd -`, `popd` и неизвестной цели команда судится по
+  всем каталогам, где она уже была. Перенаправление считалось аргументом: `git push origin 2>&1` на базовой ветке
+  проходил (`2>` — «refspec»), `echo '…' | bash 2>&1` не считался оболочкой, читающей программу, а чтение
+  `git config core.hooksPath 2>/dev/null` отклонялось как запись; перенаправления больше не входят в аргументы.
+  `gh api` судится по адресу и методу (для GraphQL — по имени мутации), а не по словам `merge`, `/protection`,
+  `ruleset` в значении поля: ответ ревьюеру в треде больше не отклоняется. Текстовое сопоставление смотрит на
+  оператор, который пишет (`git pull && cat gauntlet/config/…` и `rm -rf build; ./gradlew gauntlet || echo gauntlet
+  failed` разрешены), и не считает `gauntlet.log` набором. Чтения ревьюера: `git branch --all`, `git tag --contains
+  HEAD`, `unzip -l`, `tar tf`, `tee` и `mkdir` вне проекта, сравнение в `(( … ))`. У `cp`, `rsync`, `tar`, `unzip`
+  судится то, что пишется (распаковка в корень проекта отклоняется), `git restore --staged` и `git reset <путь>`
+  трогают только индекс, текст слева от pipe в оболочку берётся из того же конвейера, многострочная нагрузка
+  `bash -lc '…'` судится как однострочная.
 - `.claude/agents/specifier.md`, `hardener.md`, `gauntlet/CLAUDE.md`: сценарий обязан исполняться сам по себе;
   красный контроль — зависимость сценария от соседнего или от стенда, а не слабое step-определение.
-- `hooks/selftest.py`: 997 → 2089 проверок (сокращения и их разрешающие контроли, конфигурация git, `gh`,
-  оболочки/обёртки/вложенный код для human-only, путей и ролей, чтение командной строки, `buildSrc`, вывод при
-  таймауте). `README.md`,
+- `hooks/selftest.py`: 997 → 2353 проверки (сокращения и их разрешающие контроли, конфигурация git, `gh`,
+  оболочки/обёртки/вложенный код для human-only, путей и ролей, чтение командной строки, каталог после `cd`,
+  перенаправления, `gh api`, чтения ревьюера, `buildSrc`, вывод при таймауте). `README.md`,
   `INSTALL.md`, `config/gauntlet.properties` — описание синхронизировано.
-- Проверки: `python3 tests/run.py` в репозитории набора (распакованный бандл): самопроверка хуков 2089/2089,
+- Проверки: `python3 tests/run.py` в репозитории набора (распакованный бандл): самопроверка хуков 2353/2353,
   инструменты, установщик, shell-шаги CI, побайтная пересборка; реальные Gradle 8.14.3/JDK 21 и 25, Cucumber
   7.23.0 и 8.0.1 — полный `gauntlet` на примере (9/9 Gherkin-мутантов, 3 контроля, PIT 2/2) и сценарии находок.
   GitHub Actions в этой среде не запускался: шаги workflow исполнены локально как shell.
@@ -484,12 +500,12 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 - `.claude/agents/hardener.md` (4659 байт)
 - `.claude/agents/reviewer.md` (7509 байт)
 - `.claude/agents/specifier.md` (5312 байт)
-- `.claude/settings.json` (2586 байт)
+- `.claude/settings.json` (2543 байт)
 - `.github/workflows/gauntlet.yml` (5615 байт)
 - `CLAUDE.md` (279 байт)
 - `gauntlet/CLAUDE.md` (65106 байт)
 - `gauntlet/INSTALL.md` (14544 байт)
-- `gauntlet/README.md` (63014 байт)
+- `gauntlet/README.md` (65187 байт)
 - `gauntlet/archtest/gauntlet/architecture/ArchitectureTest.java` (7906 байт)
 - `gauntlet/config/architecture.properties` (1420 байт)
 - `gauntlet/config/checkstyle.xml` (4593 байт)
@@ -499,8 +515,8 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 - `gauntlet/config/pit-runerror-allowlist.txt` (1485 байт)
 - `gauntlet/config/pmd-ruleset.xml` (11398 байт)
 - `gauntlet/gauntlet.gradle` (43456 байт)
-- `gauntlet/hooks/guard.py` (80104 байт)
-- `gauntlet/hooks/selftest.py` (110813 байт)
+- `gauntlet/hooks/guard.py` (94659 байт)
+- `gauntlet/hooks/selftest.py` (122893 байт)
 - `gauntlet/hooks/session_start.sh` (3116 байт)
 - `gauntlet/hooks/stop_gate.py` (20978 байт)
 - `gauntlet/install.sh` (11572 байт)
@@ -836,7 +852,6 @@ before any code is written; the coder must then make your scenarios pass without
       "Bash(git branch --mo:*)",
       "Bash(git branch --cop:*)",
       "Bash(git switch --force-:*)",
-      "Bash(git config core.hooksPath:*)",
       "Bash(gh workflow disable:*)"
     ]
   }
@@ -1566,7 +1581,7 @@ gauntlet/
   archtest/               ArchUnit-тест, читающий config/architecture.properties
   hooks/                  guard.py (PreToolUse), stop_gate.py (Stop; SubagentStop hardener'а — matcher в
                           .claude/settings.json), session_start.sh (SessionStart; в облаке поднимает dockerd),
-                          selftest.py (2089 проверок хуков в трёх раскладках: python3 gauntlet/hooks/selftest.py)
+                          selftest.py (2353 проверки хуков в трёх раскладках: python3 gauntlet/hooks/selftest.py)
   templates/              конфигурация Cucumber+Spring, пример фичи на русском
   claude/, ci/            только до установки: install.sh переносит их в .claude/ и .github/workflows/
 ```
@@ -1718,6 +1733,7 @@ Auto-fix (кнопка в CI status bar сессии): на упавший CI и
 | удалить `.git`, чтобы снять заморозку и Stop-хук, или подделать зелёный статус | `.git/` — зона человека: guard отклоняет запись/удаление, в т. ч. `last-green-*` в `.git/gauntlet-hook/` |
 | `git push --mirror`/`--all`/`--branches`, `push HEAD`/`push origin @` (`@` — синоним HEAD) или push без refspec сидя на базовой ветке; `git -C <worktree> push` из feature-сессии, когда worktree на базовой ветке; `--no-verif` (сокращение); `core.hooksPath` через `-c`/`--config-env` перед любой подкомандой и записью `git config core.hooksPath …`; алиасы и `include.path` (`git config alias.fp 'push --force'`), прячущие любую из этих команд; пути в другом регистре (`GAUNTLET/…`) | guard ловит все эти формы (чтение конфигурации и `--unset` разрешены) (push без refspec на базовой ветке = push базовой ветки при `push.default=simple`; текущая ветка берётся с учётом `-C`/`--git-dir`); `HEAD:other`/`@:other` базовой веткой не считаются и разрешены; сравнение путей и `mentions` регистронезависимы (macOS/Windows) |
 | команда, которую guard читал иначе, чем оболочка: апостроф в комментарии или в теле heredoc (`# don't forget` и следующей строкой `git push --force`), перенос строки через `\` (`cp src/A.java \` + `gauntlet/config/`), `<<` в строке или в арифметике, программа через heredoc, here-string или pipe (`bash <<EOF`, `python3 - <<EOF`, `bash <<< '…'`, `echo '…' \| python3`), подстановка в теле heredoc, `find … -exec sed -i` | до правил команда читается одним проходом: комментарии убираются, строки с `\` склеиваются, тело heredoc выносится из командной строки и судится как программа того, кто его читает (для `cat` и `tee` это данные), шаблон `case` не закрывает подоболочку; чтение сверено с настоящим bash; скрипт `sed`, программа `awk` и условия `find` — не пути, а `find` пишет, когда пишет команда его `-exec` |
+| `cd` в каталог, который хук не вычислял (`cd "$(git rev-parse --show-toplevel)" && echo … >> gauntlet/config/gauntlet.properties`, `cd "$CLAUDE_PROJECT_DIR"`, `cd -`, `popd`), и перенаправление, принятое за аргумент (`git push origin 2>&1` на базовой ветке — «refspec» `2>`; `echo '…' \| bash 2>&1`) | каталог после `cd` вычисляется для `~`, `$HOME`, `$PWD`, `$CLAUDE_PROJECT_DIR` и корня git; после `cd -`, `popd` и неизвестной цели команда судится по всем каталогам, где она уже была, и по корню проекта; перенаправления и here-string не входят в аргументы команды |
 | step-определение игнорирует параметр | `gherkinMutation` |
 | мутант «убит» не изменённым значением, а сломанным стендом: упала фикстура, сценарий зависит от соседнего или от своего имени | контрольные сценарии `gherkinMutation`: каждая мутируемая строка «Примеров» прогоняется в том же стенде без изменений и обязана пройти, иначе вердикт красный; падение вне шага (хук, фикстура, контекст) — ошибка, а не kill |
 | область `changed` молча не увидела изменённый класс (кодировка исходников, необычное объявление типа) и гейт прошёл по пустому множеству | `gauntletScope` падает на изменённом исходнике, не читаемом в кодировке javac; перед PIT и CRAP каждый выведенный тип обязан существовать как скомпилированный класс |
@@ -1740,7 +1756,7 @@ protection базовой ветки и то, что любая попытка �
 ## 8. Что проверено в этой версии, а что нет
 
 Проверено здесь (Gradle 8.14.3, Java 21):
-- Хуки, `hooks/selftest.py`, 2089 проверок в трёх раскладках (сборка в корне; модуль `core/`; два модуля
+- Хуки, `hooks/selftest.py`, 2353 проверки в трёх раскладках (сборка в корне; модуль `core/`; два модуля
   `core/` + `adapter/` — Gradle только в изменённом модуле, красный модуль блокирует, коммит
   спецификации одного модуля замораживает фичи другого, чужая незакоммиченная работа не считается)
   на временном git-репозитории с фиктивным `origin/main`:
@@ -1894,8 +1910,16 @@ protection базовой ветки и то, что любая попытка �
   сверенным с настоящим bash (119 команд: 35 расхождений на `166287c`, осталось одно — функция-обёртка из той
   же команды). Скрипт `sed` и программа `awk` — не пути (specifier и hardener могут править свои файлы через
   `sed -i`), `find … -exec sed -i` — запись, путь в соседнем worktree защищён как свой, вызовы вида
-  `system("git", "push", "--force")` и `os.execlp('git', 'git', …)` разбираются. Самопроверка
-  997 → 2089 (+364 на раскладку). Регрессии инструментов, установщика и CI лежат в `tests/` репозитория набора и гоняются
+  `system("git", "push", "--force")` и `os.execlp('git', 'git', …)` разбираются. Что команда делает (ревью
+  переблокировок): на `166287c` `cd "$(git rev-parse --show-toplevel)" && echo … >> gauntlet/config/gauntlet.properties`
+  и `cd - && rm -rf gauntlet/config` проходили — хук склеивал текст цели `cd` с текущим каталогом; `git push origin 2>&1`
+  на базовой ветке проходил — `2>` считался refspec. Теперь каталог после `cd` вычисляется, а перенаправления не
+  входят в аргументы. Сняты ложные отказы: `gh api` судится по адресу и методу, а не по словам `merge` и
+  `/protection` в тексте ответа ревьюеру; текстовое сопоставление смотрит на оператор, который пишет, и не считает
+  `gauntlet.log` набором; у ревьюера разрешены чтения с перенаправлением, `git branch --all`, `unzip -l`, `tar tf`,
+  `tee` и `mkdir` вне проекта; источники `cp` читаются, а не пишутся; `git restore --staged` и `git reset <путь>`
+  трогают только индекс; роли со своей зоной не блокируются на `2>/dev/null`. Самопроверка 997 → 2353
+  (+452 на раскладку). Регрессии инструментов, установщика и CI лежат в `tests/` репозитория набора и гоняются
   по распакованному бандлу.
 - `install.sh` на демо-проекте: чистая установка; слияние с существующим `.claude/settings.json`
   (хуки и права добавлены, `disableAllHooks=false`); обновление 4.2 → 4.3 освежает поля gauntlet-хуков и
@@ -3510,9 +3534,13 @@ GIT_WORKTREE_WRITING = {"checkout", "switch", "restore", "rm", "mv", "apply", "s
 # ... and the ones that only change git state (forbidden to the read-only reviewer, fine for others)
 GIT_STATE_CHANGING = GIT_WORKTREE_WRITING | {"commit", "add", "push", "tag", "branch", "update-ref", "replace",
                                              "filter-branch", "filter-repo", "notes", "worktree", "submodule"}
-GIT_READ_ONLY_FORMS = {"branch": ("--show-current", "--list", "-l", "-a", "-r", "-v", "-vv", "--contains", "--merged",
-                                  "--no-merged", "--points-at", "--format", "--sort"),
-                       "stash": ("list", "show"), "tag": ("--list", "-l", "-n", "--contains", "--points-at"),
+GIT_READ_ONLY_FORMS = {"branch": ("--show-current", "--list", "--all", "--remotes", "--verbose", "--contains",
+                                  "--no-contains", "--merged", "--no-merged", "--points-at", "--format", "--sort",
+                                  "--color", "--no-color", "--column", "--no-column", "--ignore-case", "--abbrev",
+                                  "--no-abbrev", "--omit-empty"),
+                       "stash": ("list", "show"),
+                       "tag": ("--list", "--contains", "--no-contains", "--merged", "--no-merged", "--points-at",
+                               "--format", "--sort", "--color", "--no-color", "--column", "--no-column", "--ignore-case"),
                        "worktree": ("list",), "notes": ("list", "show"), "submodule": ("status",)}
 HISTORY_REWRITING = {"rebase", "filter-branch", "filter-repo", "update-ref", "replace", "revert"}
 # global git options whose value is the NEXT argument: `git --namespace x push --force` still runs push
@@ -3525,6 +3553,12 @@ GIT_CONFIG_VALUE_OPTIONS = (("--file", 5), ("--blob", 4), ("--type", 3), ("--def
 BRANCH_VALUE_OPTIONS = (("--sort", 4), ("--format", 6), ("--contains", 5), ("--no-contains", 8), ("--merged", 4),
                         ("--no-merged", 7), ("--points-at", 3))
 CI_SWITCH = "Switching the CI gate or the branch protection off is reserved for the human."
+# options of `gh api` that take a value: the word after them is not the endpoint
+GH_API_VALUE_OPTIONS = ("-X", "--method", "-f", "--raw-field", "-F", "--field", "-H", "--header", "--input", "-q",
+                        "--jq", "-t", "--template", "--hostname", "-p", "--preview", "--cache")
+GH_MERGE_MUTATION = re.compile(r"\b(?:mergePullRequest|enablePullRequestAutoMerge|mergeBranch|enqueuePullRequest)\s*\(")
+GH_PROTECTION_MUTATION = re.compile(r"\b(?:create|update|delete)(?:BranchProtectionRule|RepositoryRuleset)\s*\(")
+HOOK_RUNNING = {"commit", "push", "merge", "pull", "am", "rebase", "cherry-pick", "revert"}   # --no-verify skips their hooks
 SHELLS = {"bash", "sh", "zsh", "dash", "ksh", "mksh", "ash"}                # `-c` may sit in a cluster: bash -lc '...'
 INTERPRETERS = {"python", "python3", "node", "ruby"} | SHELLS              # with -c / -e inline code
 SHELL_LONG_VALUE_OPTIONS = ("--rcfile", "--init-file")
@@ -3551,6 +3585,7 @@ PERL_WRITES = re.compile(r"\b(open|unlink|rename|system|exec|qx|mkdir|rmdir|trun
                          r"utime|syswrite|sysopen)\b|`")
 REDIRECT = re.compile(r"(?<!>)>>?\|?\s*([^\s;&|<>()]+)")
 GLOB_CHARS = re.compile(r"[*?\[]")
+STATEMENT_END = re.compile(r";|&&|\|\||\n")
 
 
 def main():
@@ -3727,23 +3762,15 @@ def command_violation(agent, command, ctx, cwd=None):
     reason = nested_violation(agent, command, ctx, cwd)
     if reason:
         return reason
-    neutral = QUOTED.sub(lambda m: re.sub(r"[>;&|()]", "_", m.group(0)), command)  # '>' in quotes is text
-    stack = []                              # subshell cwd scopes: a cd inside ( ... ) must not leak to the parent
-    for segment in segments_scoped(neutral):
-        if segment == "(":
-            stack.append(cwd)
-            continue
-        if segment == ")":
-            if stack:
-                cwd = stack.pop()
-            continue
-        words = words_of(segment)
-        cwd = follow_cd(words, cwd, ctx.project)
+    # inside quotes these characters are text: a quoted payload on several lines stays one word of its carrier
+    neutral = QUOTED.sub(lambda m: re.sub(r"[>;&|()`\n]", "_", m.group(0)), command)
+    statements = STATEMENT_END.split(neutral)
+    for segment, words, cwd in walk(segments_scoped(neutral), cwd, ctx.project):
         for target in REDIRECT.findall(segment):
             reason = write_violation(agent, target, cwd, ctx, protected, read_only, scope, "writing " + target)
             if reason:
                 return reason
-        if read_only and changes_state(words, segment):
+        if read_only and changes_state(words, segment, cwd, ctx):
             return f"The {agent} is read-only: no file or git state changes. Report findings instead."
         if not writes_worktree(words, segment):
             continue
@@ -3752,13 +3779,22 @@ def command_violation(agent, command, ctx, cwd=None):
             reason = write_violation(agent, token, cwd, ctx, protected, read_only, scope, "this command")
             if reason:
                 return reason
-        # paths the tokens cannot resolve (`python -c ...`, $VAR, `...`, xargs, no path at all): match the text -
-        # the whole command for inline code, otherwise outside quotes (a commit or stash message is not a path)
-        if not tokens or unresolvable(segment, command):
-            text = command if inline_code(words) else without_gradle_tasks(QUOTED.sub("''", command))
-            hit = next((p for p in protected if mentions(text, p)), None)
-            if hit:
-                return protected_reason(agent, hit, ctx)
+        # What the tokens cannot tell is matched as text. Inline code (`python -c ...`): the whole command. A
+        # write whose path comes from a variable or after a cd the hook could not follow: the whole command
+        # outside quotes - the value may be set anywhere in it. A write that names no path at all or takes its
+        # paths from a pipe (`git pull`, `... | xargs rm`): its own statement - a neighbour that only reads
+        # gauntlet/ is not its target.
+        if inline_code(words):
+            text = command
+        elif unresolvable(segment) or not known(cwd):
+            text = without_gradle_tasks(QUOTED.sub("''", command))
+        elif not tokens or XARGS.search(segment):
+            text = without_gradle_tasks(QUOTED.sub("''", next((s for s in statements if segment in s), command)))
+        else:
+            continue
+        hit = next((p for p in protected if mentions(text, p)), None)
+        if hit:
+            return protected_reason(agent, hit, ctx)
     return None
 
 
@@ -3784,24 +3820,15 @@ def nested_violation(agent, command, ctx, cwd):
     substitutions. `bash -lc 'rm -rf gauntlet'`, `echo 'rm -rf gauntlet' | sh`, `bash <<EOF ... EOF` and
     `echo "$(rm -rf gauntlet)"` write exactly like the bare command does - and `bash -lc 'cat gauntlet/README.md'`
     reads exactly like the bare command does."""
-    stack = []
-    for segment in split_shell(command):
-        if segment == "(":
-            stack.append(cwd)
-            continue
-        if segment == ")":
-            if stack:
-                cwd = stack.pop()
-            continue
-        words = words_of(segment)
-        cwd = follow_cd(words, cwd, ctx.project)
+    end = []
+    for segment, words, at in walk(split_shell(command), cwd, ctx.project, end):
         for code in shell_payloads(words) + stdin_programs(segment):
-            reason = command_violation(agent, code, ctx, cwd)
+            reason = command_violation(agent, code, ctx, at)
             if reason:
                 return reason
     for code in piped_shell_code(command) + command_substitutions(command):
         if code.strip() and code != command:
-            reason = command_violation(agent, code, ctx, cwd)
+            reason = command_violation(agent, code, ctx, end[0])
             if reason:
                 return reason
     return None
@@ -3814,6 +3841,7 @@ HEREDOC_REF = "__GAUNTLET_HEREDOC_%d__"
 HEREDOC = re.compile(r"""<<(-?)[ \t]*((?:'[^']*'|"[^"]*"|\\.|[^\s;&|()<>'"\\])+)""")
 SHELL_WORD = r"""(?:'[^']*'|"(?:\\.|[^"\\])*"|\\.|[^\s;&|()<>'"\\])+"""
 HERE_WORD = re.compile(r"[ \t]*(" + SHELL_WORD + r")?")
+REDIRECTION = re.compile(r"[<>]{1,2}[|&]?[ \t]*(?:" + SHELL_WORD + r"|-)?")
 RAW_WORD = re.compile(r"[^\s;&|()<>`]+")
 WORD_BREAK = " \t\n;&|()<>`"
 COMMAND_STARTERS = {"then", "do", "else", "elif", "if", "while", "until", "!", "time", "{"}
@@ -3849,6 +3877,31 @@ def shell_code(command, kind="top"):
         return command
 
 
+def arithmetic_at(command, i):
+    """True when the `((` at i opens an arithmetic expression: its inner parenthesis closes right before the
+    outer one. `((a); b)` is two subshells, and what stands in them are commands."""
+    depth, quote, k, n = 0, None, i + 1, len(command)
+    while k < n:
+        c = command[k]
+        if quote:
+            if c == "\\" and quote == '"':
+                k += 1
+            elif c == quote:
+                quote = None
+        elif c == "\\":
+            k += 1
+        elif c in "'\"":
+            quote = c
+        elif c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0:
+                return command[k + 1:k + 2] == ")"
+        k += 1
+    return False
+
+
 def read_shell(command, kind):
     out, frames, i, n = [], [Frame(kind)], 0, len(command)
 
@@ -3881,7 +3934,7 @@ def read_shell(command, kind):
             elif two == "$(":
                 out.append(two)
                 i += 2
-                frames.append(Frame("subst", command.startswith("(", i)))
+                frames.append(Frame("subst", command.startswith("(", i) and arithmetic_at(command, i - 1)))
             elif c == "`":
                 out.append(c)
                 i += 1
@@ -3936,7 +3989,7 @@ def read_shell(command, kind):
             out.append(two)
             i += 2
             begin_word(f)
-            frames.append(Frame("subst", command.startswith("(", i)))
+            frames.append(Frame("subst", command.startswith("(", i) and arithmetic_at(command, i - 1)))
         elif c == "`":
             out.append(c)
             i += 1
@@ -3949,7 +4002,7 @@ def read_shell(command, kind):
         elif c == "(":
             out.append(c)
             i += 1
-            frames.append(Frame("paren", f.arith or (f.fresh and command.startswith("(", i))))
+            frames.append(Frame("paren", f.arith or (f.fresh and command.startswith("(", i) and arithmetic_at(command, i - 1))))
         elif c == ")":
             out.append(c)
             i += 1
@@ -3957,6 +4010,9 @@ def read_shell(command, kind):
                 close(len(frames) - 1)
                 if f.kind == "paren":
                     frames[-1].fresh = True
+        elif f.arith and c in "<>&|;":           # operators of an arithmetic expression, not of the shell
+            out.append(" ")
+            i += 1
         elif c == "\n":
             out.append(c)
             i += 1
@@ -4028,9 +4084,11 @@ def read_heredocs(command, i, pending):
 
 
 def here_strings(segment):
-    """(the segment without its here-strings, [(text, expanded by the shell)]). `<<< word` is what the command
-    reads on stdin, not an argument of it; a heredoc is the here-string shell_code made of it."""
-    if "<<<" not in segment:
+    """(the arguments of the segment, [(text, expanded by the shell)]): the segment without its redirections and
+    here-strings. `2>&1`, `>/dev/null`, `<file` say where the command reads and writes and `<<< word` is what it
+    reads on stdin; none of them is an argument - `git push origin 2>&1` names no refspec, `bash 2>&1` no script.
+    (What a redirection writes is judged from the text of the segment, by REDIRECT.)"""
+    if "<" not in segment and ">" not in segment:
         return segment, []
     out, texts, quote, i, n = [], [], None, 0, len(segment)
     while i < n:
@@ -4041,6 +4099,11 @@ def here_strings(segment):
             continue
         if quote:
             quote = None if c == quote else quote
+        elif segment.startswith("$'", i):
+            end = min(ansi_c_end(segment, i + 2), n)
+            out.append(segment[i:end])
+            i = end
+            continue
         elif c in "'\"":
             quote = c
         elif segment.startswith("<<<", i):
@@ -4053,6 +4116,17 @@ def here_strings(segment):
             texts.append(HEREDOCS.get(text, (text, False)))
             out.append(" ")
             i = m.end()
+            continue
+        elif c in "<>" and segment[i + 1:i + 2] != "(":
+            k = len(out)
+            while k and out[k - 1].isdigit():
+                k -= 1
+            if k < len(out) and (k == 0 or out[k - 1] in " \t"):
+                del out[k:]                     # the file descriptor of 2>file
+            elif out and out[-1] == "&":
+                out.pop()                       # &>file
+            out.append(" ")
+            i = REDIRECTION.match(segment, i).end()
             continue
         out.append(c)
         i += 1
@@ -4107,8 +4181,11 @@ def stdin_programs(segment):
     return codes
 
 
-def unresolvable(segment, command):
-    return "$" in command or "`" in command or re.search(r"(^|[\s|;&])xargs\s", segment) is not None
+XARGS = re.compile(r"(^|[\s|;&])xargs\s")               # its arguments come from the pipeline it stands in
+
+
+def unresolvable(segment):
+    return "$" in segment or "`" in segment
 
 
 def expand(token, cwd, project):
@@ -4126,18 +4203,20 @@ def write_violation(agent, target, cwd, ctx, protected, read_only, scope, what):
     reason = user_config_violation(target)
     if reason:
         return reason
-    rel = ctx.relative(target, cwd)
-    if rel is None:
+    # one directory when the hook followed the command there, every candidate after a cd it could not follow
+    rels = [r for r in (ctx.relative(target, c) for c in candidates(cwd, ctx.project)) if r is not None]
+    if not rels:
         return None
     if read_only:
         return f"The {agent} is read-only. Report findings instead of {what}."
-    if is_under(rel, ctx.build_dirs):
+    if all(is_under(rel, ctx.build_dirs) for rel in rels):
         return None                     # Gradle outputs: any role may clean or write them
-    hit = next((p for p in protected if is_under(rel, (p,)) or contains(rel, (p,))), None)
-    if hit:
-        return protected_reason(agent, hit, ctx)
-    if scope and not is_under(rel, scope) and rel != ".":
-        return f"The {agent} may only change files under {', '.join(scope)} ({what} touches {rel})."
+    for rel in rels:
+        hit = next((p for p in protected if is_under(rel, (p,)) or contains(rel, (p,))), None)
+        if hit:
+            return protected_reason(agent, hit, ctx)
+    if scope and not any(is_under(rel, scope) or rel == "." for rel in rels):
+        return f"The {agent} may only change files under {', '.join(scope)} ({what} touches {rels[0]})."
     return None
 
 
@@ -4154,26 +4233,17 @@ def human_only(command, ctx, cwd=None):
     command = shell_code(command)
     if HOOK_SWITCH.search(QUOTED.sub("''", command)):
         return "Switching the gauntlet hooks off is reserved for the human."
-    stack = []                              # subshell cwd scopes: a cd inside ( ... ) must not leak to the parent
-    for segment in split_shell(command):
-        if segment == "(":
-            stack.append(cwd)
-            continue
-        if segment == ")":
-            if stack:
-                cwd = stack.pop()
-            continue
-        words = words_of(segment)
-        cwd = follow_cd(words, cwd, ctx.project)   # `cd worktree && git push`: judge the branch of that worktree
+    end = []
+    for segment, words, at in walk(split_shell(command), cwd, ctx.project, end):   # `cd worktree && git push`
         for code in stdin_programs(segment):       # `bash <<EOF`, `python3 - <<EOF`: the body is the program
-            reason = human_only(code, ctx, cwd)
+            reason = human_only(code, ctx, at)
             if reason:
                 return reason
         if len(words) < 2:
             continue
         cmd, args = os.path.basename(words[0]), words[1:]
         if cmd == "git":
-            reason = git_human_only(args, ctx, cwd)
+            reason = git_human_only(args, ctx, at)
             if reason:
                 return reason
         elif cmd == "gh":
@@ -4181,15 +4251,11 @@ def human_only(command, ctx, cwd=None):
             if reason:
                 return reason
         for code in inline_code_strings(cmd, args):
-            reason = human_only(code, ctx, cwd)
+            reason = human_only(code, ctx, at)
             if reason:
                 return reason
-    for code in piped_shell_code(command):
-        reason = human_only(code, ctx, cwd)
-        if reason:
-            return reason
-    for code in command_substitutions(command):
-        reason = human_only(code, ctx, cwd)
+    for code in piped_shell_code(command) + command_substitutions(command):
+        reason = human_only(code, ctx, end[0])
         if reason:
             return reason
     return None
@@ -4406,20 +4472,49 @@ def pipe_points(command):
     return points
 
 
+def pipeline_start(command, point):
+    """Where the pipeline that reaches the `|` at point begins: after the last `;`, `&&`, `||`, `&` or newline of
+    its own nesting level. A group `( ... )` that is piped as a whole belongs to it."""
+    starts, quote, i = [0], None, 0
+    while i < point:
+        c = command[i]
+        if quote:
+            if c == "\\" and quote == '"':
+                i += 1
+            elif c == quote:
+                quote = None
+        elif c == "\\":
+            i += 1
+        elif c in "'\"":
+            quote = c
+        elif c == "(":
+            starts.append(i + 1)
+        elif c == ")":
+            if len(starts) > 1:
+                starts.pop()
+        elif command.startswith(("&&", "||"), i):
+            i += 1
+            starts[-1] = i + 1
+        elif c in ";\n" or (c == "&" and command[i - 1:i] not in ("<", ">", "|") and command[i + 1:i + 2] != ">"):
+            starts[-1] = i + 1
+        i += 1
+    return starts[-1]
+
+
 def piped_shell_code(command):
     """Commands that stand for text piped into a shell or an interpreter that reads its program from stdin
-    (`echo 'git push --force' | bash`, `printf '...' | python3`). Everything LEFT of that pipe can end up in
-    the program: every quoted fragment, the words of every echo/printf and every here-string or heredoc - also
-    when another command comes first (`true && echo git push --force | bash`), a filter sits in between
-    (`cat <<EOF | bash`), the stage is inside `if ...; then ...; fi`, the pipe is `|&` or the reading stage
-    starts on the next line."""
+    (`echo 'git push --force' | bash`, `printf '...' | python3`). Everything in the SAME pipeline left of that
+    pipe can end up in the program: every quoted fragment, the words of every echo/printf and every here-string
+    or heredoc - also when a filter sits in between (`cat <<EOF | bash`), the stage is inside
+    `if ...; then ...; fi`, the pipe is `|&` or the reading stage starts on the next line. An earlier command
+    (`grep 'rm -rf gauntlet' notes.md; curl ... | bash`) feeds nothing into it."""
     codes = []
     for point in pipe_points(command):
         after = command[point + 1:].lstrip("&").lstrip()     # |& pipes stderr as well
-        reader = words_of(re.split(r"[|;&\n)]", after, maxsplit=1)[0])   # the command that reads the pipe
+        reader = words_of(re.split(r"\||;|\n|\)|(?<![<>])&(?!>)", after, maxsplit=1)[0])   # the command that reads the pipe
         if not reads_stdin_program(reader):
             continue
-        left = command[:point]
+        left = command[pipeline_start(command, point):point]
         texts = [m.group(0)[1:-1] for m in QUOTED.finditer(left)]
         for segment in split_shell(left):
             if segment in ("(", ")"):
@@ -4535,39 +4630,64 @@ def gh_human_only(args):
             rest.pop(0)
     if rest[:2] == ["pr", "merge"] or rest[:1] == ["merge"]:
         return "Merging the pull request is the human's decision. Push the branch, open the PR and report."
-    if rest[:1] == ["api"] and any("merge" in a.lower() for a in rest[1:]):
-        return "Merging through the GitHub API is reserved for the human."
     if rest[:1] == ["repo"] and rest[1:2] and rest[1] in ("delete", "edit", "rename", "archive"):
         return "Changing the repository itself is reserved for the human."
     if rest[:2] == ["workflow", "disable"]:
         return CI_SWITCH
     if rest[:1] == ["api"]:
-        text = " ".join(rest[1:]).lower()
-        # reading the protection is fine (GET); changing or deleting it, a ruleset, the Actions permissions or
-        # disabling a workflow takes the CI gate away. GraphQL has the same mutations under other names.
-        rest_api = gh_api_method(rest[1:]) != "GET" and (
-            any(path in text for path in ("/protection", "/rulesets", "/actions/permissions"))
-            or ("/actions/workflows/" in text and "/disable" in text))
-        graphql = "graphql" in rest[1:] and "mutation" in text and ("branchprotectionrule" in text or "ruleset" in text)
-        if rest_api or graphql:
-            return CI_SWITCH
+        # judged by what the call does - its endpoint and method, for GraphQL the mutation it names - never by a
+        # word in a field value or a jq filter: a reply in a review thread may say "merge" and "/protection"
+        endpoint, method, fields = gh_api_call(rest[1:])
+        path = endpoint.split("?", 1)[0].rstrip("/").lower()
+        if path.endswith("graphql"):
+            query = " ".join(f.split("=", 1)[1] for f in fields if f.startswith("query="))
+            if GH_MERGE_MUTATION.search(query):
+                return "Merging through the GitHub API is reserved for the human."
+            if GH_PROTECTION_MUTATION.search(query):
+                return CI_SWITCH
+        elif method != "GET":
+            if re.search(r"/pulls/[^/]+/merge$|/merges$|/merge-upstream$", path):
+                return "Merging through the GitHub API is reserved for the human."
+            # reading the protection is fine; changing or deleting it, a ruleset, the Actions permissions or
+            # disabling a workflow takes the CI gate away
+            if re.search(r"/protection(/|$)|/rulesets(/|$)|/actions/permissions(/|$)|/actions/workflows/[^/]+/disable$", path):
+                return CI_SWITCH
     return None
 
 
-def gh_api_method(args):
-    """HTTP method of a `gh api` call: -X/--method when given, otherwise POST as soon as a field or a request
-    body is sent and GET for a plain read (gh's own default)."""
-    method, body = "", False
-    for i, a in enumerate(args):
-        if a in ("-X", "--method"):
-            method = args[i + 1] if i + 1 < len(args) else ""
-        elif a.startswith("--method="):
-            method = a.split("=", 1)[1]
-        elif a.startswith("-X") and len(a) > 2:
-            method = a[2:].lstrip("=")
-        elif a in ("--field", "--raw-field", "--input") or a.startswith(("-f", "-F", "--field=", "--raw-field=", "--input=")):
-            body = True
-    return (method or ("POST" if body else "GET")).upper()
+def gh_api_call(args):
+    """(endpoint, method, fields) of a `gh api` call. The endpoint is the first operand - the value of an option
+    is not one. The method is -X/--method when given, otherwise POST as soon as a field or a request body is
+    sent and GET for a plain read (gh's own default). fields: the `key=value` of every -f / -F."""
+    endpoint, method, fields, sends, i = None, "", [], False, 0
+    while i < len(args):
+        a = args[i]
+        option, value = None, ""
+        if a.startswith("--"):
+            name, attached, value = a.partition("=")
+            if name in GH_API_VALUE_OPTIONS:
+                option = name
+                if not attached:
+                    i += 1
+                    value = args[i] if i < len(args) else ""
+        elif a.startswith("-") and a[:2] in GH_API_VALUE_OPTIONS:
+            option = a[:2]
+            if len(a) > 2:
+                value = a[2:].lstrip("=")
+            else:
+                i += 1
+                value = args[i] if i < len(args) else ""
+        elif not a.startswith("-") and endpoint is None:
+            endpoint = a
+        if option in ("-X", "--method"):
+            method = value
+        elif option in ("-f", "-F", "--field", "--raw-field"):
+            fields.append(value)
+            sends = True
+        elif option == "--input":
+            sends = True
+        i += 1
+    return endpoint or "", (method or ("POST" if sends else "GET")).upper(), fields
 
 
 def push_branch_dir(args, cwd):
@@ -4602,6 +4722,12 @@ def push_current_branch(args, cwd):
     if git_dir:
         return git(base, "--git-dir", git_dir, "symbolic-ref", "--short", "HEAD")
     return git(base, "symbolic-ref", "--short", "HEAD")
+
+
+def push_branches(args, cwd, project):
+    """The branches a push of HEAD may publish: the branch of the directory it runs in - of every candidate
+    after a cd the hook could not follow."""
+    return {push_current_branch(args, c) for c in candidates(cwd, project)}
 
 
 def long_opt(arg, name, min_len):
@@ -4756,13 +4882,11 @@ def git_human_only(args, ctx, cwd):
                or a.endswith("/" + ctx.base_branch) for a in refspecs):
             return f"Pushing to {ctx.base_branch} is the human's decision (merge the PR). Push your own branch only."
         if any(a in ("HEAD", "@") for a in refspecs):   # bare HEAD/@ pushes the current branch; @ is git's HEAD synonym
-            current = push_current_branch(args, cwd)
-            if current == ctx.base_branch:
+            if ctx.base_branch in push_branches(args, cwd, ctx.project):
                 return (f"Pushing HEAD while on {ctx.base_branch} pushes the base branch. "
                         "Reserved for the human. Push your own branch only.")
         if not refspecs:
-            current = push_current_branch(args, cwd)
-            if current == ctx.base_branch:
+            if ctx.base_branch in push_branches(args, cwd, ctx.project):
                 return (f"Pushing without a refspec while on {ctx.base_branch} pushes the base branch "
                         "(push.default=simple). Reserved for the human. Push your own branch only.")
     if sub == "reset":
@@ -4784,27 +4908,38 @@ def git_human_only(args, ctx, cwd):
 
 
 def branch_options(rest):
-    """The arguments of `git branch` without the separate VALUE of a listing option: in
-    `git branch --sort -committerdate` the second word is a sort key, not a cluster of -c -m -d flags."""
+    """The option words of `git branch` without what is a VALUE: in `git branch --sort -committerdate` the second
+    word is a sort key and in `git branch -uorigin/claude/x` the rest of the word is an upstream - neither is a
+    cluster of -c -m -d flags."""
     kept, skip = [], False
     for a in rest:
         if skip:
             skip = False
             continue
+        if a.startswith("-u") and len(a) > 2:
+            a = "-u"
         kept.append(a)
-        skip = "=" not in a and any(long_opt(a, name, m) for name, m in BRANCH_VALUE_OPTIONS)
+        skip = a == "-u" or ("=" not in a and any(long_opt(a, name, m) for name, m in BRANCH_VALUE_OPTIONS))
     return kept
 
 
 def skips_git_hooks(args):
-    if any(a.startswith("--no-v") and "--no-verify".startswith(a) for a in args):
+    """--no-verify (any prefix git resolves) as an OPTION of a command that runs hooks, and -n of git commit. The
+    same letters as a value - `git log --grep "--no-verify"`, a commit message - skip nothing."""
+    index = git_subcommand_index(args)
+    sub = args[index] if index >= 0 else ""
+    rest = args[index + 1:] if index >= 0 else []
+    if sub != "commit":
+        options = rest[:rest.index("--")] if "--" in rest else rest
+        return sub in HOOK_RUNNING and any(a.startswith("--no-v") and "--no-verify".startswith(a) for a in options)
+    if any(a.startswith("--no-v") and "--no-verify".startswith(a) for a in commit_options(rest)):
         return True
-    if git_subcommand(args) != "commit":
-        return False
     skip = False
-    for a in args:
+    for a in rest:
         if skip:
             skip = False
+        elif a == "--":
+            break
         elif a in GIT_VALUE_OPTIONS:
             skip = True
         elif a.startswith("-") and not a.startswith("--"):
@@ -4820,7 +4955,7 @@ def skips_git_hooks(args):
 
 
 def segments(command):
-    return [s for s in re.split(r"\|\||&&|[;|&`\n]|\$\(|[()]", command) if s.strip()]
+    return [s for s in re.split(r"\|\||&&|[;|`\n]|(?<![<>])&(?!>)|\$\(|[()]", command) if s.strip()]
 
 
 def split_shell(command):
@@ -4867,8 +5002,8 @@ def split_shell(command):
             buf = []
             parts.append(")" if backtick else "(")
             backtick = not backtick
-        elif c in ";|&\n":
-            parts.append("".join(buf))
+        elif c in ";|\n" or (c == "&" and command[i - 1:i] not in ("<", ">") and command[i + 1:i + 2] != ">"):
+            parts.append("".join(buf))             # not the & of 2>&1 or &>file
             buf = []
         else:
             buf.append(c)
@@ -4881,7 +5016,7 @@ def segments_scoped(command):
     """segments() for quote-neutralised text, but subshell parens are emitted as '(' / ')' markers so a cd
     inside ( ... ), $( ... ) or backticks is scoped to the subshell and cannot leak to the parent shell's commands."""
     out, last, backtick = [], 0, False
-    for m in re.finditer(r"\|\||&&|[;|&`\n]|\$\(|[()]", command):
+    for m in re.finditer(r"\|\||&&|[;|`\n]|(?<![<>])&(?!>)|\$\(|[()]", command):
         out.append(command[last:m.start()])
         sep = m.group(0)
         if sep == "`":
@@ -4954,13 +5089,88 @@ def words_of(segment):
     return words
 
 
-def follow_cd(words, cwd, project):
-    """`cd dir && ...` (or pushd): later segments resolve relative to dir."""
-    if words and words[0] in ("cd", "pushd"):
-        target = words[1] if len(words) > 1 and not words[1].startswith("-") else "~"
-        target = os.path.expanduser(target)
-        return os.path.realpath(target if os.path.isabs(target) else os.path.join(cwd, target))
-    return cwd
+class Dir(str):
+    """A working directory with what the hook knows about it. `known` is False after a cd it could not follow
+    (`cd "$DIR"`, `cd -`, popd): the text is then only the last directory it knew. `seen` lists the directories
+    the command has been in - the candidates for where it really is."""
+    known = True
+    seen = ()
+
+
+def directory(path, seen, is_known=True):
+    d = Dir(path)
+    d.known = is_known
+    d.seen = tuple(seen) + ((str(path),) if is_known else ())
+    return d
+
+
+def known(cwd):
+    return getattr(cwd, "known", True)
+
+
+def candidates(cwd, project):
+    """The directories a command may be running in: the one the hook followed it to - or, after a cd it could
+    not follow, every directory the command has been in and the project itself."""
+    if known(cwd):
+        return [str(cwd)]
+    out = []
+    for d in tuple(cwd.seen) + (str(cwd), project):
+        if d not in out:
+            out.append(d)
+    return out
+
+
+TOPLEVEL = re.compile(r"\$[(_]git rev-parse --show-toplevel[)_]|`git rev-parse --show-toplevel`")
+
+
+def follow_cd(words, cwd, project, substitution=None):
+    """`cd dir && ...` (pushd, popd): the commands that follow run there. The target is read the way the shell
+    expands the forms the hook can know: ~, $HOME, $PWD, $CLAUDE_PROJECT_DIR and
+    "$(git rev-parse --show-toplevel)". After any other expansion, `cd -` or popd the directory is not known,
+    and what follows is judged against every directory the command has been in (see candidates).
+    substitution: the parts that follow a bare `cd` whose target is an unquoted $( ... )."""
+    if not words or words[0] not in ("cd", "pushd", "popd"):
+        return cwd
+    seen = list(getattr(cwd, "seen", ())) or [str(cwd)]
+    operands = [w for w in words[1:] if w == "-" or not w.startswith(("-", "+"))]
+    target = operands[0] if operands else None
+    if substitution is not None:
+        toplevel = substitution[1:2] == [")"] and words_of(substitution[0]) == ["git", "rev-parse", "--show-toplevel"]
+        target = "$(git rev-parse --show-toplevel)" if toplevel else "$()"
+    elif words[0] == "popd" or target == "-" or (target is None and len(words) > 1) or (target is None and words[0] == "pushd"):
+        return directory(cwd, seen, False)      # an earlier directory, or a rotation of the directory stack
+    elif target is None:
+        target = "~"
+    if TOPLEVEL.search(target):
+        target = TOPLEVEL.sub(lambda m: git(str(cwd), "rev-parse", "--show-toplevel") or project, target)
+    home = os.path.expanduser("~")
+    target = expand(target, cwd, project).replace("${HOME}", home).replace("$HOME", home)
+    if "$" in target or "`" in target or GLOB_CHARS.search(target):
+        return directory(cwd, seen, False)
+    if not os.path.isabs(target) and not known(cwd):
+        return directory(os.path.join(cwd, target),
+                         [os.path.realpath(os.path.join(c, target)) for c in candidates(cwd, project)], False)
+    return directory(os.path.realpath(target if os.path.isabs(target) else os.path.join(cwd, target)), seen)
+
+
+def walk(parts, cwd, project, end=None):
+    """The simple commands of a split command line, each with its words and the directory it runs in: a cd is
+    followed, and one made inside ( ... ), $( ... ) or backticks ends with them. The directory the command line
+    ends in is appended to `end`."""
+    stack = []
+    for i, segment in enumerate(parts):
+        if segment == "(":
+            stack.append(cwd)
+        elif segment == ")":
+            if stack:
+                cwd = stack.pop()
+        else:
+            words = words_of(segment)
+            substituted = words in (["cd"], ["pushd"]) and parts[i + 1:i + 2] == ["("]
+            cwd = follow_cd(words, cwd, project, parts[i + 2:i + 4] if substituted else None)
+            yield segment, words, cwd
+    if end is not None:
+        end.append(cwd)
 
 
 def short_flags(args):
@@ -4970,7 +5180,7 @@ def short_flags(args):
 def mentions(command, path):
     """The command names this path as a whole segment ('gauntlet' matches 'gauntlet/x', not 'gauntletFast');
     a name inside a Gradle output directory ('build/gauntlet/x.log') is not the protected path."""
-    return re.search(r"(?<![\w.-])(?<!build/)(?<!\.gradle/)" + re.escape(path) + r"(?![\w-])", command,
+    return re.search(r"(?<![\w.-])(?<!build/)(?<!\.gradle/)" + re.escape(path) + r"(?![\w-]|\.\w)", command,
                      re.IGNORECASE) is not None
 
 
@@ -4997,10 +5207,26 @@ def inline_code(words):
     return (is_interpreter(cmd) or cmd == "perl") and bool(inline_code_strings(cmd, args))
 
 
+def archive_mode(args):
+    """What a tar command does: the first of t (list), x, c, r, u, A, d among its mode letters, or ''."""
+    for k, a in enumerate(args):
+        if a in ("--list", "--extract", "--get", "--create", "--append", "--update", "--concatenate", "--diff", "--compare"):
+            return {"--list": "t", "--extract": "x", "--get": "x", "--create": "c", "--diff": "d", "--compare": "d"}.get(a, "r")
+        if (k == 0 or a.startswith("-")) and not a.startswith("--"):
+            mode = next((ch for ch in a.lstrip("-") if ch in "txcruAd"), "")
+            if mode:
+                return mode
+    return ""
+
+
 def writes_worktree(words, segment):
     if not words:
         return False
     cmd, args = os.path.basename(words[0]), words[1:]
+    if cmd == "tar":                                      # listing, comparing and writing to stdout change nothing
+        return archive_mode(args) not in ("t", "d") and bool(archive_targets(args))
+    if cmd == "unzip":                                    # -l -v -Z list, -t tests, -p prints to stdout, -z the comment
+        return not any(a.startswith("-") and set(a[1:]) & set("lvZtpz") for a in args)
     if cmd in MUTATING_COMMANDS:
         return True
     if cmd == "sed":
@@ -5014,7 +5240,16 @@ def writes_worktree(words, segment):
     if is_interpreter(cmd):
         return inline_code(words)
     if cmd == "git":
-        return git_subcommand(args) in GIT_WORKTREE_WRITING
+        index = git_subcommand_index(args)
+        sub, rest = (args[index], args[index + 1:]) if index >= 0 else ("", [])
+        if sub not in GIT_WORKTREE_WRITING or git_read_only(sub, rest):
+            return False
+        if sub == "restore":               # --staged without --worktree only takes changes out of the index
+            staged = any(a in ("--staged", "-S") for a in rest)
+            return not staged or any(a in ("--worktree", "-W") for a in rest)
+        if sub == "reset":                 # only --hard, --merge and --keep touch the files
+            return any(a in ("--hard", "--merge", "--keep") for a in rest)
+        return True
     if cmd == "find":                      # it writes when it deletes, prints to a file or runs a command that writes
         if any(a in ("-delete", "-fprint", "-fprint0", "-fls", "-fprintf") for a in args):
             return True
@@ -5022,27 +5257,44 @@ def writes_worktree(words, segment):
     return False
 
 
-def changes_state(words, segment):
+def changes_state(words, segment, cwd=None, ctx=None):
     if words and os.path.basename(words[0]) == "git":
         sub = git_subcommand(words[1:])
         rest = words[words.index(sub) + 1:] if sub in words else []
         return sub in GIT_STATE_CHANGING and not git_read_only(sub, rest)
-    return writes_worktree(words, segment)
+    if not writes_worktree(words, segment):
+        return False
+    if ctx is not None and os.path.basename(words[0]) in MUTATING_COMMANDS:
+        tokens = path_tokens(words, cwd, ctx.project)
+        if tokens and all(ctx.relative(expand(t, cwd, ctx.project), c) is None
+                          for t in tokens for c in candidates(cwd, ctx.project)):
+            return False                   # everything it touches lies outside the project: tee /tmp/x.log, mkdir /tmp/review
+    return True
 
 
 def git_read_only(sub, rest):
-    """`git branch -a`, `git stash list`, `git tag -l`: listing forms of otherwise state-changing commands."""
+    """`git branch -a`, `git stash list`, `git tag -l 'v*'`, `git tag --contains HEAD`: listing forms of otherwise
+    state-changing commands. A word that is no option makes `git branch` and `git tag` create something - unless
+    it is the value of a listing option or a pattern after -l / --list."""
     forms = GIT_READ_ONLY_FORMS.get(sub)
     if forms is None:
         return False
     if not rest:
         return sub != "stash"              # bare `git stash` saves; bare branch/tag/notes/submodule list
-    if sub in ("stash", "worktree", "notes", "submodule") or rest[0] in ("-l", "--list"):
-        return rest[0] in forms or rest[0] in ("-l", "--list")
-    if sub == "branch":
-        rest = branch_options(rest)        # `--contains HEAD`, `--sort -committerdate`: the value is not a flag
-    return all(a in forms or a.startswith(("--format", "--sort", "--contains", "--points-at", "--merged", "--no-merged"))
-               or (a.startswith("-") and not a.startswith("--") and set(a[1:]) <= set("larvn")) for a in rest)
+    if sub in ("stash", "worktree", "notes", "submodule"):
+        return rest[0] in forms
+    args = branch_options(rest)            # without the values of --sort, --format, --contains, --merged, ...
+    listing = any(a in ("-l", "--list") for a in args)
+    for a in args:
+        if a.startswith("--"):
+            ok = a.split("=", 1)[0] in forms
+        elif a.startswith("-") and len(a) > 1:
+            ok = set(a[1:]) <= set("larvi") or (sub == "tag" and re.fullmatch(r"-n\d*", a) is not None)
+        else:
+            ok = listing                   # a pattern
+        if not ok:
+            return False
+    return True
 
 
 def git_subcommand_index(args):
@@ -5122,7 +5374,58 @@ def find_roots(args):
     return (roots or ["."]) + written
 
 
-OPERANDS = {"sed": sed_files, "awk": awk_files, "gawk": awk_files, "find": find_roots}
+def copy_destination(args):
+    """What cp / install / rsync / ln write: the last operand, or the directory of -t / --target-directory. The
+    sources are only read - copying a config out of the project changes nothing in it."""
+    operands, target, skip = [], None, False
+    for i, a in enumerate(args):
+        if skip:
+            skip = False
+        elif a in ("-t", "--target-directory"):
+            target, skip = (args[i + 1] if i + 1 < len(args) else None), True
+        elif a.startswith("--target-directory="):
+            target = a.split("=", 1)[1]
+        elif not a.startswith("-") or a == "-":
+            operands.append(a)
+    return [target] if target else operands[-1:]
+
+
+def archive_targets(args):
+    """What tar writes: the archive when it creates or appends; when it extracts, the directory of -C (or the
+    current one) - or the members named after the archive within it. The archive it reads is no target."""
+    archive, base, operands, skip = None, None, [], False
+    for k, a in enumerate(args):
+        following = args[k + 1] if k + 1 < len(args) else None
+        if skip:
+            skip = False
+        elif a.startswith("--file="):
+            archive = a.split("=", 1)[1]
+        elif a.startswith("--directory="):
+            base = a.split("=", 1)[1]
+        elif a in ("--file", "--directory", "-C"):
+            archive, base, skip = (following if a == "--file" else archive), (base if a == "--file" else following), True
+        elif (k == 0 or a.startswith("-")) and not a.startswith("--") and a.endswith("f"):
+            archive, skip = following, True     # the archive follows a bundle of flags that ends in f
+        elif not a.startswith("-") and k > 0:
+            operands.append(a)
+    if archive_mode(args) in ("c", "r", "u", "A"):
+        return [archive] if archive and archive != "-" else []
+    return [os.path.join(base or ".", member) for member in operands] or [base or "."]
+
+
+def unzip_targets(args):
+    """Where unzip extracts: the directory of -d, or the current one. The archive is only read."""
+    for k, a in enumerate(args):
+        if a == "-d" and k + 1 < len(args):
+            return [args[k + 1]]
+        if a.startswith("-d") and len(a) > 2:
+            return [a[2:]]
+    return ["."]
+
+
+OPERANDS = {"sed": sed_files, "awk": awk_files, "gawk": awk_files, "find": find_roots, "tar": archive_targets,
+            "unzip": unzip_targets, "cp": copy_destination, "install": copy_destination, "rsync": copy_destination,
+            "ln": copy_destination}
 
 
 def path_tokens(words, cwd, project):
@@ -5558,6 +5861,10 @@ def guard_tests(repo):
     expect_deny(repo, "push no refspec while on main", "main", "Bash", command="git push origin")
     expect_deny(repo, "push bare while on main", "main", "Bash", command="git push")
     expect_deny(repo, "push @ while on main", "main", "Bash", command="git push origin @")
+    expect_deny(repo, 'push without a refspec and a redirection while on main', "main", "Bash", command='git push origin 2>&1')
+    expect_deny(repo, 'push without a refspec through a pipe while on main', "main", "Bash", command='git push origin 2>&1 | tail -3')
+    expect_deny(repo, 'push without a refspec, stdout dropped, while on main', "main", "Bash", command='git push origin >/dev/null')
+    expect_deny(repo, 'push after cd to the toplevel while on main', "main", "Bash", command='cd "$(git rev-parse --show-toplevel)" && git push')
     expect_deny(repo, "push @:main while on main", "main", "Bash", command="git push origin @:main")
     expect_allow(repo, "push HEAD:other while on main", "main", "Bash", command="git push origin HEAD:other")
     expect_allow(repo, "push @:other while on main", "main", "Bash", command="git push origin @:other")
@@ -6054,6 +6361,182 @@ def guard_tests(repo):
             ('main', 'python print of the words',
              'python3 -c "print(\'git\', \'push\', \'--force\')"')):
         expect_allow(repo, "reading control: " + name, agent, "Bash",
+                     command=command.replace("{M}", M).replace("{F}", FEATURES))
+    # --- what the command does: where it runs after a cd (also `cd "$(git rev-parse --show-toplevel)"`, `cd -`,
+    #     popd and a target the hook cannot know), a redirection is no argument, `gh api` is judged by its
+    #     endpoint and method, a text match looks at the statement that writes, the sources of cp are read
+    for agent, name, command in (
+            ('main', 'cd to the git toplevel, then append to the thresholds',
+             'cd "$(git rev-parse --show-toplevel)" && echo "crap.threshold=30" >> gauntlet/config/gauntlet.properties'),
+            ('main', 'cd to an unquoted substitution of the toplevel',
+             'cd $(git rev-parse --show-toplevel) && rm -rf gauntlet/hooks'),
+            ('main', 'cd to $CLAUDE_PROJECT_DIR, then overwrite the settings',
+             'cd "$CLAUDE_PROJECT_DIR" && echo \'{}\' > .claude/settings.json'),
+            ('main', 'cd - returns to the project',
+             'cd {M}src/main && ls; cd - && rm -rf gauntlet/config'),
+            ('main', 'popd returns to the project',
+             'pushd {M}src >/dev/null; popd >/dev/null; rm -rf gauntlet/hooks'),
+            ('main', 'cd with an option before the directory',
+             'cd -P . && rm -rf gauntlet/hooks'),
+            ('main', 'cd to a directory the hook cannot know',
+             'cd "$SOMEWHERE" && rm -rf gauntlet/hooks'),
+            ('reviewer', 'cd - and a write into the sources',
+             'cd {M}src && ls; cd - >/dev/null; echo "// reviewed" >> {M}src/main/java/A.java'),
+            ('hardener', 'cd - and sed outside the scope',
+             "cd {M}src/test && ls; cd - >/dev/null; sed -i 's/class A/final class A/' {M}src/main/java/A.java"),
+            ('main', 'a shell that reads a pipe, with a redirection',
+             "echo 'git push --force' | bash 2>&1"),
+            ('main', 'a shell that reads a pipe, stderr dropped',
+             "echo 'rm -rf gauntlet/hooks' | sh 2>/dev/null"),
+            ('main', 'amend with a redirection',
+             'git commit --amend -m x 2>&1 | tail -1'),
+            ('main', 'two subshells that look like arithmetic',
+             '((cd gauntlet; rm -rf hooks); ls)'),
+            ('main', 'gh api: merge by PUT',
+             'gh api -X PUT repos/o/r/pulls/12/merge'),
+            ('main', 'gh api: merge with a field',
+             'gh api repos/o/r/pulls/12/merge -f merge_method=squash'),
+            ('main', 'gh api: merge mutation',
+             'gh api graphql -f query=\'mutation { mergePullRequest(input:{pullRequestId:"PR_x"}) { clientMutationId } }\''),
+            ('main', 'gh api: auto-merge mutation',
+             'gh api graphql -f query=\'mutation { enablePullRequestAutoMerge(input:{pullRequestId:"PR_x"}) { clientMutationId } }\''),
+            ('main', 'gh api: delete the branch protection',
+             'gh api -X DELETE repos/o/r/branches/main/protection'),
+            ('main', 'gh api: protection mutation',
+             'gh api graphql -f query=\'mutation { deleteBranchProtectionRule(input:{branchProtectionRuleId:"x"}) { clientMutationId } }\''),
+            ('main', 'gh api: a ruleset with a field',
+             'gh api repos/o/r/rulesets/7 -X PUT -f enforcement=disabled'),
+            ('main', '--no-verify of a push',
+             'git push --no-verify -u origin HEAD'),
+            ('main', 'cp into the kit',
+             'cp /tmp/checkstyle.xml gauntlet/config/checkstyle.xml'),
+            ('main', 'cp -t into the kit',
+             'cp -t gauntlet/config /tmp/checkstyle.xml'),
+            ('main', 'rsync into the kit',
+             'rsync -a /tmp/kit/ gauntlet/'),
+            ('main', 'tar extracts into the kit',
+             'tar xzf /tmp/kit.tgz -C gauntlet'),
+            ('main', 'git restore of a kit file',
+             'git restore gauntlet/config/gauntlet.properties'),
+            ('main', 'git restore --staged --worktree of a kit file',
+             'git restore --staged --worktree gauntlet/config/gauntlet.properties'),
+            ('main', 'xargs takes the kit from its pipeline',
+             'ls -d gauntlet | xargs rm -rf'),
+            ('main', 'a variable holds the kit',
+             'D=gauntlet; rm -rf $D/hooks'),
+            ('reviewer', 'tee into the project',
+             'git diff origin/main | tee review.diff'),
+            ('reviewer', 'tar extracts into the project',
+             'tar xf /tmp/dist.tar'),
+            ('reviewer', 'unzip extracts into the project',
+             'unzip /tmp/a.zip'),
+            ('main', 'tar extracts over the project root',
+             'tar xzf /tmp/tool.tgz'),
+            ('main', 'unzip extracts over the project root',
+             'unzip -o /tmp/kit.zip'),
+            ('main', 'unzip -d into the kit',
+             'unzip -o /tmp/kit.zip -d gauntlet'),
+            ('main', 'tar extracts a member of the kit',
+             'tar xf /tmp/a.tar gauntlet/config/gauntlet.properties')):
+        expect_deny(repo, "doing: " + name, agent, "Bash", command=command.replace("{M}", M).replace("{F}", FEATURES))
+    for agent, name, command in (
+            ('hardener', 'cd to $CLAUDE_PROJECT_DIR and work in the scope',
+             'cd "$CLAUDE_PROJECT_DIR" && mkdir -p {M}src/test/java/com/example/api'),
+            ('hardener', 'cd to the toplevel and run the mutation gate',
+             'cd "$(git rev-parse --show-toplevel)" && ./gradlew mutationGate 2>&1 | tee {M}build/pit.log'),
+            ('specifier', 'cd to the toplevel and work in the scope',
+             'cd "$(git rev-parse --show-toplevel)" && mkdir -p {F}/billing'),
+            ('hardener', 'a redirection is no path',
+             'rm -rf {M}build/reports/pitest 2>/dev/null'),
+            ('hardener', 'mkdir in the scope with a redirection',
+             'mkdir -p {M}src/test/java/com/example/service/api 2>/dev/null'),
+            ('reviewer', 'branch --show-current with a redirection',
+             'git branch --show-current 2>/dev/null'),
+            ('reviewer', 'branch -a through a pipe',
+             'git branch -a 2>&1 | head -20'),
+            ('reviewer', 'branch --all',
+             'git branch --all'),
+            ('reviewer', 'branch -a --list with a pattern',
+             "git branch -a --list 'claude/*'"),
+            ('reviewer', 'tag --contains with a separate value',
+             'git tag --contains HEAD'),
+            ('reviewer', 'stash list with a redirection',
+             'git stash list 2>/dev/null'),
+            ('reviewer', 'a substitution with a redirection',
+             'echo "branch: $(git branch --show-current 2>/dev/null)"'),
+            ('reviewer', 'listing an archive',
+             'unzip -l {M}build/libs/service.jar | head -20'),
+            ('reviewer', 'listing a tar',
+             'tar tf /tmp/dist.tar | head'),
+            ('reviewer', 'tee outside the project',
+             './gradlew gauntletFast --continue 2>&1 | tee /tmp/gauntletFast.log | tail -40'),
+            ('reviewer', 'mkdir outside the project',
+             'mkdir -p /tmp/review && git diff origin/main > /tmp/review/change.diff'),
+            ('reviewer', 'an arithmetic comparison is no redirection',
+             'if (( $(git diff --name-only origin/main | wc -l) > 20 )); then echo large; fi'),
+            ('reviewer', 'an arithmetic expansion in a string',
+             'echo "more than one: $(( $(git rev-list --count origin/main..HEAD) > 1 ))"'),
+            ('reviewer', 'a payload on several lines that only reads',
+             "bash -lc '\ngit status --short\ngit branch -a | head -5\n'"),
+            ('main', 'reading core.hooksPath with a redirection',
+             'git config core.hooksPath 2>/dev/null || echo "(unset)"'),
+            ('main', 'reading core.hooksPath in a substitution',
+             'echo "hooksPath=$(git config core.hooksPath 2>/dev/null)"'),
+            ('main', '--no-verify as the value of --grep',
+             'git log --grep "--no-verify" --oneline'),
+            ('main', 'an upstream attached to -u',
+             'git branch -uorigin/claude/feature-x'),
+            ('main', 'unstaging everything',
+             'git restore --staged .'),
+            ('main', 'unstaging with reset',
+             'git reset HEAD .'),
+            ('main', 'reset with a redirection',
+             'git reset 2>&1 | tail -3'),
+            ('main', 'gh api: reading the mergeable state',
+             'gh api repos/o/r/pulls/12 --jq .mergeable_state'),
+            ('main', 'gh api: a reply that mentions merge and /protection',
+             'gh api repos/o/r/pulls/12/comments/345/replies -f body="fixed in abc1234; nothing changes before the merge, /protection and /rulesets are untouched"'),
+            ('main', 'gh api: a thread reply that mentions a ruleset',
+             'gh api graphql -f query=\'mutation { addPullRequestReviewThreadReply(input: {pullRequestReviewThreadId: "T", body: "The PMD ruleset is human-owned"}) { comment { id } } }\''),
+            ('main', 'gh api: reading the protection',
+             'gh api repos/o/r/branches/main/protection'),
+            ('main', 'gh api: is the PR merged',
+             'gh api repos/o/r/pulls/12/merge'),
+            ('main', 'the log of the gauntlet task is not the kit',
+             './gradlew gauntlet 2>&1 | tee /tmp/gauntlet.log; echo "exit=${PIPESTATUS[0]}"'),
+            ('main', 'gauntlet.log next to the build',
+             'rm -f gauntlet.log; ./gradlew gauntlet > gauntlet.log 2>&1'),
+            ('main', 'the word gauntlet in an echo next to rm',
+             'rm -rf {M}build; ./gradlew gauntlet || echo gauntlet failed $?'),
+            ('main', 'a task list in a loop next to rm',
+             'rm -rf {M}build; for t in gauntletFast gauntlet; do ./gradlew $t --continue || break; done'),
+            ('main', 'git pull next to a read of the kit',
+             'git pull && cat gauntlet/config/gauntlet.properties'),
+            ('main', 'xargs rm next to a read of the kit',
+             "ls gauntlet/config; find {M}build -name '*.tmp' | xargs -n 1 rm -f"),
+            ('main', 'a grep pattern is not the program of a later shell',
+             'grep -n "rm -rf gauntlet" docs/notes.md; cat scripts/run.sh | bash'),
+            ('main', 'a payload on several lines',
+             "bash -lc '\nset -euo pipefail\nrm -rf {M}build && ./gradlew gauntlet --continue\n'"),
+            ('main', 'a commit message on several lines',
+             'git commit -m "chore: cleanup\n\nrm unused fixtures under src/test/resources; keep gauntlet config as is"'),
+            ('main', 'copying a config out of the kit',
+             'cp gauntlet/config/checkstyle.xml /tmp/checkstyle.xml'),
+            ('main', 'copying the sources out of the project',
+             'cp -r {M}src /tmp/src-copy'),
+            ('main', 'packing the kit into an archive outside',
+             'tar czf /tmp/kit.tgz gauntlet'),
+            ('main', 'packing the kit to stdout',
+             'tar czf - gauntlet | wc -c'),
+            ('main', 'tar extracts into the build directory',
+             'tar xzf /tmp/tool.tgz -C {M}build/tmp'),
+            ('main', 'unzip -d into the build directory',
+             'unzip -o /tmp/kit.zip -d {M}build/unzipped'),
+            ('reviewer', 'tar extracts outside the project',
+             'tar xf /tmp/dist.tar -C /tmp/out'),
+            ('main', 'arithmetic with parentheses and a redirect into build',
+             'echo $(( (1 + 2) * 3 )) > {M}build/n.txt')):
+        expect_allow(repo, "doing control: " + name, agent, "Bash",
                      command=command.replace("{M}", M).replace("{F}", FEATURES))
     # --- hardening: a global option that takes its value as the next argument does not hide the subcommand
     for name, command in (

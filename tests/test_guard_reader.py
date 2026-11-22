@@ -140,6 +140,16 @@ CORPUS = (
     "bash -c 'bash <<EOF\nM 1\nEOF'",
     'echo "a"#b; M 1',
     'echo a # b \\\nM 1',
+    # ANSI-C strings: bash decodes them before anything runs
+    "bash -c $'M 1\\nM 2'",
+    "$'M' 1",
+    "bash <<< $'M 1'",
+    "eval $'M 1; M 2'",
+    "bash -c $'M\\x201'",
+    "bash -c $'\\115 1'",
+    "echo $'D 1\\x27'; M 2",
+    "echo $'a\\\\'; M 1",
+    "echo $'\\'D 1\\''; M 2",
 )
 
 
@@ -228,6 +238,12 @@ class ReaderAgainstBash(unittest.TestCase):
 
     def test_a_reader_failure_leaves_the_raw_command(self):
         self.assertEqual(self.guard.shell_code(None), None)
+
+    def test_an_ansi_c_string_that_is_never_closed_stays_as_written(self):
+        # bash runs nothing of it; the reader keeps every character instead of guessing a word
+        for command in ("echo $'abc", "echo $'ab\\'", "ls; echo $'x\\'"):
+            with self.subTest(command=command):
+                self.assertEqual(self.guard.shell_code(command), command)
 
 
 if __name__ == "__main__":

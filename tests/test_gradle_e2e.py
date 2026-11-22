@@ -168,18 +168,41 @@ tasks.named('compileJava') {
 FEATURES = "src/acceptanceTest/resources/features/"
 
 
+LATE_READER = """allprojects {
+    afterEvaluate { p ->
+        // what an IDE's model builder or a plugin in an init script does: read the launcher of every JVM task
+        p.tasks.withType(JavaExec).each { it.javaLauncher.getOrNull() }
+        p.tasks.withType(Test).each { it.javaLauncher.getOrNull() }
+    }
+}
+"""
+REPORT_JVM = """gradle.taskGraph.afterTask { t ->
+    if (t instanceof JavaExec || t instanceof Test) {
+        println "${t.name} ran on ${t.javaLauncher.get().executablePath.asFile.canonicalPath}"
+    }
+}"""
+
+
 def jdk_homes():
-    """Installed JDK homes by major version (for the two-JVM scenario): under /usr/lib/jvm, and wherever the
-    JAVA_HOME_<major>_<ARCH> variables of a CI runner (actions/setup-java) point."""
+    """Installed JDK homes by major version (for the two-JVM scenarios): wherever the JAVA_HOME_<major>_<ARCH>
+    variables of a CI runner (actions/setup-java) point, then under /usr/lib/jvm. Only a JDK: a scenario's project
+    JVM compiles."""
     homes = {}
-    candidates = [os.path.dirname(release) for release in sorted(glob.glob("/usr/lib/jvm/*/release"))]
-    candidates += [home for name, home in sorted(os.environ.items()) if re.fullmatch(r"JAVA_HOME(_\d+_\w+)?", name)]
+    candidates = [home for name, home in sorted(os.environ.items()) if re.fullmatch(r"JAVA_HOME(_\d+_\w+)?", name)]
+    candidates += [os.path.dirname(release) for release in sorted(glob.glob("/usr/lib/jvm/*/release"))]
     for home in candidates:
         release = os.path.join(home, "release")
-        m = re.search(r'JAVA_VERSION="(\d+)', kit.read(release)) if os.path.isfile(release) else None
-        if m and os.access(os.path.join(home, "bin", "java"), os.X_OK):
+        m = re.search(r'JAVA_VERSION="(?:1\.)?(\d+)', kit.read(release)) if os.path.isfile(release) else None
+        if m and all(os.access(os.path.join(home, "bin", tool), os.X_OK) for tool in ("java", "javac")):
             homes.setdefault(int(m.group(1)), os.path.realpath(home))
     return homes
+
+
+def java_major(java):
+    """The major version of the JVM whose bin/java this is (its release file), or None."""
+    release = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(java))), "release")
+    m = re.search(r'JAVA_VERSION="(?:1\.)?(\d+)', kit.read(release)) if os.path.isfile(release) else None
+    return int(m.group(1)) if m else None
 
 
 @unittest.skipUnless(os.environ.get("GAUNTLET_E2E"), "real-Gradle scenarios run only with --gradle")
@@ -376,6 +399,24 @@ public class RateSteps {
         self.assertRegex(r.out, r"MUTANT ERROR +c1 control \(unmutated scenario\) failed in a step")
 
 
+class GherkinScope(GradleCase):
+
+    def test_a_deleted_glue_file_mutates_every_feature(self):
+        # deleting a hook or a step class changes the glue as much as editing one; git's ACMR filter left the
+        # deletion out, and no feature was mutated (review of 65c03da)
+        self.project()
+        self.file(GLUE + "AuditHooks.java", "package com.example.service.acceptance;\n\nclass AuditHooks {\n}\n")
+        self.commit("audit hooks")
+        self.git("push", "-q", "origin", "HEAD:main")
+        self.git("fetch", "-q", "origin")
+        self.git("rm", "-q", GLUE + "AuditHooks.java")
+        self.commit("no audit hooks")
+        r = self.gradle("gherkinMutation")
+        self.assert_build(r, True)
+        self.assertIn("acceptance glue file(s) changed (" + GLUE + "AuditHooks.java) - every feature is mutated", r.out)
+        self.assertIn("Gherkin mutation: 9 mutant(s) - 9 killed, 0 survived, 0 error(s)", r.out)
+
+
 class GherkinHarness(GradleCase):
     """Failures the changed value did not cause are no kills: a row that cannot be repeated in one run, a value
     Cucumber rejected before the step definition saw it."""
@@ -531,7 +572,7 @@ class GateJvm(GradleCase):
         r = self.gradle("archTest", "gauntletInfo", env={"JAVA_HOME": homes[project]})
         self.assert_build(r, True)
         self.assertNotIn("does not match toolchain", r.out)
-        self.assertIn(f"gate executable: {homes[gate]}/bin/java", r.out)
+        self.assert_jvm(r, "gate executable: ", gate)
 
     def test_gate_jvm_by_version_next_to_a_launcher_pinned_after_the_kit(self):
         # a convention plugin pins the launcher in afterEvaluate - after the kit configured its gate tasks
@@ -551,6 +592,88 @@ class GateJvm(GradleCase):
         kit.set_property(self.lab, "gate.java.version", "99")
         r = self.gradle("classes", "-Porg.gradle.java.installations.auto-download=false")
         self.assert_build(r, True)
+
+    def two_jdks(self):
+        homes = jdk_homes()
+        if len(homes) < 2:
+            self.skipTest("needs two installed JDKs")
+        project, gate = sorted(homes)[-2:]            # the two newest: a runner also carries JDK 8, 11, 17
+        return homes, project, gate
+
+    def assert_jvm(self, result, label, where):
+        """The JVM a line `<label><path to java>` names: that very JDK when `where` is a home, any JDK of that
+        major version when it is a number - by version, Gradle picks the installation."""
+        m = re.search("(?m)^" + re.escape(label) + "(.+)$", result.out)
+        self.assertTrue(m, f"no line '{label}...'\n" + result.out[-3000:])
+        if isinstance(where, int):
+            self.assertEqual(java_major(m.group(1)), where, m.group(0))
+        else:
+            self.assertEqual(os.path.realpath(m.group(1)), os.path.realpath(os.path.join(where, "bin", "java")),
+                             m.group(0))
+
+    def assert_ran_on(self, result, where, *tasks):
+        for task in tasks:
+            self.assert_jvm(result, f"{task} ran on ", where)
+
+    def test_gate_jvm_by_a_full_version(self):
+        # gate.java.version=21.0.2 asked for a toolchain "21.0.2" while the build was configured: every build
+        # failed, `gradle classes` as well (review of 65c03da)
+        homes, project, gate = self.two_jdks()
+        self.project(build_extra=REPORT_JVM)
+        kit.set_property(self.lab, "gate.java.version", f"{gate}.0.2")
+        r = self.gradle("classes", "archTest", "gauntletInfo", env={"JAVA_HOME": homes[project]})
+        self.assert_build(r, True)
+        self.assert_jvm(r, "gate executable: ", gate)
+        self.assert_ran_on(r, gate, "archTest")
+        kit.set_property(self.lab, "gate.java.version", "latest")
+        r = self.gradle("classes", env={"JAVA_HOME": homes[project]})
+        self.assert_build(r, True)                    # no gate task asked for: no gate JVM needed
+        r = self.gradle("archTest", env={"JAVA_HOME": homes[project]})
+        self.assert_build(r, False)
+        self.assertIn("gate.java.version 'latest' names no Java version", r.out)
+
+    def test_gate_jvm_by_home_runs_the_jvm_gate_tasks_there(self):
+        # GAUNTLET_GATE_JAVA_HOME (the kit's CI workflow sets it) names the JVM itself; no toolchain is looked up,
+        # so a full version in gate.java.version is no obstacle either (review of 65c03da)
+        homes, project, gate = self.two_jdks()
+        self.project(build_extra=REPORT_JVM)
+        kit.set_property(self.lab, "gate.java.version", f"{gate}.0.2")
+        r = self.gradle("checkstyleGate", "archTest", "acceptanceTest", "test", "gauntletInfo",
+                        env={"JAVA_HOME": homes[project], "GAUNTLET_GATE_JAVA_HOME": homes[gate]})
+        self.assert_build(r, True)
+        self.assert_jvm(r, "gate executable: ", homes[gate])
+        self.assert_ran_on(r, homes[gate], "checkstyleGate", "archTest", "acceptanceTest")
+        self.assert_ran_on(r, homes[project], "test")
+
+    def test_a_launcher_read_by_an_init_script_once_the_project_is_evaluated(self):
+        # an IDE's model builder or a plugin in an init script reads the launcher of every JVM task, and Gradle
+        # keeps a launcher that was read: setting the gate JVM later threw while the build was configured, whatever
+        # task was asked for (review of 65c03da)
+        homes, project, gate = self.two_jdks()
+        init = kit.write(os.path.join(self.tmp, "late-reader.gradle"), LATE_READER)
+        self.project(build_extra=REPORT_JVM)
+        kit.set_property(self.lab, "gate.java.version", str(gate))
+        r = self.gradle("checkstyleGate", "archTest", "test", "-I", init, env={"JAVA_HOME": homes[project]})
+        self.assert_build(r, True)
+        self.assert_ran_on(r, gate, "checkstyleGate", "archTest")
+        self.assert_ran_on(r, homes[project], "test")
+        r = self.gradle("checkstyleGate", "archTest", "-I", init,
+                        env={"JAVA_HOME": homes[project], "GAUNTLET_GATE_JAVA_HOME": homes[gate]})
+        self.assert_build(r, True)
+        self.assert_ran_on(r, homes[gate], "checkstyleGate", "archTest")
+
+    def test_a_launcher_fixed_before_the_kit_could_set_it_is_named(self):
+        # a launcher read before the kit set it (here: by the build script itself) cannot be changed any more; the
+        # gate task says so instead of running on the project's JVM
+        homes, project, gate = self.two_jdks()
+        self.project(build_extra="tasks.withType(Test).configureEach { it.javaLauncher.getOrNull() }")
+        kit.set_property(self.lab, "gate.java.version", str(gate))
+        r = self.gradle("help", env={"JAVA_HOME": homes[project]})
+        self.assert_build(r, True)
+        r = self.gradle("archTest", env={"JAVA_HOME": homes[project]})
+        self.assert_build(r, False)
+        self.assertIn(":archTest would run on", r.out)
+        self.assertIn(f"not on the gate JVM (Java {gate})", r.out)
 
 
 class CiPlan(GradleCase):

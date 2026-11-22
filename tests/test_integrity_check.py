@@ -105,6 +105,16 @@ class Rules(IntegrityCase):
                 self.file("build.gradle", APPLY + line + "\n")
                 self.assertEqual(self.rules(), [rule])
 
+    def test_a_property_named_by_a_string_is_a_finding(self):
+        # Groovy reaches a property through a string as well, so the build rules read strings too; a string that only
+        # mentions the words is reported as well - the safe direction, the human allowlists it
+        cases = {"B1": "test['ignoreFailures'] = true", "B2": "test.filter.\"excludeTestsMatching\"('*Slow*')",
+                 "B3": "test.systemProperty 'cucumber.filter.tags', 'not @slow'"}
+        for rule, line in cases.items():
+            with self.subTest(rule=rule):
+                self.file("build.gradle", APPLY + line + "\n")
+                self.assertEqual(self.rules(), [rule])
+
     def test_build_logic_outside_the_build_script_is_scanned(self):
         self.file("buildSrc/src/main/groovy/Custom.gradle", "test.enabled = false\n")
         self.file("gradle/extra.gradle", "tasks.withType(Test) { onlyIf { false } }\n")

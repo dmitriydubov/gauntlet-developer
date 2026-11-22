@@ -29,6 +29,10 @@ def main():
     ap.add_argument("-k", dest="pattern", default="", help="run only tests whose id contains this text")
     ap.add_argument("-v", "--verbose", action="store_true")
     opts = ap.parse_args()
+    if opts.gradle and not shutil.which("gradle"):
+        # the scenarios would skip themselves, and a run that checked nothing must not read as green
+        print("--gradle: no `gradle` on PATH, the real-Gradle scenarios cannot run", file=sys.stderr)
+        return 2
 
     root = tempfile.mkdtemp(prefix="gauntlet-kit-tests-")
     try:
@@ -43,6 +47,9 @@ def main():
         suite = unittest.defaultTestLoader.discover(HERE, pattern="test_*.py", top_level_dir=HERE)
         if opts.pattern:
             suite = unittest.TestSuite(t for t in flatten(suite) if opts.pattern.lower() in t.id().lower())
+            if not suite.countTestCases():
+                print(f"-k {opts.pattern}: no test id contains it, nothing ran", file=sys.stderr)
+                return 1
         result = unittest.TextTestRunner(verbosity=2 if opts.verbose else 1).run(suite)
         return 0 if result.wasSuccessful() else 1
     finally:

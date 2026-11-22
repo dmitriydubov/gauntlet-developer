@@ -542,6 +542,27 @@
       задаче; PID теперь берётся из `ManagementFactory`.
       Подробно — в шапке бандла, в `docs/decisions.md`; сводка аудита всех раундов — `docs/review-audit.md`.
       Самопроверка хуков: 2353 → 2365 (разделители `gauntlet.properties`).
+    - **Ревью головы PR (`ef495ea`–`65c03da`: Kimi, Codex, Grok, Qwen; 14 находок).** 11 исправлены, у
+      каждого — проверка, которая падает на `65c03da`.
+      - JVM гейтов. Плагин или init-скрипт, читающий launcher'ы JVM-задач после оценки проекта (так делает
+        модельный билдер IDE), делал назначение набора невозможным: `javaLauncher is final` валил конфигурацию
+        любой сборки. `gate.java.version=21.0.2` валил её через `JavaLanguageVersion`, даже при
+        `GAUNTLET_GATE_JAVA_HOME`. Теперь launcher гейта назначается при создании задачи и ещё раз после оценки
+        проектов, отказ Gradle перехвачен, а задача гейта при старте сверяет свою JVM и называет причину.
+        Toolchain запрашивается по major и не запрашивается при `GAUNTLET_GATE_JAVA_HOME`. Путь через эту
+        переменную впервые исполнен на настоящем Gradle.
+      - guard: `$'…'` раскодируется, как в bash. До этого проходили `bash -c $'git push --force …'`,
+        `$'git' push` и `rm -rf $'gauntlet'` — и на `166287c` тоже, кроме `bash -c $'…\n…'`. Код perl в кавычках
+        судится в том виде, как написан. ``perl -e '`rm -rf gauntlet`'`` — регресс ветки; `system("…")`,
+        `qx(…)`, `open(F, ">", …)` проходили и на `166287c`.
+      - `GherkinMutator`: transformer с не-ASCII именем находится. Мутант с падением и успехом (повторный
+        прогон, retry) — ошибка, а не kill; такой контроль — сломанный.
+      - `changed`: удалённый или переименованный glue-файл мутирует все фичи.
+      - Регрессионный набор: JDK — только с `javac`. `--gradle` без Gradle и пустая выборка `-k` завершаются
+        ненулевым кодом. Таймаут фальшивого Gradle в самопроверке — 5 с вместо 1.
+
+      Оставлено намеренно: правила B1–B5 читают и строки скрипта сборки. Строкой в Groovy задают само свойство
+      (`test['ignoreFailures'] = true`), так что это перестраховка, а не обход. Самопроверка хуков: 2365 → 2431.
     - **Роли и процесс.** `specifier`: сценарий обязан исполняться сам по себе; `hardener` и `gauntlet/CLAUDE.md`:
       красный контроль — это зависимость сценария от соседнего или от стенда, а не слабое step-определение.
     - **Регрессионный набор в репозитории.** Третий раунд ревью советовал «сохранить небольшой Gradle-проект в
@@ -549,7 +570,7 @@
       20/20» жили в разовых стендах исполнителей. Теперь `python3 tests/run.py` распаковывает бандл скриптом из его
       шапки и проверяет манифест, побайтную пересборку сборщиком из раздела 8.4, единство ревизии в документах,
       хуки, три инструмента с собственным вердиктом (`CrapGate`, `IntegrityCheck`, `GherkinMutator`; `DryGate` и
-      `PitSummary` — только сценарием полного `gauntlet` на Gradle), установщик и shell-шаги CI; `--gradle` добавляет двадцать один сценарий на
+      `PitSummary` — только сценарием полного `gauntlet` на Gradle), установщик и shell-шаги CI; `--gradle` добавляет двадцать шесть сценариев на
       настоящем Gradle, включая оба ложнозелёных случая выше. В CI репозитория его запускает
       `.github/workflows/kit-tests.yml` (pull request и push в `main`, `--gradle`).
 
@@ -594,7 +615,7 @@ Gherkin-мутаций в таблице и абзац о приёмочном �
 - `.claude/agents/{specifier,hardener,reviewer}.md`, `.github/workflows/gauntlet.yml`, `gauntlet/CLAUDE.md`,
   `INSTALL.md`, `config/gauntlet.properties` (обнаруженные версии проекта и отдельная JVM гейта);
 - `gauntlet/tools/IntegrityCheck.java`, `CrapGate.java`, `GherkinMutator.java`, `PitSummary.java`;
-- `gauntlet/hooks/guard.py`, `stop_gate.py`, `selftest.py` (2365 проверок в трёх раскладках);
+- `gauntlet/hooks/guard.py`, `stop_gate.py`, `selftest.py` (2431 проверка в трёх раскладках);
 - `gauntlet/install.sh` (обновление gauntlet-хуков при слиянии, бюджет таймаута по модулям);
 - `gauntlet/gauntlet.gradle` (входы `acceptanceTest`, `mutationGate` source → compiled types);
 - `gauntlet/config/crap-allowlist.txt` (пример записи с сигнатурой перегрузки);
@@ -618,18 +639,18 @@ Gherkin-мутаций в таблице и абзац о приёмочном �
 | `.claude/settings.json` | 1720 | 2543 |
 | `.github/workflows/gauntlet.yml` | 1978 | 7658 |
 | `gauntlet/CLAUDE.md` | 63625 | 65401 |
-| `gauntlet/INSTALL.md` | 11426 | 14743 |
-| `gauntlet/README.md` | 29851 | 70780 |
+| `gauntlet/INSTALL.md` | 11426 | 14808 |
+| `gauntlet/README.md` | 29851 | 72459 |
 | `gauntlet/config/crap-allowlist.txt` | 448 | 924 |
-| `gauntlet/config/gauntlet.properties` | 5921 | 6568 |
-| `gauntlet/gauntlet.gradle` | 32451 | 57966 |
-| `gauntlet/hooks/guard.py` | 26740 | 94884 |
-| `gauntlet/hooks/selftest.py` | 41192 | 123649 |
+| `gauntlet/config/gauntlet.properties` | 5921 | 6639 |
+| `gauntlet/gauntlet.gradle` | 32451 | 60705 |
+| `gauntlet/hooks/guard.py` | 26740 | 97749 |
+| `gauntlet/hooks/selftest.py` | 41192 | 126217 |
 | `gauntlet/hooks/stop_gate.py` | 16669 | 21211 |
 | `gauntlet/install.sh` | 4933 | 12194 |
 | `gauntlet/templates/acceptanceTest/resources/features/example_discount.feature` | 928 | 1258 |
 | `gauntlet/tools/CrapGate.java` | 12638 | 31322 |
-| `gauntlet/tools/GherkinMutator.java` | 35990 | 59730 |
+| `gauntlet/tools/GherkinMutator.java` | 35990 | 60347 |
 | `gauntlet/tools/IntegrityCheck.java` | 15688 | 49923 |
 | `gauntlet/tools/PitSummary.java` | 11401 | 11633 |
 
@@ -642,20 +663,21 @@ Gherkin-мутаций в таблице и абзац о приёмочном �
 
 ### Проверено
 
-- `python3 gauntlet/hooks/selftest.py` — 2365 проверок, 0 падений, три раскладки (корень; `core/`;
+- `python3 gauntlet/hooks/selftest.py` — 2431 проверка, 0 падений, три раскладки (корень; `core/`;
   `core/` + `adapter/`); в том числе из распакованной копии пересобранного бандла.
 - `python3 tests/run.py --gradle` — регрессионный набор дистрибутива по бандлу, распакованному скриптом из его
   шапки: манифест и побайтная пересборка сборщиком из раздела 8.4, единство ревизии и таблицы размеров, хуки,
-  `CrapGate`, `IntegrityCheck`, `GherkinMutator`, установщик, shell-шаги CI и двадцать один сценарий на настоящем
+  `CrapGate`, `IntegrityCheck`, `GherkinMutator`, установщик, shell-шаги CI и двадцать шесть сценариев на настоящем
   Gradle 8.14.3 (JDK 21 и 25, Cucumber 7.23.0): полный `gauntlet` на примере — 29 задач, PIT 2/2, 9/9
   Gherkin-мутантов и 6 контролей; строка, которую нельзя повторить на одном стенде, и enum, который Cucumber
   не конвертирует, — ошибки, а не kill; второй корень main source set, одиночный CR, `options.encoding` против
   `-encoding`, исключённый исходник, ленивый провайдер аргументов, `module-info.java`, `javaLauncher` после набора; `DataTable.diff` в шаге — kill; фикстура, упавшая в прогоне мутантов, и
   сценарий без предусловия — красный вердикт по контролям; `-encoding` из `compilerArgs`; `class Tarif\u00e9`;
   два `Rules.java` при `debug=false`; gate-JVM 25 при проектном `Test.executable` 21; обычная сборка с
-  отсутствующей gate-JDK 99. Отдельно Cucumber 8.0.1 с JUnit 6.1.2 — 9/9 kill, 3 контроля. Тот же набор
+  отсутствующей gate-JDK 99; `gate.java.version=25.0.2`; JVM гейтов из `GAUNTLET_GATE_JAVA_HOME`;
+  launcher, прочитанный init-скриптом, и launcher, зафиксированный раньше набора; удалённый glue-файл. Отдельно Cucumber 8.0.1 с JUnit 6.1.2 — 9/9 kill, 3 контроля. Тот же набор
   регрессионный набор репозитория прошёл в GitHub Actions (`.github/workflows/kit-tests.yml`, ubuntu-24.04,
-  191 тест); workflow самого набора (`gauntlet.yml`) там не исполняется: его шаги проверены локально как shell.
+  200 тестов); workflow самого набора (`gauntlet.yml`) там не исполняется: его шаги проверены локально как shell.
 - Компиляция всех single-file инструментов (`javac`): `CrapGate`, `DryGate`, `GherkinMutator`,
   `IntegrityCheck`, `PitSummary` — без ошибок.
 - Целевые регрессии: allowlist `CrapGate` (ключ `Class#method` цел), опенер `IntegrityCheck` (10 случаев),

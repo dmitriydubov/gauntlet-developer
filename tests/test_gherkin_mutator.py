@@ -383,6 +383,45 @@ class WhereItFailed(Sandbox):
         self.assertEqual(0, code, out)          # the same exception from the step's own code is a kill
         self.assertIn("1 killed (1 by a non-assertion exception thrown in a step), 0 survived", self.summary(out))
 
+    def test_a_transformer_named_in_any_alphabet_is_found(self):
+        # a Java or Kotlin name is any letter, not only ASCII (review of 65c03da)
+        write(self.path("glue/com/example/Types.java"), "package com.example;\n\nclass Types {\n"
+              "    @ParameterType(\".*\")\n    public Статус статус(String value) {\n        return Статус.valueOf(value);\n"
+              "    }\n}\n")
+        transformer = thrown("java.lang.IllegalArgumentException", "No enum constant com.example.Статус.ОТГРУЖЕНЕ",
+                             frames=("java.base/java.lang.Enum.valueOf(Enum.java:293)",
+                                     "app//com.example.Types.статус(Types.java:6)", STEP_FRAME))
+        self.manifest_with_uses(5)
+        write_results(self.results, [(control_name(1), PASSED), (mutant_name(1), transformer)])
+        code, out = self.run_verdict("--glue", "glue")
+        self.assertEqual(1, code, out)
+        self.assertIn("0 killed, 0 survived, 1 error(s)", self.summary(out))
+        self.assertIn("MUTANT ERROR    m1 the value never reached a step definition (java.lang.IllegalArgumentException", out)
+
+    def test_a_scenario_that_ran_twice_with_different_results_proves_nothing(self):
+        # a retry plugin or a rerun reports every attempt: a failure and a pass is no stable detection (review of 65c03da)
+        for order, attempts in {"failed, then passed": (in_step(), PASSED),
+                                "passed, then failed": (PASSED, in_step())}.items():
+            with self.subTest(order):
+                self.manifest_with_uses(5)
+                write_results(self.results, [(control_name(1), PASSED)] + [(mutant_name(1), a) for a in attempts])
+                code, out = self.run_verdict()
+                self.assertEqual(1, code, out)
+                self.assertIn("0 killed, 0 survived, 1 error(s)", self.summary(out))
+                self.assertIn("MUTANT ERROR    m1 ran more than once with different results", out)
+                write_results(self.results, [(control_name(1), a) for a in attempts] + [(mutant_name(1), in_step())])
+                code, out = self.run_verdict()
+                self.assertEqual(1, code, out)
+                self.assertIn("1 killed, 0 survived, 0 error(s); 1 control(s) - 0 passed", self.summary(out))
+                self.assertIn("MUTANT ERROR    c1 control (unmutated scenario) ran more than once with different results",
+                              out)
+        # the same result on every attempt is one result: a retried kill is a kill
+        write_results(self.results, [(control_name(1), PASSED), (control_name(1), PASSED),
+                                     (mutant_name(1), in_step()), (mutant_name(1), in_step())])
+        code, out = self.run_verdict()
+        self.assertEqual(0, code, out)
+        self.assertIn("1 killed, 0 survived, 0 error(s); 1 control(s) - 1 passed", self.summary(out))
+
 
 # ----------------------------------------------------------------------------- generate
 

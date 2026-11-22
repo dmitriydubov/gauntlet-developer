@@ -497,18 +497,33 @@ ArchUnit-тест, шаблоны, установку и документаци�
   - `gauntlet.gradle`: блокировка каталога `build/` писала PID через `ProcessHandle` (Java 9+); скрипт исполняется
     в JVM Gradle, то есть на JDK проекта, и проект на Java 8 падал на первой задаче (найдено первым прогоном CI
     репозитория на раннере с JDK 8).
+  - Ревью головы PR (`ef495ea`–`65c03da`; Kimi, Codex, Grok, Qwen), 11 дефектов:
+    - JVM гейтов (`gauntlet.gradle`). Плагин или init-скрипт, читающий launcher'ы JVM-задач после оценки
+      проекта (модельный билдер IDE), валил конфигурацию любой сборки: `javaLauncher is final`.
+      `gate.java.version=21.0.2` валил её даже при `GAUNTLET_GATE_JAVA_HOME`. Теперь launcher гейта
+      назначается при создании задачи и ещё раз после оценки проектов, а отказ Gradle перехвачен. Задача гейта
+      при старте сверяет свою JVM и называет причину. Toolchain запрашивается по major, а при
+      `GAUNTLET_GATE_JAVA_HOME` не запрашивается вовсе.
+    - `hooks/guard.py`: `$'…'` раскодируется, как в bash (`bash -c $'git push --force …'`, `$'git' push`,
+      `rm -rf $'gauntlet'` проходили). Код perl в кавычках судится в том виде, как написан: обратные
+      кавычки, `system("…")`, `qx(…)`, `open(F, ">", …)`.
+    - `tools/GherkinMutator.java`: transformer с не-ASCII именем находится. Разные результаты одного сценария
+      (повторный прогон, retry) — ошибка, а не kill.
+    - Область `changed`: удалённый или переименованный glue-файл мутирует все фичи.
+    - Правила B1–B5 по-прежнему читают и строки скрипта сборки. Строкой в Groovy задают само свойство
+      (`test['ignoreFailures'] = true`), поэтому это перестраховка, а не обход.
   - Роли: `hardener` чинит красный контроль в тестовом коде (`@Before`), правка фичи — вопрос человеку.
 - `.claude/agents/specifier.md`, `hardener.md`, `gauntlet/CLAUDE.md`: сценарий обязан исполняться сам по себе;
   красный контроль — зависимость сценария от соседнего или от стенда, а не слабое step-определение.
-- `hooks/selftest.py`: 997 → 2365 проверок (сокращения и их разрешающие контроли, конфигурация git, `gh`,
+- `hooks/selftest.py`: 997 → 2431 проверка (сокращения и их разрешающие контроли, конфигурация git, `gh`,
   оболочки/обёртки/вложенный код для human-only, путей и ролей, чтение командной строки, каталог после `cd`,
-  перенаправления, `gh api`, чтения ревьюера, `buildSrc`, вывод при таймауте). `README.md`,
+  перенаправления, `gh api`, чтения ревьюера, `buildSrc`, вывод при таймауте, `$'…'`, код perl в кавычках). `README.md`,
   `INSTALL.md`, `config/gauntlet.properties` — описание синхронизировано.
-- Проверки: `python3 tests/run.py` в репозитории набора (распакованный бандл): самопроверка хуков 2365/2365,
+- Проверки: `python3 tests/run.py` в репозитории набора (распакованный бандл): самопроверка хуков 2431/2431,
   инструменты, установщик, shell-шаги CI, побайтная пересборка; реальные Gradle 8.14.3/JDK 21 и 25, Cucumber
-  7.23.0 и 8.0.1 — полный `gauntlet` на примере (9/9 Gherkin-мутантов, 6 контролей, PIT 2/2) и 21 сценарий находок;
+  7.23.0 и 8.0.1 — полный `gauntlet` на примере (9/9 Gherkin-мутантов, 6 контролей, PIT 2/2) и 26 сценариев находок;
   регрессионный набор репозитория прошёл в GitHub Actions (`.github/workflows/kit-tests.yml`, ubuntu-24.04,
-  191 тест); workflow самого набора (`gauntlet.yml`) там не исполняется: его шаги проверены локально как shell.
+  200 тестов); workflow самого набора (`gauntlet.yml`) там не исполняется: его шаги проверены локально как shell.
 
 ## Как распаковать (Claude выполняет это на шаге 2 протокола `start`)
 
@@ -542,19 +557,19 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 - `.github/workflows/gauntlet.yml` (7658 байт)
 - `CLAUDE.md` (279 байт)
 - `gauntlet/CLAUDE.md` (65401 байт)
-- `gauntlet/INSTALL.md` (14743 байт)
-- `gauntlet/README.md` (70780 байт)
+- `gauntlet/INSTALL.md` (14808 байт)
+- `gauntlet/README.md` (72459 байт)
 - `gauntlet/archtest/gauntlet/architecture/ArchitectureTest.java` (7906 байт)
 - `gauntlet/config/architecture.properties` (1420 байт)
 - `gauntlet/config/checkstyle.xml` (4593 байт)
 - `gauntlet/config/crap-allowlist.txt` (924 байт)
-- `gauntlet/config/gauntlet.properties` (6568 байт)
+- `gauntlet/config/gauntlet.properties` (6639 байт)
 - `gauntlet/config/integrity-allowlist.txt` (445 байт)
 - `gauntlet/config/pit-runerror-allowlist.txt` (1485 байт)
 - `gauntlet/config/pmd-ruleset.xml` (11398 байт)
-- `gauntlet/gauntlet.gradle` (57966 байт)
-- `gauntlet/hooks/guard.py` (94884 байт)
-- `gauntlet/hooks/selftest.py` (123649 байт)
+- `gauntlet/gauntlet.gradle` (60705 байт)
+- `gauntlet/hooks/guard.py` (97749 байт)
+- `gauntlet/hooks/selftest.py` (126217 байт)
 - `gauntlet/hooks/session_start.sh` (3116 байт)
 - `gauntlet/hooks/stop_gate.py` (21211 байт)
 - `gauntlet/install.sh` (12194 байт)
@@ -562,7 +577,7 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 - `gauntlet/templates/acceptanceTest/resources/features/example_discount.feature` (1258 байт)
 - `gauntlet/tools/CrapGate.java` (31322 байт)
 - `gauntlet/tools/DryGate.java` (6538 байт)
-- `gauntlet/tools/GherkinMutator.java` (59730 байт)
+- `gauntlet/tools/GherkinMutator.java` (60347 байт)
 - `gauntlet/tools/IntegrityCheck.java` (49923 байт)
 - `gauntlet/tools/PitSummary.java` (11633 байт)
 
@@ -1510,7 +1525,8 @@ PR открыт. Бизнес-код и существующие тесты не
 - `project.java.version`, `project.gradle.version`, `project.framework.<имя>.version`,
   `project.test.<имя>.version` — фактические версии из шага 1, не значения шаблона. CI и роли используют
   эти записи; `./gradlew gauntletInfo` показывает их вместе с версиями инструментов.
-- `gate.java.version` — major-версия JVM инструментов Gauntlet. Локальный путь задаётся только вне
+- `gate.java.version` — major-версия JVM инструментов Gauntlet. Полную (`21.0.2`) Gradle читает как
+  её major. Локальный путь задаётся только вне
   репозитория: `GAUNTLET_GATE_JAVA_HOME` или `-Pgauntlet.gateJavaHome`; старый tracked `gate.java.home` не
   используется. Не меняй Java приложения или его toolchain. CI ставит все нужные JDK одним шагом `setup-java`;
   wrapper запускается с проектной `JAVA_HOME`, а gate JDK передаётся инструментам через
@@ -1652,7 +1668,7 @@ gauntlet/
   archtest/               ArchUnit-тест, читающий config/architecture.properties
   hooks/                  guard.py (PreToolUse), stop_gate.py (Stop; SubagentStop hardener'а — matcher в
                           .claude/settings.json), session_start.sh (SessionStart; в облаке поднимает dockerd),
-                          selftest.py (2365 проверок хуков в трёх раскладках: python3 gauntlet/hooks/selftest.py)
+                          selftest.py (2431 проверка хуков в трёх раскладках: python3 gauntlet/hooks/selftest.py)
   templates/              конфигурация Cucumber+Spring, пример фичи на русском
   claude/, ci/            только до установки: install.sh переносит их в .claude/ и .github/workflows/
 ```
@@ -1684,6 +1700,8 @@ gauntlet/
 совместимые версии инструментов фиксируются после реального прогона. `gate.java.version` задаёт JVM
 гейтов отдельно от Java приложения; локальный путь — только `GAUNTLET_GATE_JAVA_HOME` или
 `-Pgauntlet.gateJavaHome`, вне git. CI и роли читают эту конфигурацию (`./gradlew gauntletInfo`).
+Если плагин или init-скрипт зафиксировал launcher задачи гейта раньше набора, задача при старте называет
+JVM, на которой пошла бы, и падает. На JVM проекта она молча не работает.
 Обновление зависимостей приложения — только отдельным решением
 владельца и отдельной задачей, не часть установки Gauntlet.
 
@@ -1834,7 +1852,7 @@ protection базовой ветки и то, что любая попытка �
 ## 8. Что проверено в этой версии, а что нет
 
 Проверено здесь (Gradle 8.14.3, Java 21):
-- Хуки, `hooks/selftest.py`, 2365 проверок в трёх раскладках (сборка в корне; модуль `core/`; два модуля
+- Хуки, `hooks/selftest.py`, 2431 проверка в трёх раскладках (сборка в корне; модуль `core/`; два модуля
   `core/` + `adapter/` — Gradle только в изменённом модуле, красный модуль блокирует, коммит
   спецификации одного модуля замораживает фичи другого, чужая незакоммиченная работа не считается)
   на временном git-репозитории с фиктивным `origin/main`:
@@ -1996,8 +2014,9 @@ protection базовой ветки и то, что любая попытка �
   `/protection` в тексте ответа ревьюеру; текстовое сопоставление смотрит на оператор, который пишет, и не считает
   `gauntlet.log` набором; у ревьюера разрешены чтения с перенаправлением, `git branch --all`, `unzip -l`, `tar tf`,
   `tee` и `mkdir` вне проекта; источники `cp` читаются, а не пишутся; `git restore --staged` и `git reset <путь>`
-  трогают только индекс; роли со своей зоной не блокируются на `2>/dev/null`. Самопроверка 997 → 2365
-  (+456 на раскладку; файл настроек читается с разделителями `java.util.Properties` — `key: value`, `key value`).
+  трогают только индекс; роли со своей зоной не блокируются на `2>/dev/null`. Самопроверка 997 → 2365 → 2431
+  (+456 и +22 на раскладку; файл настроек читается с разделителями `java.util.Properties` — `key: value`,
+  `key value`; строка `$'…'` раскодируется, как в bash, а код perl в кавычках судится в том виде, как написан).
   Независимое ревью этой же ревизии нашло дефекты и в её собственных правках — исправлены. `IntegrityCheck`:
   вырезание комментариев выдумывало параметр замыкания (`{ $/* … */ test -> /$`, вложенный комментарий Kotlin) и
   прятало `test.enabled = false`; теперь скрипт читается лексером языка, а 437 сниппетов, сверенных с настоящим
@@ -2012,8 +2031,20 @@ protection базовой ветки и то, что любая попытка �
   без `git` не конфигурировался даже `gradle test`, `failFast` проекта обрывал прогон мутантов, правка одного
   glue-кода не мутировала ни одной фичи, эмодзи в ячейке рвали суррогатную пару; CI принимал `21` и `21.0.2` как
   один JDK, не понимал `17-ea`, `1.8`, `key: value` и модуль с пробелом в имени, `setup-java@v4` устарел (v5).
-  `install.sh` и хуки читают список модулей так же, как CI. Регрессии инструментов, установщика и CI лежат в `tests/` репозитория набора и гоняются
-  по распакованному бандлу.
+  `install.sh` и хуки читают список модулей так же, как CI. Ревью головы PR после этих правок нашло ещё 11
+  дефектов, все исправлены:
+  - JVM гейтов. Плагин или init-скрипт, читающий launcher'ы JVM-задач после оценки проекта (модельный
+    билдер IDE), валил конфигурацию любой сборки (`javaLauncher is final`). `gate.java.version=21.0.2` валил
+    её даже при `GAUNTLET_GATE_JAVA_HOME`. Теперь launcher назначается при создании задачи и после оценки,
+    задача гейта сверяет свою JVM при старте, а toolchain запрашивается по major.
+  - guard: `bash -c $'git push --force …'`, `$'git' push`, `rm -rf $'gauntlet'` и ``perl -e '`rm -rf
+    gauntlet`'`` проходили.
+  - `GherkinMutator`: transformer с не-ASCII именем не находился. Мутант с падением и успехом (повторный
+    прогон) считался убитым.
+  - Область `changed`: удалённый glue-файл не мутировал ни одной фичи.
+
+  Регрессии инструментов, установщика и CI лежат в `tests/` репозитория набора и гоняются по распакованному
+  бандлу.
 - `install.sh` на демо-проекте: чистая установка; слияние с существующим `.claude/settings.json`
   (хуки и права добавлены, `disableAllHooks=false`); обновление 4.2 → 4.3 освежает поля gauntlet-хуков и
   масштабирует таймауты по модулям, чужие хуки и роль/`CLAUDE.md` не перезаписаны; идемпотентно (без дублей);
@@ -2497,6 +2528,7 @@ project.framework.springBoot.version=4.0.7
 project.test.junit-jupiter.version=6.1.2
 
 # JVM for Gauntlet tools only. The application keeps its own Java/toolchain and dependencies.
+# A major version (21); Gradle reads a full one (21.0.2) as its major.
 # Optional local path: GAUNTLET_GATE_JAVA_HOME or -Pgauntlet.gateJavaHome (never commit it).
 # In a monorepo a module may set its own project.java.version / gate.java.version in its overlay
 # (gauntlet/config/<module>/gauntlet.properties): CI runs every build on its own pair.
@@ -3162,31 +3194,65 @@ apply plugin: 'jacoco'
 
 def gateJavaHome = System.getenv('GAUNTLET_GATE_JAVA_HOME') ?: (findProperty('gauntlet.gateJavaHome') ?: '').toString()
 def gateJavaVersion = setting('gate.java.version', '')
-def gateJavaLauncher = gateJavaVersion ? javaToolchains.launcherFor {
-    languageVersion = JavaLanguageVersion.of(gateJavaVersion)
+// a toolchain is asked for by its major version: 21.0.2, 17-ea and 1.8 are 21, 17 and 8
+def gateJavaMajor = gateJavaVersion.replaceFirst(/^1\./, '').find(/^\d+/)
+// GAUNTLET_GATE_JAVA_HOME names the JVM itself: then no toolchain is looked up at all
+def gateJavaLauncher = !gateJavaHome && gateJavaMajor ? javaToolchains.launcherFor {
+    languageVersion = JavaLanguageVersion.of(gateJavaMajor as int)
 } : null
 def javaBin = "${System.getProperty('java.home')}/bin/java"
 def gateJavaBin = { ->
     if (gateJavaHome) {
         return "${gateJavaHome}/bin/java"
     }
+    if (gateJavaVersion && !gateJavaMajor) {
+        throw new GradleException("gauntlet: gate.java.version '${gateJavaVersion}' names no Java version - write its " +
+                "major version (21), in gauntlet/config/gauntlet.properties or the module's overlay.")
+    }
     return gateJavaLauncher != null ? gateJavaLauncher.get().executablePath.asFile.absolutePath : javaBin
 }
 // A project may pin `executable` or `javaLauncher` on every Test/JavaExec task, and Gradle refuses a launcher and
 // an executable that disagree. A gate task therefore gets both: its launcher is the gate JVM, and `executable`
 // either names the same JVM or is cleared. Nothing here resolves the toolchain while the build is configured.
+def gateJvmOf = { task ->
+    if (!(task instanceof JavaExec || task instanceof Test) || !(gateJavaHome || gateJavaLauncher != null)) {
+        return
+    }
+    try {
+        if (gateJavaHome) {
+            task.executable = gateJavaBin()
+            task.javaLauncher.set(null)                 // without a launcher of its own the task follows `executable`
+        } else {
+            task.setExecutable((String) null)
+            task.javaLauncher = gateJavaLauncher
+        }
+    } catch (IllegalStateException alreadyRead) {
+        // Something read the task's launcher once the project was evaluated (an IDE's model builder, a plugin in
+        // an init script), and Gradle keeps a launcher that was read. The task runs with that one if it is the
+        // gate JVM - checked when the task starts.
+    }
+}
 def gateJava = { task ->
     if (task instanceof Exec && !(task instanceof JavaExec)) {
         task.doFirst { task.executable = gateJavaBin() }
         return
     }
-    if (task instanceof JavaExec || task instanceof Test) {
-        if (gateJavaHome) {
-            task.javaLauncher.set(null)                 // without a launcher of its own the task follows `executable`
-            task.executable = gateJavaBin()
-        } else if (gateJavaLauncher != null) {
-            task.javaLauncher = gateJavaLauncher
-            task.setExecutable((String) null)
+    if ((task instanceof JavaExec || task instanceof Test) && (gateJavaHome || gateJavaVersion)) {
+        gateJvmOf(task)
+        task.doFirst {
+            def launcher = task.javaLauncher.getOrNull()
+            def used = launcher != null ? launcher.executablePath.asFile : new File(task.executable ?: javaBin)
+            def gate = new File(gateJavaBin())
+            def same = gateJavaHome ? used.canonicalPath == gate.canonicalPath
+                    : (launcher != null ? launcher.metadata.languageVersion.asInt() == (gateJavaMajor as int)
+                    : used.canonicalPath == gate.canonicalPath)
+            if (!same) {
+                throw new GradleException("gauntlet: ${task.path} would run on ${used}, not on the gate JVM " +
+                        "(${gateJavaHome ?: 'Java ' + gateJavaMajor}). Something in this build fixed the task's launcher " +
+                        "before the gauntlet could set it - an init script or a plugin that reads the launchers of JVM " +
+                        "tasks after the project is evaluated. Run without it, or make gate.java.version the Java of " +
+                        "that launcher.")
+            }
         }
     }
 }
@@ -3672,9 +3738,11 @@ tasks.register('gherkinMutants', Exec) {
         def changed = changedFiles()
         if (changed != null) {
             // The step definitions are what this gate checks: a changed glue file or acceptance resource can hollow
-            // a step of a feature that did not change, so then every feature is mutated.
+            // a step of a feature that did not change, so then every feature is mutated. Deleting a glue file (a
+            // hook, a step class) or moving it away changes the glue as well: both ends of a rename count.
+            def touched = (git(['diff', '--relative', '--name-only', '--no-renames', mergeBase()]) ?: []) + changed
             def roots = sourceSets.acceptanceTest.allSource.srcDirs.collect { it.toPath().toAbsolutePath().normalize() }
-            def changedGlue = changed.findAll { path ->
+            def changedGlue = touched.unique().findAll { path ->
                 !path.endsWith('.feature') && roots.any { file(path).toPath().toAbsolutePath().normalize().startsWith(it) }
             }
             if (changedGlue) {
@@ -3818,12 +3886,17 @@ tasks.configureEach { Task task ->
 
 // The gate JVM is the last word on these tasks, whatever the project says about its Test/JavaExec tasks before
 // this script, after it or in afterEvaluate: the configuration is added once every project is evaluated. (Later
-// is too late - Gradle fixes the launcher of a task when it puts the task into the task graph.)
+// is too late - Gradle fixes the launcher of a task when it puts the task into the task graph.) It is also set
+// when a task is created: whatever reads the launcher in between (an IDE's model builder, an init script) then
+// fixes the gate JVM, not the project's.
+def gateTasks = ['checkstyleGate', 'pmdGate', 'cpdReport', 'acceptanceTest', 'archTest', 'gherkinMutantsRun',
+                 'integrityCheck', 'acceptanceCheck', 'crapGate', 'dryGate', 'pitSummary', 'gherkinMutants', 'gherkinMutation']
+gateTasks.each { tasks.named(it) { gateJvmOf(it) } }
+plugins.withId('info.solidsoft.pitest') {
+    tasks.named('pitest') { gateJvmOf(it) }
+}
 gradle.projectsEvaluated {
-    ['checkstyleGate', 'pmdGate', 'cpdReport', 'acceptanceTest', 'archTest', 'gherkinMutantsRun',
-     'integrityCheck', 'acceptanceCheck', 'crapGate', 'dryGate', 'pitSummary', 'gherkinMutants', 'gherkinMutation'].each {
-        tasks.named(it) { gateJava(it) }
-    }
+    gateTasks.each { tasks.named(it) { gateJava(it) } }
     plugins.withId('info.solidsoft.pitest') {
         tasks.named('pitest') { gateJava(it) }
     }
@@ -4130,9 +4203,10 @@ def command_violation(agent, command, ctx, cwd=None):
             reason = write_violation(agent, target, cwd, ctx, protected, read_only, scope, "writing " + target)
             if reason:
                 return reason
-        if read_only and changes_state(words, segment, cwd, ctx):
+        raw = raw_of(segment, neutral, command)
+        if read_only and changes_state(words, segment, cwd, ctx, raw):
             return f"The {agent} is read-only: no file or git state changes. Report findings instead."
-        if not writes_worktree(words, segment):
+        if not writes_worktree(words, segment, raw):
             continue
         tokens = [] if inline_code(words) else path_tokens(words, cwd, ctx.project)
         for token in tokens:
@@ -4156,6 +4230,19 @@ def command_violation(agent, command, ctx, cwd=None):
         if hit:
             return protected_reason(agent, hit, ctx)
     return None
+
+
+def raw_of(segment, neutral, command):
+    """The text as written behind a statement of the neutralised command line: quoted `...`, (...) and ; are
+    perl's code (`perl -e 'system("rm -rf x")'`), not shell syntax. Neutralising keeps every offset; a statement
+    whose text occurs more than once answers for all its occurrences, and one not found for the whole line."""
+    if len(neutral) != len(command):
+        return command
+    parts, start = [], neutral.find(segment)
+    while start >= 0 and segment:
+        parts.append(command[start:start + len(segment)])
+        start = neutral.find(segment, start + 1)
+    return "\n".join(parts) if parts else command
 
 
 def shell_payloads(words):
@@ -4335,9 +4422,13 @@ def read_shell(command, kind):
             out.append(command[i:end])
             i = end
             begin_word(f)
-        elif two == "$'":
-            end = min(ansi_c_end(command, i + 2), n)
-            out.append(command[i:end])
+        elif two == "$'":                      # ANSI-C string: the word bash makes of it, in plain quotes
+            end = ansi_c_end(command, i + 2)
+            if end > n:                        # never closed: bash runs nothing, the text stays as written
+                out.append(command[i:])
+                end = n
+            else:
+                out.append("'" + ansi_c_text(command[i + 2:end - 1]).replace("'", "'\\''") + "'")
             i = end
             begin_word(f)
         elif c == '"' or two == '$"':
@@ -4897,6 +4988,46 @@ def piped_shell_code(command):
                     texts.append(" ".join(words[2:]))   # ...or the args printed after the format
         codes.extend(as_program(reader, text) for text in texts)
     return codes
+
+
+ANSI_C = {"a": "\x07", "b": "\x08", "e": "\x1b", "E": "\x1b", "f": "\x0c", "n": "\n", "r": "\r", "t": "\t",
+          "v": "\x0b", "\\": "\\", "'": "'", '"': '"', "?": "?"}
+
+
+def ansi_c_text(body):
+    """The text bash makes of $'body': its backslash escapes decoded (octal, \\xHH, \\uHHHH, \\cX ...); a NUL ends it.
+    `bash -c $'git push --force'` runs `git push --force` - the rules must see those words, not `$git`."""
+    out, i, n = [], 0, len(body)
+    while i < n:
+        c = body[i]
+        if c != "\\" or i + 1 >= n:
+            out.append(c)
+            i += 1
+            continue
+        e = body[i + 1]
+        digits = None
+        if e in ANSI_C:
+            out.append(ANSI_C[e])
+            i += 2
+        elif e in "01234567":
+            digits = re.match(r"[0-7]{1,3}", body[i + 1:]).group(0)
+            out.append(chr(int(digits, 8) & 0xFF))
+            i += 1 + len(digits)
+        elif e in "xuU" and re.match(r"[0-9a-fA-F]", body[i + 2:i + 3]):
+            digits = re.match("[0-9a-fA-F]{1,%d}" % {"x": 2, "u": 4, "U": 8}[e], body[i + 2:]).group(0)
+            code = int(digits, 16)
+            if code > 0x10FFFF or 0xD800 <= code <= 0xDFFF:     # no character: left as written
+                out.append(body[i:i + 2 + len(digits)])
+            else:
+                out.append(chr(code))
+            i += 2 + len(digits)
+        elif e == "c" and i + 2 < n:
+            out.append(chr(ord(body[i + 2]) & 0x1F))
+            i += 3
+        else:
+            out.append(c + e)
+            i += 2
+    return "".join(out).split("\x00", 1)[0]
 
 
 def ansi_c_end(command, i):
@@ -5579,7 +5710,9 @@ def archive_mode(args):
     return ""
 
 
-def writes_worktree(words, segment):
+def writes_worktree(words, segment, raw=None):
+    """raw: the command as written - quoted text in `segment` is neutralised, and perl's `...`, system(...),
+    open(...) live inside quotes."""
     if not words:
         return False
     cmd, args = os.path.basename(words[0]), words[1:]
@@ -5592,7 +5725,8 @@ def writes_worktree(words, segment):
     if cmd == "sed":
         return "i" in short_flags(args) or "--in-place" in args
     if cmd == "perl":
-        return "i" in short_flags(args) or ("e" in short_flags(args).lower() and bool(PERL_WRITES.search(segment)))
+        return "i" in short_flags(args) or ("e" in short_flags(args).lower()
+                                            and bool(PERL_WRITES.search(raw if raw is not None else segment)))
     if cmd in ("awk", "gawk"):
         return "-i" in args or any(a.startswith("-i") for a in args)
     if cmd in SHELLS:
@@ -5617,12 +5751,12 @@ def writes_worktree(words, segment):
     return False
 
 
-def changes_state(words, segment, cwd=None, ctx=None):
+def changes_state(words, segment, cwd=None, ctx=None, raw=None):
     if words and os.path.basename(words[0]) == "git":
         sub = git_subcommand(words[1:])
         rest = words[words.index(sub) + 1:] if sub in words else []
         return sub in GIT_STATE_CHANGING and not git_read_only(sub, rest)
-    if not writes_worktree(words, segment):
+    if not writes_worktree(words, segment, raw):
         return False
     if ctx is not None and os.path.basename(words[0]) in MUTATING_COMMANDS:
         tokens = path_tokens(words, cwd, ctx.project)
@@ -6643,7 +6777,41 @@ def guard_tests(repo):
             ('main', 'python os.spawnlp',
              'python3 -c "import os; os.spawnlp(os.P_WAIT, \'git\', \'git\', \'commit\', \'--amend\')"'),
             ('main', 'a payload of bash -c on two lines',
-             "bash -c 'echo ok\ngit push --force origin HEAD'")):
+             "bash -c 'echo ok\ngit push --force origin HEAD'"),
+            # $'...' is the word bash makes of it: escapes decoded (review of 65c03da)
+            ('main', 'an ANSI-C string as the payload of bash -c',
+             "bash -c $'git push --force origin HEAD'"),
+            ('main', 'an ANSI-C payload on two lines',
+             "bash -c $'ls\\nrm -rf gauntlet'"),
+            ('main', 'an ANSI-C string as the program',
+             "$'git' push --force origin HEAD"),
+            ('main', 'an ANSI-C program in octal escapes',
+             "$'\\147it' push --force origin HEAD"),
+            ('main', 'an ANSI-C option of git commit',
+             "git commit $'--amend' -m x"),
+            ('main', 'an ANSI-C option in hex escapes',
+             "git push $'\\x2d-force' origin HEAD"),
+            ('main', 'an ANSI-C global option of git',
+             "git -c $'core.hooksPath=/dev/null' status"),
+            ('main', 'eval of an ANSI-C string',
+             "eval $'git push --force origin HEAD'"),
+            ('main', 'an ANSI-C here-string into bash',
+             "bash <<< $'git push --force origin HEAD'"),
+            ('main', 'an ANSI-C path of rm',
+             "rm -rf $'gaun\\x74let'"),
+            ('main', 'an ANSI-C redirection target',
+             "echo x > $'gauntlet/config/gauntlet.properties'"),
+            # perl's own syntax inside the quotes is code, not shell text (review of 65c03da)
+            ('main', 'perl backticks',
+             "perl -e '`rm -rf gauntlet`'"),
+            ('main', 'perl system with one string',
+             'perl -e \'system("rm -rf gauntlet")\''),
+            ('main', 'perl qx()',
+             "perl -e 'qx(rm -rf gauntlet)'"),
+            ('main', 'perl open for writing',
+             'perl -e \'open(F, ">", "gauntlet/config/gauntlet.properties")\''),
+            ('reviewer', 'perl system with one string',
+             'perl -e \'system("touch notes.txt")\'')):
         expect_deny(repo, "reading: " + name, agent, "Bash", command=command.replace("{M}", M).replace("{F}", FEATURES))
     for agent, name, command in (
             ('main', 'a comment with an apostrophe before ls',
@@ -6723,7 +6891,19 @@ def guard_tests(repo):
             ('main', 'ruby system that prints the words',
              'ruby -e \'system("echo", "git push --force")\''),
             ('main', 'python print of the words',
-             'python3 -c "print(\'git\', \'push\', \'--force\')"')):
+             'python3 -c "print(\'git\', \'push\', \'--force\')"'),
+            ('main', 'an ANSI-C string with an escaped quote',
+             "echo $'it\\'s fine'; ls"),
+            ('main', 'a commit message in an ANSI-C string that names a flag',
+             "git commit -m $'fix: the user\\'s --amend flag'"),
+            ('main', 'an ANSI-C format of git log',
+             "git log --format=$'%h\\t%s' -3"),
+            ('main', 'perl that prints',
+             'perl -e \'print "hello"\''),
+            ('main', 'perl -ne that reads the kit',
+             "perl -ne 'print if /guard/' gauntlet/README.md"),
+            ('reviewer', 'perl -ne that reads',
+             "perl -ne 'print if /x/' notes.txt")):
         expect_allow(repo, "reading control: " + name, agent, "Bash",
                      command=command.replace("{M}", M).replace("{F}", FEATURES))
     # --- what the command does: where it runs after a cd (also `cd "$(git rev-parse --show-toplevel)"`, `cd -`,
@@ -7427,9 +7607,9 @@ def gate_scope_tests(repo):
     slow = tempfile.mkdtemp(prefix="gauntlet-selftest-slow-")
     try:
         with open(os.path.join(slow, "gradlew"), "w") as f:
-            f.write("#!/bin/sh\necho 'CRAP FAIL com.example.X#y'\nexec sleep 30\n")
+            f.write("#!/bin/sh\necho 'CRAP FAIL com.example.X#y'\nexec sleep 60\n")
         os.chmod(os.path.join(slow, "gradlew"), 0o755)
-        code, _, output = sg.run_gradle("gauntletFast", [], 1, slow)
+        code, _, output = sg.run_gradle("gauntletFast", [], 5, slow)    # time for the echo on a loaded machine
         check("timeout is red and keeps the partial Gradle output",
               code == 124 and "CRAP FAIL com.example.X#y" in output and "TIMEOUT" in output, f"{code} {output!r}")
     finally:
@@ -10114,6 +10294,9 @@ public class GherkinMutator {
             } else if (o.kind().equals("error")) {
                 errors.add("MUTANT ERROR    " + e.getKey() + " failed outside a step (" + thrown(o)
                         + " - hook, fixture or context), not a kill  " + what);
+            } else if (o.kind().equals("inconsistent")) {
+                errors.add("MUTANT ERROR    " + e.getKey() + " ran more than once with different results (a retry or a"
+                        + " rerun) - the detection is not stable, not a kill  " + what);
             } else if (o.kind().equals("rejected")) {
                 errors.add("MUTANT ERROR    " + e.getKey() + " the value never reached a step definition (" + thrown(o)
                         + ": Cucumber could not convert it, a transformer rejected it, the glue object failed or the step"
@@ -10196,6 +10379,7 @@ public class GherkinMutator {
             case "undefined" -> "has a step without a matching step definition";
             case "failed" -> "failed in a step with " + thrown(o);
             case "rejected" -> "failed before a step definition ran (" + thrown(o) + ")";
+            case "inconsistent" -> "ran more than once with different results";
             default -> "failed outside a step (" + thrown(o) + " - hook, fixture or context)";
         };
     }
@@ -10305,8 +10489,11 @@ public class GherkinMutator {
                 }
             }
             Outcome prev = outcome.get(id);
-            if (prev == null || prev.kind().equals("passed") || prev.kind().equals("aborted")) {
+            if (prev == null) {
                 outcome.put(id, result);
+            } else if (!prev.kind().equals(result.kind())) {
+                // one scenario, two different results (a retry, a rerun): its detection is not stable - no verdict
+                outcome.put(id, new Outcome("inconsistent", prev.type().isEmpty() ? result.type() : prev.type()));
             }
         }
         return outcome;
@@ -10363,7 +10550,7 @@ public class GherkinMutator {
     static final Pattern TRANSFORMER_ANNOTATION = Pattern.compile(
             "@(?:io\\.cucumber\\.java\\.)?(?:ParameterType|DataTableType|DocStringType|DefaultParameterTransformer"
                     + "|DefaultDataTableEntryTransformer|DefaultDataTableCellTransformer)\\b");
-    static final Pattern CALL = Pattern.compile("([A-Za-z_$][\\w$]*)\\s*\\(");
+    static final Pattern CALL = Pattern.compile("([\\p{javaJavaIdentifierStart}][\\p{javaJavaIdentifierPart}]*)\\s*\\(");
 
     /**
      * "File#method" of every transformer method in the glue sources (Java or Kotlin): a method annotated with one

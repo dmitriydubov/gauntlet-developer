@@ -495,8 +495,9 @@
       и hardener не могли править свои файлы через `sed -i 's/a/b/'`); `find … -exec sed -i`, `-exec perl -i` и
       `-fprint` считаются записью (`find gauntlet -type f -exec sed -i … {} +` проходил); путь в соседнем worktree
       того же репозитория защищён как свой; кластеры флагов интерпретаторов (`python3 -Bc`, `perl -we`,
-      `node -pe`, несколько `-e`) и argv-вызовы `run([...])`, `execvp('git', [...])`, `spawnSync('git', [...])`
-      разбираются. Самопроверка: 1708 → 2059 (+117 на раскладку).
+      `node -pe`, несколько `-e`), argv-вызовы `run([...])`, `execvp('git', [...])`, `spawnSync('git', [...])` и
+      вызовы с программой и аргументами отдельными строками (`system("git", "push", "--force")` в perl и ruby,
+      `os.execlp('git', 'git', …)`) разбираются. Самопроверка: 1708 → 2089 (+127 на раскладку).
     - **Роли и процесс.** `specifier`: сценарий обязан исполняться сам по себе; `hardener` и `gauntlet/CLAUDE.md`:
       красный контроль — это зависимость сценария от соседнего или от стенда, а не слабое step-определение.
     - **Регрессионный набор в репозитории.** Третий раунд ревью советовал «сохранить небольшой Gradle-проект в
@@ -514,6 +515,8 @@ guard — растяжка, а не сейф (это заявлено в наб�
 - закодированные payload'ы (base64 и т. п.);
 - функцию оболочки, определённую в той же команде (`f() { "$@"; }; f bash <<EOF …`), и код из файла — скрипт,
   который запускает интерпретатор;
+- `cd` внутри конвейера (`cd ../worktree | cat; git push`): в bash каталог не меняется, в zsh последний элемент
+  конвейера исполняется в текущей оболочке; хук считает, что каталог сменился;
 - конфигурацию git через переменные окружения (`GIT_CONFIG_KEY_n`, `GIT_CONFIG_PARAMETERS`, `GIT_CONFIG_GLOBAL`)
   и алиасы, уже лежащие в глобальном конфиге пользователя;
 - `push.default=upstream` с push без refspec на ветке, чей upstream — базовая;
@@ -536,7 +539,7 @@ guard — растяжка, а не сейф (это заявлено в наб�
 - `.claude/agents/{specifier,hardener,reviewer}.md`, `.github/workflows/gauntlet.yml`, `gauntlet/CLAUDE.md`,
   `INSTALL.md`, `config/gauntlet.properties` (обнаруженные версии проекта и отдельная JVM гейта);
 - `gauntlet/tools/IntegrityCheck.java`, `CrapGate.java`, `GherkinMutator.java`, `PitSummary.java`;
-- `gauntlet/hooks/guard.py`, `stop_gate.py`, `selftest.py` (2059 проверок в трёх раскладках);
+- `gauntlet/hooks/guard.py`, `stop_gate.py`, `selftest.py` (2089 проверок в трёх раскладках);
 - `gauntlet/install.sh` (обновление gauntlet-хуков при слиянии, бюджет таймаута по модулям);
 - `gauntlet/gauntlet.gradle` (входы `acceptanceTest`, `mutationGate` source → compiled types);
 - `gauntlet/config/crap-allowlist.txt` (пример записи с сигнатурой перегрузки);
@@ -561,12 +564,12 @@ guard — растяжка, а не сейф (это заявлено в наб�
 | `.github/workflows/gauntlet.yml` | 1978 | 5615 |
 | `gauntlet/CLAUDE.md` | 63625 | 65106 |
 | `gauntlet/INSTALL.md` | 11426 | 14544 |
-| `gauntlet/README.md` | 29851 | 62731 |
+| `gauntlet/README.md` | 29851 | 63014 |
 | `gauntlet/config/crap-allowlist.txt` | 448 | 924 |
 | `gauntlet/config/gauntlet.properties` | 5921 | 6568 |
 | `gauntlet/gauntlet.gradle` | 32451 | 43456 |
-| `gauntlet/hooks/guard.py` | 26740 | 79280 |
-| `gauntlet/hooks/selftest.py` | 41192 | 109465 |
+| `gauntlet/hooks/guard.py` | 26740 | 80104 |
+| `gauntlet/hooks/selftest.py` | 41192 | 110813 |
 | `gauntlet/hooks/stop_gate.py` | 16669 | 20978 |
 | `gauntlet/install.sh` | 4933 | 11572 |
 | `gauntlet/templates/acceptanceTest/resources/features/example_discount.feature` | 928 | 1258 |
@@ -584,7 +587,7 @@ guard — растяжка, а не сейф (это заявлено в наб�
 
 ### Проверено
 
-- `python3 gauntlet/hooks/selftest.py` — 2059 проверок, 0 падений, три раскладки (корень; `core/`;
+- `python3 gauntlet/hooks/selftest.py` — 2089 проверок, 0 падений, три раскладки (корень; `core/`;
   `core/` + `adapter/`); в том числе из распакованной копии пересобранного бандла.
 - `python3 tests/run.py --gradle` — регрессионный набор дистрибутива по бандлу, распакованному скриптом из его
   шапки: манифест и побайтная пересборка сборщиком из раздела 8.4, единство ревизии и таблицы размеров, хуки,

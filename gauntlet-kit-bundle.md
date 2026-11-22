@@ -442,15 +442,16 @@ ArchUnit-тест, шаблоны, установку и документаци�
   осталось одно (функция-обёртка, определённая в той же команде). Скрипт `sed`, программа `awk` и условия `find`
   — не пути (specifier и hardener не могли править свои файлы через `sed -i 's/a/b/'`), `find … -exec sed -i`,
   `-exec perl -i` и `-fprint` считаются записью; путь в соседнем worktree того же репозитория защищён как свой;
-  кластеры флагов интерпретаторов (`python3 -Bc`, `perl -we`, `node -pe`, несколько `-e`) и argv-вызовы
-  `run([...])`, `execvp('git', [...])`, `spawnSync('git', [...])` разбираются.
+  кластеры флагов интерпретаторов (`python3 -Bc`, `perl -we`, `node -pe`, несколько `-e`), argv-вызовы
+  `run([...])`, `execvp('git', [...])`, `spawnSync('git', [...])` и вызовы с программой и аргументами отдельными
+  строками (`system("git", "push", "--force")`, `os.execlp('git', 'git', …)`) разбираются.
 - `.claude/agents/specifier.md`, `hardener.md`, `gauntlet/CLAUDE.md`: сценарий обязан исполняться сам по себе;
   красный контроль — зависимость сценария от соседнего или от стенда, а не слабое step-определение.
-- `hooks/selftest.py`: 997 → 2059 проверок (сокращения и их разрешающие контроли, конфигурация git, `gh`,
+- `hooks/selftest.py`: 997 → 2089 проверок (сокращения и их разрешающие контроли, конфигурация git, `gh`,
   оболочки/обёртки/вложенный код для human-only, путей и ролей, чтение командной строки, `buildSrc`, вывод при
   таймауте). `README.md`,
   `INSTALL.md`, `config/gauntlet.properties` — описание синхронизировано.
-- Проверки: `python3 tests/run.py` в репозитории набора (распакованный бандл): самопроверка хуков 2059/2059,
+- Проверки: `python3 tests/run.py` в репозитории набора (распакованный бандл): самопроверка хуков 2089/2089,
   инструменты, установщик, shell-шаги CI, побайтная пересборка; реальные Gradle 8.14.3/JDK 21 и 25, Cucumber
   7.23.0 и 8.0.1 — полный `gauntlet` на примере (9/9 Gherkin-мутантов, 3 контроля, PIT 2/2) и сценарии находок.
   GitHub Actions в этой среде не запускался: шаги workflow исполнены локально как shell.
@@ -488,7 +489,7 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 - `CLAUDE.md` (279 байт)
 - `gauntlet/CLAUDE.md` (65106 байт)
 - `gauntlet/INSTALL.md` (14544 байт)
-- `gauntlet/README.md` (62731 байт)
+- `gauntlet/README.md` (63014 байт)
 - `gauntlet/archtest/gauntlet/architecture/ArchitectureTest.java` (7906 байт)
 - `gauntlet/config/architecture.properties` (1420 байт)
 - `gauntlet/config/checkstyle.xml` (4593 байт)
@@ -498,8 +499,8 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 - `gauntlet/config/pit-runerror-allowlist.txt` (1485 байт)
 - `gauntlet/config/pmd-ruleset.xml` (11398 байт)
 - `gauntlet/gauntlet.gradle` (43456 байт)
-- `gauntlet/hooks/guard.py` (79280 байт)
-- `gauntlet/hooks/selftest.py` (109465 байт)
+- `gauntlet/hooks/guard.py` (80104 байт)
+- `gauntlet/hooks/selftest.py` (110813 байт)
 - `gauntlet/hooks/session_start.sh` (3116 байт)
 - `gauntlet/hooks/stop_gate.py` (20978 байт)
 - `gauntlet/install.sh` (11572 байт)
@@ -1565,7 +1566,7 @@ gauntlet/
   archtest/               ArchUnit-тест, читающий config/architecture.properties
   hooks/                  guard.py (PreToolUse), stop_gate.py (Stop; SubagentStop hardener'а — matcher в
                           .claude/settings.json), session_start.sh (SessionStart; в облаке поднимает dockerd),
-                          selftest.py (2059 проверок хуков в трёх раскладках: python3 gauntlet/hooks/selftest.py)
+                          selftest.py (2089 проверок хуков в трёх раскладках: python3 gauntlet/hooks/selftest.py)
   templates/              конфигурация Cucumber+Spring, пример фичи на русском
   claude/, ci/            только до установки: install.sh переносит их в .claude/ и .github/workflows/
 ```
@@ -1728,7 +1729,8 @@ Auto-fix (кнопка в CI status bar сессии): на упавший CI и
 Проверка shell-команд в guard эвристическая: сознательный обход через хитрый Bash возможен. Известный
 остаток — подстановка команды, порождающая имя бинарника (`$(which git) push --force`), разворачивание
 переменной (`G=git; $G push --force`), закодированные payload'ы, функция оболочки, определённая в той же
-команде, код из файла (скрипт, который запускает интерпретатор), конфигурация git через переменные окружения
+команде, код из файла (скрипт, который запускает интерпретатор), `cd` внутри конвейера (`cd x | cat; …` — bash
+каталог не меняет, zsh меняет, хук считает, что сменился), конфигурация git через переменные окружения
 (`GIT_CONFIG_*`), алиасы, уже лежащие в глобальном конфиге, `push.default=upstream` с push без refspec и
 настройки репозитория через `gh api -X PATCH repos/…`: статический разбор их не видит.
 `permissions.deny` тоже префиксный и обходится обёрткой. Опора — `integrityCheck`, CI, GitHub branch
@@ -1738,7 +1740,7 @@ protection базовой ветки и то, что любая попытка �
 ## 8. Что проверено в этой версии, а что нет
 
 Проверено здесь (Gradle 8.14.3, Java 21):
-- Хуки, `hooks/selftest.py`, 2059 проверок в трёх раскладках (сборка в корне; модуль `core/`; два модуля
+- Хуки, `hooks/selftest.py`, 2089 проверок в трёх раскладках (сборка в корне; модуль `core/`; два модуля
   `core/` + `adapter/` — Gradle только в изменённом модуле, красный модуль блокирует, коммит
   спецификации одного модуля замораживает фичи другого, чужая незакоммиченная работа не считается)
   на временном git-репозитории с фиктивным `origin/main`:
@@ -1891,8 +1893,9 @@ protection базовой ветки и то, что любая попытка �
   (`bash <<EOF`, `python3 - <<EOF`, `echo '…' | python3`) не судилась; теперь команда читается одним проходом,
   сверенным с настоящим bash (119 команд: 35 расхождений на `166287c`, осталось одно — функция-обёртка из той
   же команды). Скрипт `sed` и программа `awk` — не пути (specifier и hardener могут править свои файлы через
-  `sed -i`), `find … -exec sed -i` — запись, путь в соседнем worktree защищён как свой. Самопроверка
-  997 → 2059 (+354 на раскладку). Регрессии инструментов, установщика и CI лежат в `tests/` репозитория набора и гоняются
+  `sed -i`), `find … -exec sed -i` — запись, путь в соседнем worktree защищён как свой, вызовы вида
+  `system("git", "push", "--force")` и `os.execlp('git', 'git', …)` разбираются. Самопроверка
+  997 → 2089 (+364 на раскладку). Регрессии инструментов, установщика и CI лежат в `tests/` репозитория набора и гоняются
   по распакованному бандлу.
 - `install.sh` на демо-проекте: чистая установка; слияние с существующим `.claude/settings.json`
   (хуки и права добавлены, `disableAllHooks=false`); обновление 4.2 → 4.3 освежает поля gauntlet-хуков и
@@ -4194,9 +4197,14 @@ def human_only(command, ctx, cwd=None):
 
 PYTHON_VERSIONED = re.compile(r"^python[23](?:\.\d+)?$")
 ARGV_EXEC = re.compile(r"(?:subprocess\.\w+|os\.exec\w*|os\.spawn\w*|os\.popen"
-                       r"|\b(?:run|call|check_call|check_output|Popen|execv\w*|execFile\w*|spawn\w*)\b)\s*\(\s*"
+                       r"|\b(?:run|call|check_call|check_output|Popen|popen\w*|capture\w*|execv\w*|execFile\w*|spawn\w*)\b)\s*\(\s*"
                        r"(?:['\"]([^'\"]*)['\"]\s*,\s*)?"                     # execvp('git', [...]) / spawnSync('git', [...])
                        r"(\[\s*(?:['\"][^'\"]*['\"]\s*,?\s*)+\])")
+# an exec-style call that takes the program and its arguments as separate strings: perl / ruby
+# system("git", "push", "--force") and exec 'git', 'push'; python os.execlp('git', 'git', 'push'),
+# os.spawnlp(os.P_WAIT, 'git', 'git', 'push'); ruby Open3.capture2("git", "push")
+ARGS_EXEC = re.compile(r"(?<!\w)(?:system|exec\w*|spawn\w*|capture\w*|popen\w*)\s*\(?\s*(?:os\.\w+\s*,\s*)?"
+                       r"((?:['\"][^'\"]*['\"]\s*,\s*)+['\"][^'\"]*['\"])")
 # an exec-style call whose first argument is a shell string: os.system('git push --force'),
 # subprocess.run('gh pr merge'), perl system("..."), node child_process.execSync('...'). A quoted string
 # anywhere else (print('git rebase'), console.log('...'), regex.exec('...')) is data, not a command.
@@ -4224,6 +4232,11 @@ def argv_commands(codes):
                 parts.insert(0, m.group(1))                # the program named before the argument list
             if parts:
                 out.append(" ".join(shlex.quote(p) for p in parts))
+        for m in ARGS_EXEC.finditer(code):
+            parts = re.findall(r"['\"]([^'\"]*)['\"]", m.group(1))
+            if os.path.basename(parts[0]) == parts[1]:
+                parts.pop(0)                               # execlp(file, argv0, ...): the program is named twice
+            out.append(" ".join(shlex.quote(p) for p in parts))
     return out
 
 
@@ -5843,7 +5856,8 @@ def guard_tests(repo):
     #     commands (and an apostrophe in them opens no quote), a line ending in a backslash continues, a
     #     heredoc or here-string fed to a shell or an interpreter is its program, `<<` in a string or in
     #     arithmetic is no heredoc, and the `)` of a case pattern ends no subshell. The script of sed, the
-    #     program of awk and the tests of find are not paths, and find writes when the command it runs does
+    #     program of awk and the tests of find are not paths, and find writes when the command it runs does;
+    #     an exec-style call may take the program and its arguments as separate strings
     for agent, name, command in (
             ('main', 'a comment with an apostrophe before a force push',
              "# don't forget\ngit push --force origin HEAD"),
@@ -5944,7 +5958,21 @@ def guard_tests(repo):
             ('hardener', 'awk -i inplace outside the scope',
              "awk -i inplace '/x/ {print}' {M}src/main/java/A.java"),
             ('reviewer', 'find runs sed -i',
-             "find . -name '*.java' -exec sed -i s/a/b/ {} +")):
+             "find . -name '*.java' -exec sed -i s/a/b/ {} +"),
+            ('main', 'perl system with separate strings',
+             'perl -e \'system("git","push","--force")\''),
+            ('main', 'ruby system with separate strings',
+             'ruby -e \'system("git", "push", "--force")\''),
+            ('main', 'ruby exec without parentheses',
+             'ruby -e \'exec "git", "push", "--force"\''),
+            ('main', 'ruby Open3.capture2',
+             'ruby -e \'Open3.capture2("git", "push", "--force")\''),
+            ('main', 'python os.execlp names the program twice',
+             'python3 -c "import os; os.execlp(\'git\', \'git\', \'push\', \'--force\')"'),
+            ('main', 'python os.spawnlp',
+             'python3 -c "import os; os.spawnlp(os.P_WAIT, \'git\', \'git\', \'commit\', \'--amend\')"'),
+            ('main', 'a payload of bash -c on two lines',
+             "bash -c 'echo ok\ngit push --force origin HEAD'")):
         expect_deny(repo, "reading: " + name, agent, "Bash", command=command.replace("{M}", M).replace("{F}", FEATURES))
     for agent, name, command in (
             ('main', 'a comment with an apostrophe before ls',
@@ -6018,7 +6046,13 @@ def guard_tests(repo):
             ('main', 'find runs grep over the kit',
              "find gauntlet -name '*.py' -exec grep -n guard {} +"),
             ('main', 'find runs sed -i over the main code',
-             "find {M}src/main/java -name '*.java' -exec sed -i s/a/b/ {} +")):
+             "find {M}src/main/java -name '*.java' -exec sed -i s/a/b/ {} +"),
+            ('main', 'perl system with separate strings that only reads',
+             'perl -e \'system("git","status")\''),
+            ('main', 'ruby system that prints the words',
+             'ruby -e \'system("echo", "git push --force")\''),
+            ('main', 'python print of the words',
+             'python3 -c "print(\'git\', \'push\', \'--force\')"')):
         expect_allow(repo, "reading control: " + name, agent, "Bash",
                      command=command.replace("{M}", M).replace("{F}", FEATURES))
     # --- hardening: a global option that takes its value as the next argument does not hide the subcommand

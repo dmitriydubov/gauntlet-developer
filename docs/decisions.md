@@ -1362,7 +1362,7 @@ here-string или pipe (`bash <<EOF`, `python3 - <<EOF`), не судилась
 
 ### Проверено
 
-`python3 tests/run.py --gradle`: хуки 2059/2059 в трёх раскладках; `CrapGate`, `IntegrityCheck`,
+`python3 tests/run.py --gradle`: хуки 2089/2089 в трёх раскладках; `CrapGate`, `IntegrityCheck`,
 `GherkinMutator`, установщик, shell-шаги CI, контейнер бандла; одиннадцать сценариев на настоящем Gradle 8.14.3
 с JDK 21 и 25 и Cucumber 7.23.0. Каждая новая проверка, относящаяся к находке, падает на наборе из `166287c`.
 GitHub Actions не запускался.

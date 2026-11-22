@@ -1414,4 +1414,7 @@ transformer — значит, что значение отвергнуто до 
 `python3 tests/run.py --gradle`: хуки 2365/2365 в трёх раскладках; `CrapGate`, `IntegrityCheck`,
 `GherkinMutator`, установщик, shell-шаги CI, контейнер бандла; двадцать один сценарий на настоящем Gradle 8.14.3
 с JDK 21 и 25 и Cucumber 7.23.0. Каждая новая проверка, относящаяся к находке, падает на наборе из `166287c`.
-GitHub Actions не запускался.
+В GitHub Actions этот набор гоняет `.github/workflows/kit-tests.yml`: первый же прогон на раннере с JDK 8 нашёл
+дефект — блокировка `build/` писала PID через `ProcessHandle` (Java 9+), а скрипт исполняется на JDK проекта;
+после исправления — 191 тест, зелёный. Workflow самого набора (`gauntlet.yml`) в GitHub Actions по-прежнему не
+исполнялся: его шаги проверены локально как shell.

@@ -653,8 +653,9 @@ Gherkin-мутаций в таблице и абзац о приёмочном �
   `-encoding`, исключённый исходник, ленивый провайдер аргументов, `module-info.java`, `javaLauncher` после набора; `DataTable.diff` в шаге — kill; фикстура, упавшая в прогоне мутантов, и
   сценарий без предусловия — красный вердикт по контролям; `-encoding` из `compilerArgs`; `class Tarif\u00e9`;
   два `Rules.java` при `debug=false`; gate-JVM 25 при проектном `Test.executable` 21; обычная сборка с
-  отсутствующей gate-JDK 99. Отдельно Cucumber 8.0.1 с JUnit 6.1.2 — 9/9 kill, 3 контроля. GitHub Actions в этой
-  среде не запускался: шаги workflow исполнены локально как shell со стабами JDK и wrapper.
+  отсутствующей gate-JDK 99. Отдельно Cucumber 8.0.1 с JUnit 6.1.2 — 9/9 kill, 3 контроля. Тот же набор
+  регрессионный набор репозитория прошёл в GitHub Actions (`.github/workflows/kit-tests.yml`, ubuntu-24.04,
+  191 тест); workflow самого набора (`gauntlet.yml`) там не исполняется: его шаги проверены локально как shell.
 - Компиляция всех single-file инструментов (`javac`): `CrapGate`, `DryGate`, `GherkinMutator`,
   `IntegrityCheck`, `PitSummary` — без ошибок.
 - Целевые регрессии: allowlist `CrapGate` (ключ `Class#method` цел), опенер `IntegrityCheck` (10 случаев),

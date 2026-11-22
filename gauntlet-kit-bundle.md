@@ -419,9 +419,22 @@ ArchUnit-тест, шаблоны, установку и документаци�
   `branch --contains HEAD` у ревьюера), сообщение коммита `-m "--amend"` — не опция.
 - `.claude/settings.json`: `permissions.deny` дополнен префиксными формами сокращений, `git config core.hooksPath`
   и `gh workflow disable` (11 записей).
-- `hooks/selftest.py`: 997 → 1429 проверок (сокращения и их разрешающие контроли, конфигурация git, `gh`,
-  `buildSrc`, вывод при таймауте). `README.md`, `INSTALL.md`, `config/gauntlet.properties` — описание синхронизировано.
-- Проверки: `python3 tests/run.py` в репозитории набора (распакованный бандл): самопроверка хуков 1429/1429,
+- `hooks/guard.py`, оболочки и обёртки: на `166287c` правила не действовали внутри `bash -lc '…'`, `sh -ec`,
+  `bash -euo pipefail -c`, `dash -c`/`ksh -c`, под обёрткой с полным путём или опцией-значением (`/usr/bin/env …`,
+  `nice -n 10 …`, `timeout -s KILL 60 …`, `xargs -n 1 …`, `setsid`, `stdbuf`), в `su -c`, `find … -exec`, `eval` —
+  проходили human-only команды, `bash -lc 'rm -rf gauntlet'`, `dash -c 'rm -f .claude/settings.json'` и запись
+  ревьюера или hardener'а вне роли. Оболочки разбираются по грамматике опций (`-c` — первый операнд после всех
+  опций), обёртка узнаётся по имени программы, `env -S` — в любом написании; вложенный shell-код (нагрузка другой
+  оболочки, текст через pipe, тело подстановки) судится теми же правилами путей, ролей и human-only, что и сама
+  команда, поэтому чтение через обёртку (`bash -c 'grep … gauntlet/config/…'`) больше не блокируется. Конвейер:
+  нагрузка ищется во всём тексте слева от pipe (команда перед `echo`, фильтр, `|&`, `if … fi`); подстановка: свой
+  контекст кавычек на каждом уровне, шаблон `case`, строки `$'…'`, вложенные обратные кавычки.
+- `.claude/agents/specifier.md`, `hardener.md`, `gauntlet/CLAUDE.md`: сценарий обязан исполняться сам по себе;
+  красный контроль — зависимость сценария от соседнего или от стенда, а не слабое step-определение.
+- `hooks/selftest.py`: 997 → 1708 проверок (сокращения и их разрешающие контроли, конфигурация git, `gh`,
+  оболочки/обёртки/вложенный код для human-only, путей и ролей, `buildSrc`, вывод при таймауте). `README.md`,
+  `INSTALL.md`, `config/gauntlet.properties` — описание синхронизировано.
+- Проверки: `python3 tests/run.py` в репозитории набора (распакованный бандл): самопроверка хуков 1708/1708,
   инструменты, установщик, shell-шаги CI, побайтная пересборка; реальные Gradle 8.14.3/JDK 21 и 25, Cucumber
   7.23.0 и 8.0.1 — полный `gauntlet` на примере (9/9 Gherkin-мутантов, 3 контроля, PIT 2/2) и сценарии находок.
   GitHub Actions в этой среде не запускался: шаги workflow исполнены локально как shell.
@@ -451,15 +464,15 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 
 ## Манифест
 
-- `.claude/agents/hardener.md` (4233 байт)
+- `.claude/agents/hardener.md` (4659 байт)
 - `.claude/agents/reviewer.md` (7509 байт)
-- `.claude/agents/specifier.md` (5026 байт)
+- `.claude/agents/specifier.md` (5312 байт)
 - `.claude/settings.json` (2586 байт)
 - `.github/workflows/gauntlet.yml` (5615 байт)
 - `CLAUDE.md` (279 байт)
-- `gauntlet/CLAUDE.md` (64586 байт)
+- `gauntlet/CLAUDE.md` (65106 байт)
 - `gauntlet/INSTALL.md` (14544 байт)
-- `gauntlet/README.md` (57717 байт)
+- `gauntlet/README.md` (60167 байт)
 - `gauntlet/archtest/gauntlet/architecture/ArchitectureTest.java` (7906 байт)
 - `gauntlet/config/architecture.properties` (1420 байт)
 - `gauntlet/config/checkstyle.xml` (4593 байт)
@@ -469,8 +482,8 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 - `gauntlet/config/pit-runerror-allowlist.txt` (1485 байт)
 - `gauntlet/config/pmd-ruleset.xml` (11398 байт)
 - `gauntlet/gauntlet.gradle` (43456 байт)
-- `gauntlet/hooks/guard.py` (53684 байт)
-- `gauntlet/hooks/selftest.py` (84316 байт)
+- `gauntlet/hooks/guard.py` (61817 байт)
+- `gauntlet/hooks/selftest.py` (93009 байт)
 - `gauntlet/hooks/session_start.sh` (3116 байт)
 - `gauntlet/hooks/stop_gate.py` (20978 байт)
 - `gauntlet/install.sh` (11572 байт)
@@ -510,7 +523,11 @@ tests would notice if it were wrong. (Role adapted from Robert C. Martin's swarm
    its effect; a replaced return value needs an assertion on the value.
 3. Cover `NO_COVERAGE` lines with focused unit tests - or report them as dead code.
 4. `./gradlew gherkinMutation` — a surviving Gherkin mutant means a step definition ignores a parameter
-   or asserts too weakly. Fix the step definition in `src/acceptanceTest/java` (test code).
+   or asserts too weakly. Fix the step definition in `src/acceptanceTest/java` (test code). A failed
+   control (`MUTANT ERROR cN control (unmutated scenario) …`) is a different problem: the unchanged
+   Examples row does not pass when its scenario runs on its own in the mutant run, so the scenario depends
+   on another scenario, on a fixture or on its own name. Make the scenario independent (its own set-up in
+   the Background or a `@Before` hook); the kills of that row prove nothing until its control passes.
 5. Repeat until both are green. A SubagentStop hook (`.claude/settings.json`, matcher `hardener`) re-runs
    `mutationGate` before you may finish.
 
@@ -663,6 +680,9 @@ before any code is written; the coder must then make your scenarios pass without
   mutates Examples values, so a literal written into a step is never checked.
 - Prune: no Examples column whose value is identical in every row, no column that does not affect the
   outcome. Move setup shared by all scenarios of a feature into `Background`.
+- Every scenario stands on its own: it sets up the state it needs (its Given steps or the `Background`)
+  and never relies on another scenario having run before it. The Gherkin mutation gate runs every
+  Examples row alone as a control, and a control that does not pass fails the gate.
 - Cover the rules, the boundaries (just below / at / above a limit) and the error cases the request
   implies. Ask instead of inventing business rules.
 - **Selection rules need a decision table.** When the task picks a value or a version among several
@@ -971,7 +991,7 @@ jobs:
 |---|---|
 | `./gradlew gauntletFast` | integrity (нет отключённых тестов и подавлений) → Checkstyle (размер, структура, CC ≤ 3) → PMD (антипаттерны) → unit-тесты → архитектура (ArchUnit) → приёмка (Cucumber, ни одного skipped) → CRAP ≤ 8 → дубли |
 | `./gradlew mutationGate` | PIT по изменённым классам: каждый покрытый мутант убит (test strength 100 %), покрытие строк мутируемых классов ≥ 80 %; мутант RUN_ERROR (JVM тестов упала на `redefineClasses`, обычно на record; PIT считает его обнаруженным) убитым не засчитывается — только по строке `gauntlet/config/pit-runerror-allowlist.txt`, которую человек добавил, прочитав тесты |
-| `./gradlew gherkinMutation` | каждое значение из Examples мутируется по очереди; какой-то сценарий обязан упасть |
+| `./gradlew gherkinMutation` | каждое значение из Examples мутируется по очереди; сценарий обязан упасть в шаге (выжил — step игнорирует значение). Контроль — та же строка без изменений — обязан пройти: красный контроль (`MUTANT ERROR cN control …`) значит, что сценарий не исполняется сам по себе (зависит от соседнего сценария, от фикстуры или от своего имени) — чини независимость сценария, а не step-определения |
 | `./gradlew gauntlet` | всё вместе |
 
 Область проверки — diff относительно базовой ветки плюс незакоммиченные файлы (`baseRef` в
@@ -1529,7 +1549,7 @@ gauntlet/
   archtest/               ArchUnit-тест, читающий config/architecture.properties
   hooks/                  guard.py (PreToolUse), stop_gate.py (Stop; SubagentStop hardener'а — matcher в
                           .claude/settings.json), session_start.sh (SessionStart; в облаке поднимает dockerd),
-                          selftest.py (1429 проверок хуков в трёх раскладках: python3 gauntlet/hooks/selftest.py)
+                          selftest.py (1708 проверок хуков в трёх раскладках: python3 gauntlet/hooks/selftest.py)
   templates/              конфигурация Cucumber+Spring, пример фичи на русском
   claude/, ci/            только до установки: install.sh переносит их в .claude/ и .github/workflows/
 ```
@@ -1677,7 +1697,7 @@ Auto-fix (кнопка в CI status bar сессии): на упавший CI и
 | hardener «временно» правит продакшен-файлы ради ручных мутантов (PIT нечего мутировать) | правило роли: мутанты предлагает списком, применяет, гоняет тесты и откатывает кодер, перед коммитом `src/main` проверяется на чистоту; guard по `agent_type` — растяжка, обход через скрипт виден в diff |
 | мутант RUN_ERROR засчитан PIT как убитый, хотя тест не запускался | `PitSummary.java`: RUN_ERROR печатается `UNVERIFIED` и валит `mutationGate`, пока человек не впишет его в `config/pit-runerror-allowlist.txt` |
 | обход guard через ключевые слова shell (`for … do rm`, `if …; then git push --force`) | guard разбирает команду после `do`, `then`, `else`, `{`, `!` так же, как после `&&` |
-| обход human-only правил через обёртки и inline-код (`sudo git push --force`, `bash -c '…'`, `eval`, `echo '…' \| sh`, `echo git push --force \| bash` без кавычек, `python3 -c "os.system('…')"`, `python3.12 -c`, `node --eval "…"`, `perl -E '…'`, `subprocess.run(['git','push','--force'])`, `env -S 'git push --force'`, `"$(git push --force)"`, `"$(python3 -c 'print(")")'; git push --force)"`) | guard снимает обёртки (`sudo`/`env`/`exec`/`command`/`nohup`/`time` с их опциями, включая `env -S`/`--split-string`), рекурсивно проверяет код после `-c`/`-e` (и `--eval`/`--print` у node, `-E` у perl, версионные имена `python3.X`), `eval`/`source`, весь текст `echo`/`printf` через pipe (в кавычках и без), argv из отдельных кавычек (`subprocess`/`os.exec`/`execSync`) и тела подстановок `$(…)`/`` `…` `` вне одинарных кавычек — глубина учитывает кавычки, поэтому `)` внутри кавычек не обрывает тело |
+| обход human-only правил через обёртки и inline-код (`sudo git push --force`, `bash -c '…'`, `eval`, `echo '…' \| sh`, `echo git push --force \| bash` без кавычек, `python3 -c "os.system('…')"`, `python3.12 -c`, `node --eval "…"`, `perl -E '…'`, `subprocess.run(['git','push','--force'])`, `env -S 'git push --force'`, `"$(git push --force)"`, `"$(python3 -c 'print(")")'; git push --force)"`); оболочка с `-c` внутри кластера опций или за их значениями (`bash -lc '…'`, `sh -ec`, `bash -euo pipefail -c`, `dash -c`), обёртка под полным путём или с опцией-значением (`/usr/bin/env git …`, `nice -n 10 …`, `timeout -s KILL 60 …`, `xargs -n 1 …`), `su -c`, `find … -exec`, `env -S'…'`, конвейер, где перед `echo` стоит другая команда или между ним и оболочкой фильтр (`true && echo … \| bash`, `echo '…' \| cat \| bash`, `\|&`) | guard снимает обёртки (`sudo`/`env`/`exec`/`command`/`nohup`/`time` с их опциями, включая `env -S`/`--split-string`), рекурсивно проверяет код после `-c`/`-e` (и `--eval`/`--print` у node, `-E` у perl, версионные имена `python3.X`), `eval`/`source`, весь текст `echo`/`printf` через pipe (в кавычках и без), argv из отдельных кавычек (`subprocess`/`os.exec`/`execSync`) и тела подстановок `$(…)`/`` `…` `` вне одинарных кавычек — глубина учитывает кавычки, поэтому `)` внутри кавычек не обрывает тело; оболочки (`bash`, `sh`, `zsh`, `dash`, `ksh`) разбираются по своей грамматике опций — командная строка `-c` берётся как первый операнд после всех опций; обёртка узнаётся по имени программы, а не по написанию пути; тот же разбор применяется к правилам путей и ролей: `bash -lc 'rm -rf gauntlet'`, `echo 'rm -rf gauntlet' \| sh` и `echo "$(rm -rf gauntlet)"` отклоняются как сама команда, а чтение через ту же обёртку (`bash -lc 'cat gauntlet/README.md'`) разрешено; у подстановки свой контекст кавычек на каждом уровне вложенности |
 | удалить `.git`, чтобы снять заморозку и Stop-хук, или подделать зелёный статус | `.git/` — зона человека: guard отклоняет запись/удаление, в т. ч. `last-green-*` в `.git/gauntlet-hook/` |
 | `git push --mirror`/`--all`/`--branches`, `push HEAD`/`push origin @` (`@` — синоним HEAD) или push без refspec сидя на базовой ветке; `git -C <worktree> push` из feature-сессии, когда worktree на базовой ветке; `--no-verif` (сокращение); `core.hooksPath` через `-c`/`--config-env` перед любой подкомандой и записью `git config core.hooksPath …`; алиасы и `include.path` (`git config alias.fp 'push --force'`), прячущие любую из этих команд; пути в другом регистре (`GAUNTLET/…`) | guard ловит все эти формы (чтение конфигурации и `--unset` разрешены) (push без refspec на базовой ветке = push базовой ветки при `push.default=simple`; текущая ветка берётся с учётом `-C`/`--git-dir`); `HEAD:other`/`@:other` базовой веткой не считаются и разрешены; сравнение путей и `mentions` регистронезависимы (macOS/Windows) |
 | step-определение игнорирует параметр | `gherkinMutation` |
@@ -1700,7 +1720,7 @@ protection базовой ветки и то, что любая попытка �
 ## 8. Что проверено в этой версии, а что нет
 
 Проверено здесь (Gradle 8.14.3, Java 21):
-- Хуки, `hooks/selftest.py`, 1429 проверок в трёх раскладках (сборка в корне; модуль `core/`; два модуля
+- Хуки, `hooks/selftest.py`, 1708 проверок в трёх раскладках (сборка в корне; модуль `core/`; два модуля
   `core/` + `adapter/` — Gradle только в изменённом модуле, красный модуль блокирует, коммит
   спецификации одного модуля замораживает фичи другого, чужая незакоммиченная работа не считается)
   на временном git-репозитории с фиктивным `origin/main`:
@@ -1840,8 +1860,15 @@ protection базовой ветки и то, что любая попытка �
   `--branches`, кластеры `-qB`/`-Bname`, глобальные опции со значением (`--namespace x commit --amend`),
   `core.hooksPath` для любой подкоманды и в `git config`, алиасы и `include.path`, `gh workflow disable` и
   не-GET `gh api` к защите ветки; сняты ложные блокировки `commit -uno`, `branch --sort -committerdate` и
-  `branch --contains HEAD` у ревьюера. Самопроверка 997 → 1429 (+144 на раскладку). Регрессии инструментов,
-  установщика и CI лежат в `tests/` репозитория набора и гоняются по распакованному бандлу.
+  `branch --contains HEAD` у ревьюера. Оболочки и обёртки: на `166287c` правила не действовали внутри
+  `bash -lc '…'`, `sh -ec`, `bash -euo pipefail -c`, `dash -c`, под `/usr/bin/env …`, `nice -n 10 …`,
+  `timeout -s KILL 60 …`, `xargs -n 1 …`, `su -c`, `find … -exec`, `eval` — проходили и human-only команды, и
+  `bash -lc 'rm -rf gauntlet'`, и запись ревьюера или hardener'а вне своей роли. Оболочки теперь разбираются
+  по грамматике опций, обёртка узнаётся по имени программы, а вложенный shell-код (нагрузка другой оболочки,
+  текст через pipe, тело подстановки) судится теми же правилами путей, ролей и human-only, что и сама команда;
+  чтение через обёртку (`bash -c 'grep … gauntlet/config/…'`) больше не блокируется. Самопроверка 997 → 1708
+  (+237 на раскладку). Регрессии инструментов, установщика и CI лежат в `tests/` репозитория набора и гоняются
+  по распакованному бандлу.
 - `install.sh` на демо-проекте: чистая установка; слияние с существующим `.claude/settings.json`
   (хуки и права добавлены, `disableAllHooks=false`); обновление 4.2 → 4.3 освежает поля gauntlet-хуков и
   масштабирует таймауты по модулям, чужие хуки и роль/`CLAUDE.md` не перезаписаны; идемпотентно (без дублей);
@@ -3470,8 +3497,10 @@ GIT_CONFIG_VALUE_OPTIONS = (("--file", 5), ("--blob", 4), ("--type", 3), ("--def
 BRANCH_VALUE_OPTIONS = (("--sort", 4), ("--format", 6), ("--contains", 5), ("--no-contains", 8), ("--merged", 4),
                         ("--no-merged", 7), ("--points-at", 3))
 CI_SWITCH = "Switching the CI gate or the branch protection off is reserved for the human."
-INTERPRETERS = {"python", "python3", "node", "ruby", "bash", "sh", "zsh"}   # with -c / -e inline code
-WRAPPERS = {"sudo", "command", "exec", "nohup", "time", "env", "timeout", "nice"}
+SHELLS = {"bash", "sh", "zsh", "dash", "ksh", "mksh", "ash"}                # `-c` may sit in a cluster: bash -lc '...'
+INTERPRETERS = {"python", "python3", "node", "ruby"} | SHELLS              # with -c / -e inline code
+SHELL_LONG_VALUE_OPTIONS = ("--rcfile", "--init-file")
+WRAPPERS = {"sudo", "command", "exec", "nohup", "time", "env", "timeout", "nice", "setsid", "stdbuf", "xargs"}
 # options of wrappers that take a separate value: skipped together with the value so the wrapped command surfaces
 WRAPPER_VALUE_OPTS = {
     "sudo": {"-u", "-g", "-p", "-r", "-t", "-C", "-U", "-h", "--user", "--group", "--prompt", "--role",
@@ -3479,7 +3508,12 @@ WRAPPER_VALUE_OPTS = {
     "env": {"-u", "-C", "-S", "--unset", "--chdir", "--split-string"},
     "exec": {"-a", "--argv0"},
     "time": {"-o", "-f", "--output", "--format"},
-    "command": set(), "nohup": set(),
+    "command": set(), "nohup": set(), "setsid": set(),
+    "timeout": {"-s", "--signal", "-k", "--kill-after"},
+    "nice": {"-n", "--adjustment"},
+    "stdbuf": {"-i", "-o", "-e", "--input", "--output", "--error"},
+    "xargs": {"-n", "-P", "-L", "-I", "-d", "-E", "-s", "-a", "--max-args", "--max-procs", "--max-lines",
+              "--delimiter", "--eof", "--max-chars", "--arg-file", "--process-slot-var"},
 }
 SHELL_KEYWORDS = {"if", "then", "else", "elif", "do", "while", "until", "!", "{"}   # `then rm x` runs rm
 GRADLE = {"gradlew", "gradle"}
@@ -3643,8 +3677,11 @@ def command_violation(agent, command, ctx, cwd=None):
     read_only = scope is not None and not scope
     protected = ctx.protected(agent)
     command = strip_heredocs(command)       # a heredoc body is data, not commands
-    neutral = QUOTED.sub(lambda m: re.sub(r"[>;&|()]", "_", m.group(0)), command)  # '>' in quotes is text
     cwd = cwd or ctx.project
+    reason = nested_violation(agent, command, ctx, cwd)
+    if reason:
+        return reason
+    neutral = QUOTED.sub(lambda m: re.sub(r"[>;&|()]", "_", m.group(0)), command)  # '>' in quotes is text
     stack = []                              # subshell cwd scopes: a cd inside ( ... ) must not leak to the parent
     for segment in segments_scoped(neutral):
         if segment == "(":
@@ -3676,6 +3713,50 @@ def command_violation(agent, command, ctx, cwd=None):
             hit = next((p for p in protected if mentions(text, p)), None)
             if hit:
                 return protected_reason(agent, hit, ctx)
+    return None
+
+
+def shell_payloads(words):
+    """Shell text a command hands to another shell to run: `bash -lc '...'`, `su -c '...'`,
+    `find ... -exec sh -c '...' ;`, `eval ...`. It is a command line like any other, so it is judged like one."""
+    if not words:
+        return []
+    cmd, args = os.path.basename(words[0]), words[1:]
+    if cmd in SHELLS:
+        code, _ = shell_arguments(args)
+        return [code] if code else []
+    if cmd == "eval":
+        return [" ".join(args)]
+    if cmd in ("su", "runuser", "find"):
+        return inline_code_strings(cmd, args)
+    return []
+
+
+def nested_violation(agent, command, ctx, cwd):
+    """The path and role rules inside shell code that runs within the command: the payload of another shell,
+    text piped into a shell, and the bodies of command substitutions. `bash -lc 'rm -rf gauntlet'`,
+    `echo 'rm -rf gauntlet' | sh` and `echo "$(rm -rf gauntlet)"` write exactly like the bare command does -
+    and `bash -lc 'cat gauntlet/README.md'` reads exactly like the bare command does."""
+    stack = []
+    for segment in split_shell(command):
+        if segment == "(":
+            stack.append(cwd)
+            continue
+        if segment == ")":
+            if stack:
+                cwd = stack.pop()
+            continue
+        words = words_of(segment)
+        cwd = follow_cd(words, cwd, ctx.project)
+        for code in shell_payloads(words):
+            reason = command_violation(agent, code, ctx, cwd)
+            if reason:
+                return reason
+    for code in piped_shell_code(command) + command_substitutions(command):
+        if code.strip() and code != command:
+            reason = command_violation(agent, code, ctx, cwd)
+            if reason:
+                return reason
     return None
 
 
@@ -3807,6 +3888,34 @@ def argv_commands(codes):
     return out
 
 
+def shell_arguments(args):
+    """How a shell is invoked: (the command string of -c or None, True when the program comes from stdin).
+    Short options cluster - `bash -lc '...'`, `sh -ec '...'`, `bash -euo pipefail -c '...'` - and `-o name` /
+    `-O name` take the next argument; the command string of -c is the FIRST OPERAND after all the options,
+    not the word after the letter c."""
+    has_c = has_s = False
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a in ("--", "-"):
+            i += 1
+            break
+        if a.startswith("--"):
+            i += 2 if a in SHELL_LONG_VALUE_OPTIONS else 1
+            continue
+        if len(a) > 1 and a[0] in "-+":
+            if a[0] == "-":
+                has_c = has_c or "c" in a[1:]
+                has_s = has_s or "s" in a[1:]
+            i += 2 if a[-1] in "oO" else 1          # -o pipefail, -O extglob, -euo pipefail: the name follows
+            continue
+        break
+    operands = args[i:]
+    if has_c:
+        return (operands[0] if operands else None), False
+    return None, has_s or not operands
+
+
 def interpreter_option_value(cmd, args, index):
     if index == 0:
         return False
@@ -3816,8 +3925,6 @@ def interpreter_option_value(cmd, args, index):
     if cmd == "node":
         return previous in ("-r", "--require", "--loader", "--import", "--inspect", "--inspect-brk",
                             "--inspect-port", "--conditions", "-C")
-    if cmd in ("bash", "sh", "zsh"):
-        return previous in ("-O", "-o")
     if cmd == "ruby":
         return previous in ("-I", "-r", "-C", "--load-path", "--require")
     return False
@@ -3826,14 +3933,16 @@ def interpreter_option_value(cmd, args, index):
 def inline_code_strings(cmd, args):
     """Code handed to an interpreter or eval: the human-only git/gh rules apply inside it too."""
     codes = []
-    if is_interpreter(cmd) or cmd == "perl":
+    if cmd in SHELLS:
+        code, _ = shell_arguments(args)
+        if code is not None:
+            codes.append(code)
+    elif is_interpreter(cmd) or cmd == "perl":
         python = cmd == "python" or PYTHON_VERSIONED.match(cmd) is not None
         for i, a in enumerate(args):
             if cmd != "perl":
                 if a in ("--", "-") or (python and (a == "-m" or (a.startswith("-m") and not a.startswith("--")))):
                     break                   # stdin/script/module: the rest belongs to the application
-                if cmd in ("bash", "sh", "zsh") and a == "-s":
-                    break
                 if not a.startswith("-") and not interpreter_option_value(cmd, args, i):
                     break                   # script filename: option-looking values after it are application argv
             flag = a.lower() if cmd == "perl" else a   # perl -E runs code like -e
@@ -3865,6 +3974,22 @@ def inline_code_strings(cmd, args):
         codes.extend(argv_commands(codes))
     if cmd in ("eval", "source", "."):
         codes.append(" ".join(args))
+    if cmd in ("su", "runuser"):            # su -c 'cmd', su - user -c 'cmd', su --command='cmd'
+        for i, a in enumerate(args):
+            if a.startswith(("--command=", "--session-command=")):
+                codes.append(a.split("=", 1)[1])
+            elif (a in ("--command", "--session-command") or (a.startswith("-") and not a.startswith("--")
+                                                              and a.endswith("c"))) and i + 1 < len(args):
+                codes.append(args[i + 1])
+    if cmd == "find":                       # find ... -exec <command> ;   the command runs once per match
+        i = 0
+        while i < len(args):
+            if args[i] in ("-exec", "-execdir", "-ok", "-okdir"):
+                end = next((j for j in range(i + 1, len(args)) if args[j] in (";", "+")), len(args))
+                if end > i + 1:
+                    codes.append(" ".join(shlex.quote(w) for w in args[i + 1:end]))
+                i = end
+            i += 1
     return codes
 
 
@@ -3879,45 +4004,132 @@ def reads_stdin_program(words):
         return False
     if any(a in ("--eval", "--print") or a.startswith(("--eval=", "--print=")) for a in args):
         return False
+    if cmd in SHELLS:
+        return shell_arguments(args)[1]      # `bash`, `bash -s`, `bash -o pipefail`: no script operand
     if any(a == "-m" or (a.startswith("-m") and not a.startswith("--")) for a in args):
         return False
-    if cmd in ("bash", "sh", "zsh") and any(
-            a == "-s" or (a.startswith("-") and not a.startswith("--") and "s" in a[1:]) for a in args):
-        return True
     return not [a for a in args if not a.startswith("-")]   # no script-file argument: the program is stdin
 
 
+def pipe_points(command):
+    """Offsets of every `|` that joins two pipeline stages (not `||`) outside quotes."""
+    points, quote, i, n = [], None, 0, len(command)
+    while i < n:
+        c = command[i]
+        if quote == "'":
+            if c == "'":
+                quote = None
+        elif c == "\\":
+            i += 1
+        elif c in "'\"":
+            if quote is None:
+                quote = c
+            elif quote == c:
+                quote = None
+        elif c == "|" and quote is None:
+            if command.startswith("||", i):
+                i += 1
+            else:
+                points.append(i)
+        i += 1
+    return points
+
+
 def piped_shell_code(command):
-    """Text piped into an interpreter reading stdin (`echo 'git push --force' | bash`): scan the payload.
-    Quoted fragments are scanned for any left command; for echo/printf the unquoted args are printed text
-    too, so reconstruct them (`echo git push --force | bash` really runs the push)."""
+    """Text piped into a shell or interpreter that reads its program from stdin (`echo 'git push --force' | bash`).
+    Everything LEFT of that pipe can end up in the program: every quoted fragment, and the words of every
+    echo/printf - also when another command comes first (`true && echo git push --force | bash`), a filter
+    sits in between (`echo '...' | cat | bash`), the stage is inside `if ...; then ...; fi`, or the pipe is `|&`."""
     codes = []
-    parts = command.split("|")
-    for i in range(len(parts) - 1):
-        right = words_of(parts[i + 1])
-        if reads_stdin_program(right):
-            for m in QUOTED.finditer(parts[i]):
-                codes.append(m.group(0)[1:-1])
-            left = words_of(parts[i])
-            if left:
-                lcmd = os.path.basename(left[0])
-                if lcmd == "echo":
-                    rest = left[1:]
-                    while rest and rest[0] in ("-n", "-e", "-E", "-ne", "-en", "-nE"):
-                        rest = rest[1:]
-                    if rest:
-                        codes.append(" ".join(rest))
-                elif lcmd == "printf":
-                    if len(left) > 1:
-                        codes.append(" ".join(left[1:]))   # the format string may itself be the payload
-                    if len(left) > 2:
-                        codes.append(" ".join(left[2:]))   # ...or the args printed after the format
+    for point in pipe_points(command):
+        after = command[point + 1:].lstrip("&")             # |& pipes stderr as well
+        stage = re.split(r"[|;&\n)]", after, maxsplit=1)[0]   # the command that reads the pipe
+        if not reads_stdin_program(words_of(stage)):
+            continue
+        left = command[:point]
+        for m in QUOTED.finditer(left):
+            codes.append(m.group(0)[1:-1])
+        for segment in split_shell(left):
+            words = [] if segment in ("(", ")") else words_of(segment)
+            if not words:
+                continue
+            lcmd = os.path.basename(words[0])
+            if lcmd == "echo":
+                rest = words[1:]
+                while rest and rest[0] in ("-n", "-e", "-E", "-ne", "-en", "-nE"):
+                    rest = rest[1:]
+                if rest:
+                    codes.append(" ".join(rest))
+            elif lcmd == "printf":
+                if len(words) > 1:
+                    codes.append(" ".join(words[1:]))   # the format string may itself be the payload
+                if len(words) > 2:
+                    codes.append(" ".join(words[2:]))   # ...or the args printed after the format
     return codes
+
+
+CASE_WORD = re.compile(r"(?<![\w./-])case\s")
+ESAC_WORD = re.compile(r"(?<![\w./-])esac(?![\w./-])")
+
+
+def ansi_c_end(command, i):
+    """Index just past the quote that closes a $'...' string whose text starts at i; an escaped quote inside
+    does not end it."""
+    n = len(command)
+    while i < n and command[i] != "'":
+        i += 2 if command[i] == "\\" else 1
+    return i + 1
+
+
+def backtick_end(command, i):
+    """Index just past the backtick that closes a `...` substitution whose body starts at i; an escaped
+    backtick inside belongs to a nested substitution."""
+    n = len(command)
+    while i < n and command[i] != "`":
+        i += 2 if command[i] == "\\" else 1
+    return i + 1
+
+
+def substitution_end(command, i):
+    """Index just past the `)` that closes a `$(` whose body starts at i (len + 1 when it never closes).
+    Quoting is per level: every nested $( ... ) and `...` opens a fresh context, so a quoted `)` inside it does
+    not end this body - and neither does the `)` that ends a case pattern (`case x in x) ...;; esac`)."""
+    n, quote, depth, cases = len(command), None, 0, 0
+    while i < n:
+        c = command[i]
+        if quote == "'":
+            if c == "'":
+                quote = None
+        elif c == "\\":
+            i += 1
+        elif quote is None and command.startswith("$'", i):
+            i = ansi_c_end(command, i + 2) - 1
+        elif command.startswith("$(", i):
+            i = substitution_end(command, i + 2) - 1
+        elif c == "`":
+            i = backtick_end(command, i + 1) - 1
+        elif c == '"':
+            quote = None if quote == '"' else '"'
+        elif quote is None:
+            if c == "'":
+                quote = "'"
+            elif CASE_WORD.match(command, i):
+                cases += 1
+            elif ESAC_WORD.match(command, i):
+                cases = max(0, cases - 1)
+            elif c == "(" and not cases:
+                depth += 1
+            elif c == ")" and not cases:
+                if depth == 0:
+                    return i + 1
+                depth -= 1
+        i += 1
+    return n + 1
 
 
 def command_substitutions(command):
     """Bodies of $(...) and `...` that the shell actually executes: unquoted and inside double quotes run
-    substitutions, inside single quotes they are literal text. Returned bodies are re-checked by human_only,
+    substitutions, inside single quotes they are literal text. Returned bodies are re-checked by the caller,
     which recurses into nested substitutions on its own."""
     bodies = []
     i, n, quote = 0, len(command), None
@@ -3926,42 +4138,23 @@ def command_substitutions(command):
         if quote == "'":
             if c == "'":
                 quote = None
-            i += 1
-            continue
-        if c == "'" and quote is None:
-            quote = "'"
+        elif c == "\\":
+            i += 1                              # an escaped character, also inside double quotes
+        elif quote is None and command.startswith("$'", i):
+            i = ansi_c_end(command, i + 2) - 1
+        elif command.startswith("$(", i):
+            end = substitution_end(command, i + 2)
+            bodies.append(command[i + 2:end - 1])
+            i = end - 1
+        elif c == "`":
+            end = backtick_end(command, i + 1)
+            # the shell removes one level of backslashes before it runs the body
+            bodies.append(re.sub(r"\\([`$\\])", r"\1", command[i + 1:end - 1]))
+            i = end - 1
         elif c == '"':
             quote = None if quote == '"' else '"'
-        elif c == "\\" and quote is None:
-            i += 1
-        elif command.startswith("$(", i):
-            depth, j, q = 1, i + 2, None
-            while j < n and depth:
-                cj = command[j]
-                if q == "'":
-                    if cj == "'":
-                        q = None
-                elif cj == "'" and q is None:
-                    q = "'"
-                elif cj == '"':
-                    q = None if q == '"' else '"'
-                elif cj == "\\" and q != "'":
-                    j += 1                      # escaped char: neither a paren nor a quote
-                elif q is None:
-                    if cj == "(":
-                        depth += 1
-                    elif cj == ")":
-                        depth -= 1              # a ) inside quotes is literal, it does not close the body
-                j += 1
-            bodies.append(command[i + 2:j - 1])
-            i = j
-            continue
-        elif c == "`":
-            j = command.find("`", i + 1)
-            j = n if j < 0 else j
-            bodies.append(command[i + 1:j])
-            i = j + 1
-            continue
+        elif c == "'" and quote is None:
+            quote = "'"
         i += 1
     return bodies
 
@@ -4281,6 +4474,10 @@ def split_shell(command):
             buf.append(c)
             if c == quote:
                 quote = None
+        elif command.startswith("$'", i):       # ANSI-C string: an escaped quote inside does not close it
+            end = ansi_c_end(command, i + 2)
+            buf.append(command[i:end])
+            i = end - 1
         elif c in "'\"":
             quote = c
             buf.append(c)
@@ -4332,28 +4529,38 @@ def words_of(segment):
         words = shlex.split(segment, posix=True)
     except ValueError:
         words = segment.split()
-    while words and (re.match(r"^\w+=", words[0]) or words[0] in WRAPPERS or words[0] in SHELL_KEYWORDS
-                     or words[0] == "xargs"):
+    # a wrapper is the same program whatever path it is called by: /usr/bin/env, /usr/bin/sudo
+    while words and (re.match(r"^\w+=", words[0]) or os.path.basename(words[0]) in WRAPPERS
+                     or words[0] in SHELL_KEYWORDS):
         wrapper = words.pop(0)
-        if wrapper in ("xargs", "timeout", "nice"):
-            while words and words[0].startswith("-"):
-                words.pop(0)
-            if wrapper == "timeout" and words:
-                words.pop(0)   # the duration
-        elif wrapper == "env":
+        if wrapper not in SHELL_KEYWORDS:
+            wrapper = os.path.basename(wrapper)
+        if wrapper == "env":
             split_value = None
             while words and words[0].startswith("-"):
                 opt = words.pop(0)
                 name = opt.split("=", 1)[0]
-                if name in ("-S", "--split-string"):
-                    # -S/--split-string value IS the command: env splits and executes it, so surface it
-                    split_value = opt.split("=", 1)[1] if "=" in opt else (words.pop(0) if words else None)
+                if opt.startswith("--"):
+                    if long_opt(opt, "--split-string", 3):
+                        # the value IS the command: env splits and executes it, so surface it
+                        split_value = opt.split("=", 1)[1] if "=" in opt else (words.pop(0) if words else None)
+                        break
+                    if "=" not in opt and name in WRAPPER_VALUE_OPTS["env"] and words:
+                        words.pop(0)
+                    continue
+                for i, flag in enumerate(opt[1:], 1):     # a short cluster: -iS 'cmd', -S'cmd', -uNAME, -C dir
+                    if flag == "S":
+                        split_value = opt[i + 1:] or (words.pop(0) if words else None)
+                        break
+                    if flag in "uC":                      # takes a value: the rest of the cluster or the next word
+                        if not opt[i + 1:] and words:
+                            words.pop(0)
+                        break
+                if split_value is not None:
                     break
-                if "=" not in opt and name in WRAPPER_VALUE_OPTS["env"] and words:
-                    words.pop(0)
             if split_value is not None:
                 try:
-                    inner = shlex.split(split_value, posix=True)
+                    inner = shlex.split(split_value.replace("\\_", " "), posix=True)   # \_ is env's own space
                 except ValueError:
                     inner = split_value.split()
                 words = inner + words
@@ -4367,6 +4574,8 @@ def words_of(segment):
                 name = opt.split("=", 1)[0]
                 if "=" not in opt and name in value_opts and words:
                     words.pop(0)
+            if wrapper == "timeout" and words:
+                words.pop(0)   # the duration
             while words and re.match(r"^\w+=", words[0]):
                 words.pop(0)   # env NAME=VALUE assignments before the wrapped command
     return words
@@ -4427,6 +4636,8 @@ def writes_worktree(words, segment):
         return "i" in short_flags(args) or ("e" in short_flags(args).lower() and bool(PERL_WRITES.search(segment)))
     if cmd in ("awk", "gawk"):
         return "-i" in args or any(a.startswith("-i") for a in args)
+    if cmd in SHELLS:
+        return False                       # its -c payload is a command line of its own: see nested_violation
     if is_interpreter(cmd):
         return inline_code(words)
     if cmd == "git":
@@ -5050,6 +5261,120 @@ def guard_tests(repo):
         expect_deny(repo, "option value control: " + name, "main", "Bash", command=command)
     expect_deny(repo, "option value control: reviewer branch --contains HEAD -D", "reviewer", "Bash",
                 command="git branch --contains HEAD -D scratch")
+    # --- carriers: every rule also holds inside shell code that another program runs. A shell takes -c inside a
+    #     cluster or behind option values (bash -lc, sh -ec, bash -euo pipefail -c); a wrapper is the same program
+    #     under its full path and may take option values (nice -n 10, timeout -s KILL 60, xargs -n 1); su -c,
+    #     find -exec and every spelling of env -S hand a command line on
+    push = "git push --force origin HEAD"
+    for name, command in (
+            ("bash -lc", f"bash -lc '{push}'"),
+            ("bash -lc amend", 'bash -lc "git commit --amend -m x"'),
+            ("sh -ec", f"sh -ec '{push}'"),
+            ("bash -xc", f"bash -xc '{push}'"),
+            ("bash -euo pipefail -c", f"bash -euo pipefail -c '{push}'"),
+            ("bash -o pipefail -c", f"bash -o pipefail -c '{push}'"),
+            ("bash --login -c", f"bash --login -c '{push}'"),
+            ("dash -c", f"dash -c '{push}'"),
+            ("ksh -c", f"ksh -c '{push}'"),
+            ("zsh -ic", f"zsh -ic '{push}'"),
+            ("/usr/bin/env", f"/usr/bin/env {push}"),
+            ("/usr/bin/sudo", f"/usr/bin/sudo {push}"),
+            ("/usr/bin/time", f"/usr/bin/time {push}"),
+            ("nice -n 10", f"nice -n 10 {push}"),
+            ("timeout -s KILL 60", f"timeout -s KILL 60 {push}"),
+            ("xargs -n 1", f"xargs -n 1 {push}"),
+            ("setsid", f"setsid {push}"),
+            ("stdbuf -oL", f"stdbuf -oL {push}"),
+            ("env -S attached", f"env -S'{push}'"),
+            ("env -iS", f"env -iS '{push}'"),
+            ("env --split-s=", f"env --split-s='{push}'"),
+            ("su -c", f"su -c '{push}'"),
+            ("find -exec git", f"find . -maxdepth 0 -exec {push} \\;"),
+            ("find -exec sh -c", f"find . -maxdepth 0 -exec sh -c '{push}' \\;"),
+            ("substitution after an escaped quote", 'echo "\\"\'" "$(' + push + ')"'),
+            ("substitution in a message with escaped quotes", 'git commit -m "say \\"don\'t\\" $(' + push + ')"'),
+            ("substitution after an ANSI-C string", "echo $'it\\'s' \"$(" + push + ")\""),
+            ("nested escaped backticks", 'echo "`echo \\`' + push + '\\``"'),
+            ("pipe into bash -o pipefail", f"echo '{push}' | bash -o pipefail")):
+        expect_deny(repo, "carrier: " + name, "main", "Bash", command=command)
+    for name, command in (
+            ("bash -lc redirect", "bash -lc 'echo x > gauntlet/config/gauntlet.properties'"),
+            ("bash -lc rm", "bash -lc 'rm -rf gauntlet'"),
+            ("bash -lc cd then rm", "bash -lc 'cd gauntlet && rm -f config/gauntlet.properties'"),
+            ("dash -c settings", "dash -c 'rm -f .claude/settings.json'"),
+            ("/usr/bin/env rm", "/usr/bin/env rm -rf gauntlet"),
+            ("/usr/bin/sudo rm", "/usr/bin/sudo rm -rf gauntlet"),
+            ("nice -n 10 rm", "nice -n 10 rm -rf gauntlet"),
+            ("timeout -s KILL 5 rm", "timeout -s KILL 5 rm -rf gauntlet"),
+            ("xargs -n 1 rm", "xargs -n 1 rm -rf gauntlet"),
+            ("setsid rm", "setsid rm -rf gauntlet"),
+            ("su -c rm", "su -c 'rm -rf gauntlet'"),
+            ("find -exec sh -c rm", "find . -maxdepth 0 -exec sh -c 'rm -rf gauntlet' \\;"),
+            ("eval rm", "eval 'rm -rf gauntlet'"),
+            ("pipe rm into bash", "echo 'rm -rf gauntlet' | bash"),
+            ("pipe rm into bash -o pipefail", "echo 'rm -rf gauntlet' | bash -o pipefail"),
+            ("rm in a quoted substitution", 'echo "$(rm -rf gauntlet)"'),
+            ("sed -i in an assignment substitution", 'x="$(sed -i s/8/80/ gauntlet/config/gauntlet.properties)"'),
+            ("bash -c inside bash -c", "bash -c \"bash -lc 'rm -rf gauntlet'\"")):
+        expect_deny(repo, "carrier writes the gauntlet: " + name, "main", "Bash", command=command)
+    main_java = M + "src/main/java/com/example/service/domain/Order.java"
+    test_java = M + "src/test/java/com/example/service/domain/OrderTest.java"
+    expect_deny(repo, "carrier role: reviewer commits through bash -lc", "reviewer", "Bash", command="bash -lc 'git commit -m x'")
+    expect_deny(repo, "carrier role: reviewer writes through bash -lc", "reviewer", "Bash", command="bash -lc 'echo x > notes.txt'")
+    expect_deny(repo, "carrier role: hardener writes main code through bash -lc", "hardener", "Bash",
+                command=f"bash -lc 'echo x > {main_java}'")
+    expect_allow(repo, "carrier role: hardener writes test code through bash -lc", "hardener", "Bash",
+                 command=f"bash -lc 'echo x > {test_java}'")
+    expect_allow(repo, "carrier role: reviewer reads through bash -lc", "reviewer", "Bash", command="bash -lc 'git status'")
+    for name, command in (
+            ("bash -lc echo", "bash -lc 'echo hello'"),
+            ("bash -euo pipefail -c gradle", "bash -euo pipefail -c 'echo ok; ./gradlew gauntletFast'"),
+            ("bash -e script", "bash -e script.sh"),
+            ("sh -c status", "sh -c 'git status'"),
+            ("/usr/bin/env python3", "/usr/bin/env python3 --version"),
+            ("nice gradle", "nice -n 10 ./gradlew test"),
+            ("timeout gradle", "timeout 60 ./gradlew test"),
+            ("xargs echo", "xargs -n 1 echo"),
+            ("find -exec grep", "find . -name '*.java' -exec grep -l push {} \\;"),
+            ("su -c echo", "su -c 'echo hi'"),
+            ("escaped quotes only", 'echo "\\"it\'s\\" fine"'),
+            ("push text quoted for another shell's pipe", "echo 'git push --force | bash -o pipefail'"),
+            ("read the gauntlet through bash -lc", "bash -lc 'cat gauntlet/README.md'"),
+            ("grep the gauntlet through bash -c", "bash -c 'grep -n threshold gauntlet/config/gauntlet.properties'"),
+            ("the gauntlet task through bash -lc", "bash -lc './gradlew gauntlet'"),
+            ("find in the gauntlet -exec grep", "find gauntlet -name '*.py' -exec grep -n foo {} \\;"),
+            ("pipe a read into sh", "echo 'cat gauntlet/README.md' | sh"),
+            ("read in a substitution", 'echo "$(cat gauntlet/README.md | head -1)"'),
+            ("clean the build through bash -lc", "bash -lc 'rm -rf build'")):
+        expect_allow(repo, "carrier control: " + name, "main", "Bash", command=command)
+    # --- carriers, continued: the payload may sit behind another command, a filter or `|&`, and a substitution
+    #     opens a quoting context of its own (a quoted `)` or a case pattern inside it does not end the outer one)
+    for name, command in (
+            ('a command before the echo', 'true && echo git push --force origin main | bash'),
+            ('cd before the echo', 'cd . && echo git push --force origin main | bash'),
+            ('another command; echo', 'git status; echo git push --force origin main | bash'),
+            ('a subshell feeds the pipe', '(echo git push --force origin main) | bash'),
+            ('a filter between echo and the shell', "echo 'git push --force origin main' | cat | bash"),
+            ('the |& pipe', "echo 'git push --force origin main' |& bash"),
+            ('a shell with several option words', "echo 'git push --force origin main' | bash -e -x"),
+            ('the pipe inside if ... fi', "if true; then echo 'git push --force origin main' | bash; fi"),
+            ('unquoted rm piped into sh', 'echo rm -rf gauntlet | sh'),
+            ('a command before the piped rm', 'true && echo rm -rf gauntlet | sh'),
+            ('a quoted ) inside a nested substitution', 'echo "$(echo "$(echo ")")"; git push --force origin main 2>&1)"'),
+            ('an ANSI-C quoted ) inside a substitution', 'echo "$(echo $\'\\\')\'; git push --force origin main 2>&1)"'),
+            ('a case pattern inside a substitution', 'echo "$(case x in x) git push --force origin main 2>&1;; esac)"'),
+            ('rm after a nested substitution', 'echo "$(echo "$(echo ")")"; rm -rf gauntlet)"')):
+        expect_deny(repo, "carrier: " + name, "main", "Bash", command=command)
+    for name, command in (
+            ('harmless echo piped into bash', 'true && echo hello | bash'),
+            ('git status through a filter', "echo 'git status' | cat | bash"),
+            ('git status after a nested substitution', 'echo "$(echo "$(echo ")")"; git status)"'),
+            ('a harmless case inside a substitution', 'echo "$(case x in x) echo y;; esac)"'),
+            ('git log piped into head', "git log --format='%h %s' | head -3"),
+            ('git status piped into cat', 'git status | cat'),
+            ('a quoted pipe character', "echo 'a|b' | tr '|' ' '"),
+            ('grep for the words', "cat notes.txt | grep 'git push --force'")):
+        expect_allow(repo, "carrier control: " + name, "main", "Bash", command=command)
     # --- hardening: a global option that takes its value as the next argument does not hide the subcommand
     for name, command in (
             ("--namespace commit --amend", "git --namespace x commit --amend -m x"),

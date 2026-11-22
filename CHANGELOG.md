@@ -459,6 +459,25 @@
       за кластер флагов: `commit -uno`, `branch --sort -committerdate`, `branch --contains HEAD` у ревьюера;
       сообщение коммита `-m "--amend"` — не опция. `permissions.deny` дополнен 11 префиксными формами.
       Самопроверка: 997 → 1429 (+144 на раскладку: запреты с парными разрешающими контролями).
+    - **guard: оболочки, обёртки и вложенный shell-код (независимое ревью и проверка исторических находок).**
+      Правила применялись к inline-коду только после отдельного слова `-c`. `bash -lc '…'`, `sh -ec`, `bash -xc`,
+      `dash -c`, `ksh -c` хук не разбирал вовсе, `bash -euo pipefail -c` закрыл `203543a` и снова открыл `426f9ff` —
+      и не только для human-only команд. На `166287c` хук разрешал: `bash -lc 'rm -rf gauntlet'`,
+      `bash -lc 'echo x > gauntlet/config/gauntlet.properties'`, `dash -c 'rm -f .claude/settings.json'`; ревьюеру —
+      `bash -lc 'git commit -m x'` и запись в файл; hardener'у — запись в `src/main`. Обёртка узнавалась по точной
+      строке и без опций со значением: `/usr/bin/env rm -rf gauntlet`, `/usr/bin/sudo …`, `nice -n 10 …`,
+      `timeout -s KILL 5 …`, `xargs -n 1 …`, `setsid …` проходили; так же `su -c`, `find … -exec sh -c`, `eval`,
+      `echo 'rm -rf gauntlet' | bash` и `echo "$(rm -rf gauntlet)"` — для правил путей. Теперь оболочки (`bash`, `sh`,
+      `zsh`, `dash`, `ksh`) разбираются по своей грамматике опций (командная строка `-c` — первый операнд после всех
+      опций), обёртка узнаётся по имени программы и знает свои опции со значением, `env -S` — в любом написании
+      (слитно, в кластере, сокращённо), а вложенный shell-код — нагрузка другой оболочки, текст, поданный в оболочку
+      через pipe, тело подстановки — судится теми же правилами путей, ролей и human-only, что и сама команда.
+      Поэтому же снята ложная блокировка: чтение через обёртку (`bash -c 'grep … gauntlet/config/…'`) больше не
+      отклоняется за одно упоминание пути. Конвейер: нагрузка ищется во всём тексте слева от pipe (команда перед
+      `echo`, фильтр между, `|&`, `if … fi`); подстановка: свой контекст кавычек на каждом уровне вложенности,
+      шаблон `case`, строки `$'…'`, вложенные обратные кавычки. Самопроверка: 1429 → 1708 (+93 на раскладку).
+    - **Роли и процесс.** `specifier`: сценарий обязан исполняться сам по себе; `hardener` и `gauntlet/CLAUDE.md`:
+      красный контроль — это зависимость сценария от соседнего или от стенда, а не слабое step-определение.
     - **Регрессионный набор в репозитории.** Третий раунд ревью советовал «сохранить небольшой Gradle-проект в
       повторяемой проверке самого дистрибутива»; совет остался без ответа, а цифры «Java/XML 35/35, installer
       20/20» жили в разовых стендах исполнителей. Теперь `python3 tests/run.py` распаковывает бандл скриптом из его
@@ -494,7 +513,7 @@ guard — растяжка, а не сейф (это заявлено в наб�
 - `.claude/agents/{specifier,hardener,reviewer}.md`, `.github/workflows/gauntlet.yml`, `gauntlet/CLAUDE.md`,
   `INSTALL.md`, `config/gauntlet.properties` (обнаруженные версии проекта и отдельная JVM гейта);
 - `gauntlet/tools/IntegrityCheck.java`, `CrapGate.java`, `GherkinMutator.java`, `PitSummary.java`;
-- `gauntlet/hooks/guard.py`, `stop_gate.py`, `selftest.py` (1429 проверок в трёх раскладках);
+- `gauntlet/hooks/guard.py`, `stop_gate.py`, `selftest.py` (1708 проверок в трёх раскладках);
 - `gauntlet/install.sh` (обновление gauntlet-хуков при слиянии, бюджет таймаута по модулям);
 - `gauntlet/gauntlet.gradle` (входы `acceptanceTest`, `mutationGate` source → compiled types);
 - `gauntlet/config/crap-allowlist.txt` (пример записи с сигнатурой перегрузки);
@@ -512,19 +531,19 @@ guard — растяжка, а не сейф (это заявлено в наб�
 
 | Файл | 4.2 | 4.3 |
 |---|---|---|
-| `.claude/agents/hardener.md` | 4210 | 4233 |
+| `.claude/agents/hardener.md` | 4210 | 4659 |
 | `.claude/agents/reviewer.md` | 7473 | 7509 |
-| `.claude/agents/specifier.md` | 4920 | 5026 |
+| `.claude/agents/specifier.md` | 4920 | 5312 |
 | `.claude/settings.json` | 1720 | 2586 |
 | `.github/workflows/gauntlet.yml` | 1978 | 5615 |
-| `gauntlet/CLAUDE.md` | 63625 | 64586 |
+| `gauntlet/CLAUDE.md` | 63625 | 65106 |
 | `gauntlet/INSTALL.md` | 11426 | 14544 |
-| `gauntlet/README.md` | 29851 | 57717 |
+| `gauntlet/README.md` | 29851 | 60167 |
 | `gauntlet/config/crap-allowlist.txt` | 448 | 924 |
 | `gauntlet/config/gauntlet.properties` | 5921 | 6568 |
 | `gauntlet/gauntlet.gradle` | 32451 | 43456 |
-| `gauntlet/hooks/guard.py` | 26740 | 53684 |
-| `gauntlet/hooks/selftest.py` | 41192 | 84316 |
+| `gauntlet/hooks/guard.py` | 26740 | 61817 |
+| `gauntlet/hooks/selftest.py` | 41192 | 93009 |
 | `gauntlet/hooks/stop_gate.py` | 16669 | 20978 |
 | `gauntlet/install.sh` | 4933 | 11572 |
 | `gauntlet/templates/acceptanceTest/resources/features/example_discount.feature` | 928 | 1258 |
@@ -542,7 +561,7 @@ guard — растяжка, а не сейф (это заявлено в наб�
 
 ### Проверено
 
-- `python3 gauntlet/hooks/selftest.py` — 1429 проверок, 0 падений, три раскладки (корень; `core/`;
+- `python3 gauntlet/hooks/selftest.py` — 1708 проверок, 0 падений, три раскладки (корень; `core/`;
   `core/` + `adapter/`); в том числе из распакованной копии пересобранного бандла.
 - `python3 tests/run.py --gradle` — регрессионный набор дистрибутива по бандлу, распакованному скриптом из его
   шапки: манифест и побайтная пересборка сборщиком из раздела 8.4, единство ревизии и таблицы размеров, хуки,

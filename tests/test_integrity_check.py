@@ -53,6 +53,25 @@ class Rules(IntegrityCase):
                 self.file("src/acceptanceTest/java/a/Steps.java", f"class Steps {{ void s() {{ {line} }} }}\n")
                 self.assertEqual(self.rules(), ["T4"])
 
+    def test_qualified_annotations(self):
+        cases = {"T1": "@org.junit.jupiter.api.Disabled", "T3": "@org.junit.Ignore",
+                 "T2": "@org.junit.jupiter.api.condition.EnabledIfSystemProperty(named = \"x\", matches = \"y\")"}
+        for rule, line in cases.items():
+            with self.subTest(rule=rule):
+                self.file("src/test/java/a/T.java", f"class T {{\n    {line}\n    void works() {{ }}\n}}\n")
+                self.assertEqual(self.rules(), [rule])
+
+    def test_annotation_as_javac_reads_it(self):
+        # javac translates Unicode escapes first and drops ignorable characters from names: both compile as @Disabled
+        for line in ("@Dis" + chr(92) + "u0061bled", "@Dis\u00adabled"):
+            with self.subTest(line=line):
+                self.file("src/test/java/a/T.java", f"class T {{\n    {line}\n    void works() {{ }}\n}}\n")
+                self.assertEqual(self.rules(), ["T1"])
+
+    def test_annotation_in_a_string_or_a_block_comment_is_none(self):
+        self.file("src/test/java/a/T.java", "class T {\n    String s = \"@Disabled\";\n    /* @Disabled */ void works() { }\n}\n")
+        self.assertEqual(self.rules(), [])
+
     def test_production_tricks(self):
         cases = {"M1": "@lombok.Generated", "M2": "// CHECKSTYLE:OFF", "M3": "@SuppressWarnings(\"PMD.GodClass\")"}
         for rule, line in cases.items():
@@ -135,6 +154,11 @@ class PackagingTasks(IntegrityCase):
         "multi-line block comment": "tasks.named('jar') {\n    /*\n     * packaging\n     */\n    Jar archive ->\n    archive.enabled = false\n}",
         "block comment on the opener line": "tasks.named('jar') { /* packaging */ Jar archive ->\n    archive.enabled = false\n}",
         "single-line block with a comment": "tasks.named('jar') { /* x */ archive -> archive.enabled = false }",
+        "a glob after the parameter": "tasks.withType(Jar).configureEach { t -> t.exclude('**/*.sql'); t.enabled = false }",
+        "a glob on the parameter's line": "tasks.named('jar') { Jar archive -> archive.exclude '**/*.sql'\n    archive.enabled = false\n}",
+        "many comment lines before the parameter":
+            "tasks.named('jar') {\n" + "    // packaging note\n" * 25 + "    Jar archive ->\n    archive.enabled = false\n}",
+        "a brace in a string inside the block": "jar {\n    manifest { attributes('X-Note': '}') }\n    enabled = false\n}",
     }
     B1 = {
         "the test task": "test { enabled = false }",
@@ -150,6 +174,27 @@ class PackagingTasks(IntegrityCase):
         "comment does not rename the block": "tasks.named('test') {\n    /* jar */\n    enabled = false\n}",
         "ignoreFailures is never exempt": "jar { ignoreFailures = true }",
         "onlyIf is never exempt": "jar { onlyIf { false } }",
+        # what looks like a comment before a parameter, but is not one to Groovy
+        "a dollar-slashy string is no comment": "tasks.withType(Jar) { $/* packaging */ test -> /$\n    test.enabled = false\n}",
+        # the parameter's name does not make the real task harmless
+        "parameter named test, tasks.test disabled": "tasks.withType(Jar) { /* packaging */ test ->\n    tasks.test.enabled = false\n}",
+        "parameter named test, test looked up": "jar { test ->\n    tasks.getByName('test').enabled = false\n}",
+        # the enclosing block is the one that is really open, on text without comments and strings
+        "a commented-out opener": "test {\n    // tasks.named('jar') {\n    enabled = false\n}",
+        "a packaging block closed before the opener's brace": "jar { }; test {\n    enabled = false\n}",
+        "a block comment before the statement": "test {\n    /* tmp */ enabled = false\n}",
+        "a string that names jar": "test {\n    def note = 'jar {'\n    enabled = false\n}",
+    }
+    KOTLIN_FREE = {
+        "the jar accessor": "tasks.jar {\n    enabled = false\n}",
+        "the bootJar accessor": "tasks.bootJar { enabled = false }",
+        "the accessor through project": "project.tasks.jar { enabled = false }",
+        "named with a type": "tasks.named<Jar>(\"jar\") {\n    enabled = false\n}",
+    }
+    KOTLIN_B1 = {
+        "the test accessor": "tasks.test { enabled = false }",
+        # Kotlin block comments nest: the whole first line is one comment, there is no parameter
+        "a nested comment hides no parameter": "tasks.withType<Jar> {\n    /* /* */ test -> */\n    test.enabled = false\n}",
     }
 
     def test_packaging_task_switched_off_is_free(self):
@@ -164,16 +209,50 @@ class PackagingTasks(IntegrityCase):
                 self.file("build.gradle", APPLY + script + "\n")
                 self.assertIn("B1", self.rules())
 
+    def test_kotlin_dsl_reads_as_kotlin(self):
+        os.remove(os.path.join(self.root, "build.gradle"))
+        for expected, cases in (([], self.KOTLIN_FREE), (["B1"], self.KOTLIN_B1)):
+            for name, script in cases.items():
+                with self.subTest(name):
+                    self.file("build.gradle.kts", 'apply(from = "gauntlet/gauntlet.gradle")\n' + script + "\n")
+                    self.assertEqual(sorted(set(self.rules())), expected)
+
 
 class Encoding(IntegrityCase):
     LATIN = "package a;\n/** réduit */\n// CHECKSTYLE:OFF\nclass Tarifé { }\n"
 
     def test_non_utf8_source_does_not_stop_the_check(self):
-        # a Latin-1 comment in a UTF-8 scan used to end the whole check with exit 2 (MalformedInputException)
+        # a Latin-1 source in a UTF-8 scan used to end the whole check with exit 2 (MalformedInputException); text
+        # patterns cannot judge a source that is not valid in its charset, so that is a finding of its own - E1
         self.file("src/main/java/a/Tarifs.java", self.LATIN, "iso-8859-1")
         r = self.check()
         self.assertEqual(r.code, 1, r)
-        self.assertEqual(self.rules(), ["M2"])
+        self.assertEqual(sorted(self.rules()), ["E1", "M2"])
+        self.assertIn("src/main/java/a/Tarifs.java", next(l for l in r.out.splitlines() if " E1 " in l))
+        self.assertEqual(self.rules("--encoding", "ISO-8859-1"), ["M2"])
+
+    def test_each_source_tree_is_read_with_the_charset_of_its_compile_task(self):
+        # a UTF-16 test tree next to UTF-8 main sources: read as UTF-8 it hid @Disabled (Integrity check: OK)
+        self.file("src/test/java/a/OrderTest.java", "class OrderTest {\n    @Disabled\n    void works() { }\n}\n", "utf-16")
+        self.assertEqual(self.rules("--test-encoding", "UTF-16"), ["T1"])
+        self.assertEqual(self.rules(), ["E1"])
+        self.file("src/acceptanceTest/java/a/Steps.java", "class Steps { void s() { assumeTrue(x); } }\n", "utf-16")
+        self.assertEqual(sorted(self.rules("--test-encoding", "UTF-16", "--acceptance-encoding", "UTF-16")), ["T1", "T4"])
+
+    def test_a_nul_in_a_source_is_never_silence(self):
+        # javac drops a NUL inside an identifier: @Dis<NUL>abled compiles as @Disabled
+        self.file("src/test/java/a/T.java", "class T {\n    @Dis\x00abled\n    void works() { }\n}\n")
+        self.assertTrue({"T1", "E1"} & set(self.rules()), self.check())
+
+    def test_non_utf8_build_scripts_and_allowlist_do_not_stop_the_check(self):
+        # Gradle reads a build script with the platform charset: a Latin-1 comment is no reason to end with exit 2
+        self.file("build.gradle", (APPLY + "// param\u00e8tres\ntest { enabled = false }\n").encode("iso-8859-1"))
+        self.file("settings.gradle", "// r\u00e9glages\nrootProject.name = 'x'\n".encode("iso-8859-1"))
+        allow = self.file("allow.txt", "# liste autoris\u00e9e\n".encode("iso-8859-1"))
+        self.file("src/main/java/a/M.java", "// CHECKSTYLE:OFF\nclass M { }\n")
+        r = self.check("--allowlist", allow)
+        self.assertEqual(r.code, 1, r)
+        self.assertEqual(sorted(set(self.rules("--allowlist", allow))), ["B1", "M2"])
 
     def test_sources_are_read_with_the_project_encoding(self):
         self.file("src/main/java/a/Tarifs.java", self.LATIN, "utf-16")

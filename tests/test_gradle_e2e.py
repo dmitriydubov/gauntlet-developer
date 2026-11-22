@@ -87,6 +87,84 @@ public class DiscountSteps {
 DOMAIN = "src/main/java/com/example/service/domain/"
 DOMAIN_TEST = "src/test/java/com/example/service/domain/"
 GLUE = "src/acceptanceTest/java/com/example/service/acceptance/"
+ACCOUNT_STEPS = """package com.example.service.acceptance;
+
+import static org.junit.jupiter.api.Assertions.assertNull;
+
+import io.cucumber.java.en.Given;
+import io.cucumber.java.en.Then;
+import io.cucumber.java.en.When;
+import java.util.HashMap;
+import java.util.Map;
+
+public class AccountSteps {
+    private static final Map<String, Integer> ACCOUNTS = new HashMap<>();
+    private String current;
+
+    @Given("a new account {string}")
+    public void open(String id) {
+        assertNull(ACCOUNTS.putIfAbsent(id, 0), "account " + id + " already exists");
+        current = id;
+    }
+
+    @When("{int} is deposited")
+    public void deposit(int amount) {
+        ACCOUNTS.merge(current, amount, Integer::sum);
+    }
+
+    @Then("the balance is {int}")
+    public void balance(int expected) {
+    }
+}
+"""
+ORDER_STEPS = """package com.example.service.acceptance;
+
+import io.cucumber.java.en.Given;
+import io.cucumber.java.en.Then;
+import io.cucumber.java.en.When;
+
+public class OrderSteps {
+    private Status status;
+
+    @Given("an order in status {}")
+    public void order(Status initial) {
+        status = initial;
+    }
+
+    @When("the order is paid")
+    public void pay() {
+        status = Status.PAID;
+    }
+
+    @Then("the order is in status {}")
+    public void inStatus(Status expected) {
+    }
+}
+"""
+ARGUMENT_PROVIDER = """abstract class GenerateSchemas extends DefaultTask {
+    @OutputDirectory abstract DirectoryProperty getOutputDir()
+
+    @TaskAction void generate() {
+        def f = outputDir.get().file('json/orders.json').asFile
+        f.parentFile.mkdirs()
+        f.text = '{}\\n'
+    }
+}
+def generateSchemas = tasks.register('generateSchemas', GenerateSchemas) {
+    outputDir = layout.buildDirectory.dir('generated/schemas')
+}
+abstract class SchemaArgs implements CommandLineArgumentProvider {
+    @InputDirectory @PathSensitive(PathSensitivity.RELATIVE) abstract DirectoryProperty getSchemas()
+
+    @Override Iterable<String> asArguments() {
+        return ["-Aschema.dir=${schemas.get().asFile}".toString()]
+    }
+}
+tasks.named('compileJava') {
+    def args = objects.newInstance(SchemaArgs)
+    args.schemas = generateSchemas.flatMap { it.outputDir }.map { it.dir('json') }
+    options.compilerArgumentProviders.add(args)
+}"""
 FEATURES = "src/acceptanceTest/resources/features/"
 
 
@@ -167,7 +245,7 @@ class WholeGauntlet(GradleCase):
         self.assert_build(r, True)
         for line in ("Integrity check: OK", "Checkstyle: OK", "PMD: OK", "Acceptance: 3 scenario(s), none skipped - OK",
                      "CRAP gate: OK", "DRY gate: OK", "PIT summary: 2 mutant(s) {KILLED=2}",
-                     "Gherkin mutation: 9 mutant(s) - 9 killed, 0 survived, 0 error(s); 3 control(s) - 3 passed",
+                     "Gherkin mutation: 9 mutant(s) - 9 killed, 0 survived, 0 error(s); 6 control(s) - 6 passed",
                      "Gherkin mutation: OK"):
             self.assertIn(line, r.out)
 
@@ -176,7 +254,7 @@ class WholeGauntlet(GradleCase):
         r = self.gradle("gherkinMutation", "-Pgauntlet.scope=all")
         self.assert_build(r, False)
         self.assertIn("MUTANT SURVIVED", r.out)
-        self.assertIn("3 control(s) - 3 passed", r.out)
+        self.assertIn("6 control(s) - 6 passed", r.out)
 
 
 class GherkinVerdict(GradleCase):
@@ -213,7 +291,7 @@ public class DoublingSteps {
         r = self.gradle("gherkinMutation", "-Pgauntlet.scope=all")
         self.assert_build(r, True)
         self.assertIn("Gherkin mutation: 2 mutant(s) - 2 killed (2 by a non-assertion exception thrown in a step), "
-                      "0 survived, 0 error(s); 1 control(s) - 1 passed", r.out)
+                      "0 survived, 0 error(s); 2 control(s) - 2 passed", r.out)
 
     def test_fixture_that_fails_in_the_mutant_run_is_no_kill(self):
         self.project()
@@ -235,7 +313,7 @@ public class Harness {
         self.commit("a fixture that is down for the mutant run")
         r = self.gradle("gherkinMutation", "-Pgauntlet.scope=all")
         self.assert_build(r, False)
-        self.assertIn("Gherkin mutation: 9 mutant(s) - 0 killed, 0 survived, 9 error(s); 3 control(s) - 0 passed", r.out)
+        self.assertIn("Gherkin mutation: 9 mutant(s) - 0 killed, 0 survived, 9 error(s); 6 control(s) - 0 passed", r.out)
         self.assertIn("failed outside a step (java.io.IOException", r.out)
 
     def test_mutants_of_a_scenario_whose_prerequisite_never_runs_are_no_kills(self):
@@ -290,8 +368,42 @@ public class RateSteps {
         self.commit("scenario B")
         r = self.gradle("gherkinMutation")
         self.assert_build(r, False)
-        self.assertIn("1 control(s) - 0 passed", r.out)
+        self.assertIn("2 control(s) - 0 passed", r.out)
         self.assertRegex(r.out, r"MUTANT ERROR +c1 control \(unmutated scenario\) failed in a step")
+
+
+class GherkinHarness(GradleCase):
+    """Failures the changed value did not cause are no kills: a row that cannot be repeated in one run, a value
+    Cucumber rejected before the step definition saw it."""
+
+    def test_a_row_that_cannot_run_twice_on_one_stand_kills_nothing(self):
+        # every scenario shares one account store (as a cached Spring context shares a database); the Then step is
+        # hollow. The control before the mutants passes, then each mutant fails on "already exists".
+        self.project(example=False)
+        self.file(GLUE + "AccountSteps.java", ACCOUNT_STEPS)
+        self.file(FEATURES + "deposits.feature", "Feature: Deposits\n\n  Scenario Outline: A deposit increases the balance\n"
+                  "    Given a new account \"ACC-1\"\n    When <amount> is deposited\n    Then the balance is <balance>\n\n"
+                  "    Examples:\n      | amount | balance |\n      | 100    | 100     |\n")
+        self.commit("deposits")
+        r = self.gradle("gherkinMutation", "-Pgauntlet.scope=all")
+        self.assert_build(r, False)
+        self.assertIn("2 mutant(s) - 0 killed, 0 survived, 2 error(s); 2 control(s) - 1 passed", r.out)
+        self.assertIn("before the first step that uses <amount>", r.out)
+        self.assertRegex(r.out, r"MUTANT ERROR +z1 control \(unmutated scenario, after the mutants\) failed in a step")
+
+    def test_a_value_the_step_never_receives_is_no_kill(self):
+        # a dithered enum constant cannot be converted: Cucumber fails before the hollow Then step runs
+        self.project(example=False)
+        self.file(GLUE + "Status.java", "package com.example.service.acceptance;\n\npublic enum Status { NEW, PAID, SHIPPED }\n")
+        self.file(GLUE + "OrderSteps.java", ORDER_STEPS)
+        self.file(FEATURES + "orders.feature", "Feature: Order status\n\n  Scenario Outline: Paying moves the order on\n"
+                  "    Given an order in status <before>\n    When the order is paid\n    Then the order is in status <after>\n\n"
+                  "    Examples:\n      | before | after   |\n      | NEW    | SHIPPED |\n")
+        self.commit("order status")
+        r = self.gradle("gherkinMutation", "-Pgauntlet.scope=all")
+        self.assert_build(r, False)
+        self.assertIn("0 killed, 0 survived, 2 error(s)", r.out)
+        self.assertIn("the value never reached a step definition", r.out)
 
 
 class ChangedScope(GradleCase):
@@ -315,18 +427,16 @@ class ChangedScope(GradleCase):
         self.assert_build(r, False)
         self.assertIn("cannot read src/main/java/com/example/service/domain/Tarifs.java as UTF-8", r.out)
 
-    def test_type_name_the_source_scan_cannot_read(self):
-        # a Unicode escape in the class name: the scan derives "Tarif", javac compiles Tarifé
+    def test_type_name_written_with_a_unicode_escape(self):
+        # javac translates the escape before it reads the name: the class is Tarifé, and so is the changed type
         self.project()
         self.file(DOMAIN + "Tarifs.java", self.LATIN.replace("Tarifé", "Tarif\\u00e9").replace("réduit", "reduit"))
         self.file(DOMAIN_TEST + "TarifsTest.java", ORDERS_TEST.replace("OrdersTest", "TarifsTest")
                   .replace("assertEquals(9900, new Orders().total(10000, 100))", "assertEquals(3, new Tarif\\u00e9().fee(2))"))
         self.commit("a class named with a Unicode escape")
-        for task in ("mutationGate", "crapGate"):
-            r = self.gradle(task)
-            self.assert_build(r, False)
-            self.assertIn("derived com.example.service.domain.Tarif from the changed sources, but no such compiled class", r.out)
-        self.assert_build(self.gradle("mutationGate", "-Pgauntlet.scope=all"), True)
+        r = self.gradle("mutationGate", "crapGate")
+        self.assert_build(r, True)
+        self.assertRegex(r.out, r">> Generated [1-9]\d* mutations")
 
     def test_two_changed_files_with_one_name_and_one_declared_package(self):
         self.project(build_extra="tasks.withType(JavaCompile).configureEach { options.debug = false }")
@@ -340,6 +450,69 @@ class ChangedScope(GradleCase):
         self.assert_build(r, False)
         self.assertIn("4 method(s) analysed", r.out)
         self.assertRegex(r.out, r"CRAP FAIL +12\.0 .*LegacyRules#quote")
+
+
+    def test_a_lone_cr_ends_a_line_comment(self):
+        # javac ends a // comment at a lone CR: a scan that did not derived no type, and PIT checked nothing
+        self.project()
+        self.file(DOMAIN + "Pricing.java", "package com.example.service.domain;\n\n// pricing rules\rpublic class Pricing {\n"
+                  "    public int withFee(int amount) {\n        return amount + 1;\n    }\n}\n")
+        self.file(DOMAIN_TEST + "PricingTest.java", ORDERS_TEST.replace("OrdersTest", "PricingTest")
+                  .replace("assertEquals(9900, new Orders().total(10000, 100))", "assertNotNull(new Pricing())")
+                  .replace("import static org.junit.jupiter.api.Assertions.assertEquals;",
+                           "import static org.junit.jupiter.api.Assertions.assertNotNull;"))
+        self.commit("a comment that ends with a lone CR")
+        r = self.gradle("mutationGate")
+        self.assert_build(r, False)                                     # the weak test leaves survivors
+        self.assertNotIn("no changed main classes", r.out)
+        self.assertRegex(r.out, r">> Generated [1-9]\d* mutations")
+
+    def test_changed_class_in_a_second_root_of_the_main_source_set(self):
+        self.project(build_extra="sourceSets.main.java.srcDir 'src/shared/java'")
+        self.file("src/shared/java/com/example/service/domain/Risky.java", "package com.example.service.domain;\n\n"
+                  "public class Risky {\n    public int quote(int amount, boolean vip) {\n        if (amount > 1000) {\n"
+                  "            return vip ? 30 : 20;\n        }\n        if (amount > 500) {\n            return vip ? 20 : 10;\n"
+                  "        }\n        return 5;\n    }\n}\n")
+        self.commit("an untested class in a second source root")
+        r = self.gradle("crapGate")
+        self.assert_build(r, False)
+        self.assertRegex(r.out, r"CRAP FAIL .*Risky#quote")
+
+    def test_options_encoding_wins_over_an_encoding_argument(self):
+        # Gradle's compiler hands options.encoding to javac's API, which then ignores every -encoding argument
+        self.project(build_extra="tasks.withType(JavaCompile).configureEach { options.encoding = 'ISO-8859-1' }\n"
+                                 "tasks.named('compileJava') { options.compilerArgs += ['-encoding', 'UTF-8'] }")
+        self.file(DOMAIN + "Tarifs.java", self.LATIN, "iso-8859-1")
+        self.file(DOMAIN_TEST + "TarifsTest.java", ORDERS_TEST.replace("OrdersTest", "TarifsTest")
+                  .replace("assertEquals(9900, new Orders().total(10000, 100))", "assertEquals(3, new Tarifé().fee(2))"),
+                  "iso-8859-1")
+        self.commit("ISO-8859-1 sources")
+        r = self.gradle("crapGate", "mutationGate", "--continue")
+        self.assert_build(r, True)
+        self.assertNotIn("cannot read", r.out)
+
+    def test_source_excluded_on_the_compile_task_is_not_asked_for_its_classes(self):
+        self.project(build_extra="tasks.named('compileJava') { exclude '**/experimental/**' }")
+        self.file(DOMAIN + "experimental/Draft.java", "package com.example.service.domain.experimental;\n\n"
+                  "class Draft {\n    NotWrittenYet next;\n}\n")
+        self.commit("a draft the build leaves out")
+        r = self.gradle("crapGate", "mutationGate", "--continue")
+        self.assert_build(r, True)
+
+    def test_an_ordinary_build_never_evaluates_lazy_compiler_arguments_early(self):
+        # an argument provider wired to a task output cannot answer before that task ran: `gradle build` used to
+        # fail at configuration because the gate tasks asked the compile task for its arguments
+        self.project(build_extra=ARGUMENT_PROVIDER)
+        r = self.gradle("test")
+        self.assert_build(r, True)
+
+    def test_module_descriptor_is_not_handed_to_checkstyle(self):
+        self.project()
+        self.file("src/main/java/module-info.java", "module com.example.service {\n    exports com.example.service.domain;\n}\n")
+        self.commit("a module descriptor")
+        r = self.gradle("checkstyleGate")
+        self.assert_build(r, True)
+        self.assertNotIn("SAXParseException", r.out)
 
 
 class GateJvm(GradleCase):
@@ -356,11 +529,67 @@ class GateJvm(GradleCase):
         self.assertNotIn("does not match toolchain", r.out)
         self.assertIn(f"gate executable: {homes[gate]}/bin/java", r.out)
 
+    def test_gate_jvm_by_version_next_to_a_launcher_pinned_after_the_kit(self):
+        # a convention plugin pins the launcher in afterEvaluate - after the kit configured its gate tasks
+        homes = jdk_homes()
+        if len(homes) < 2:
+            self.skipTest("needs two installed JDKs")
+        project, gate = sorted(homes)[0], sorted(homes)[-1]
+        self.project(build_extra="afterEvaluate {\n    tasks.withType(Test).configureEach {\n        javaLauncher = "
+                                 f"javaToolchains.launcherFor {{ languageVersion = JavaLanguageVersion.of({project}) }}\n    }}\n}}")
+        kit.set_property(self.lab, "gate.java.version", str(gate))
+        r = self.gradle("archTest", "acceptanceTest", "gauntletInfo", env={"JAVA_HOME": homes[project]})
+        self.assert_build(r, True)
+        self.assertNotIn("does not match toolchain", r.out)
+
     def test_ordinary_build_does_not_need_the_gate_jdk(self):
         self.project()
         kit.set_property(self.lab, "gate.java.version", "99")
         r = self.gradle("classes", "-Porg.gradle.java.installations.auto-download=false")
         self.assert_build(r, True)
+
+
+class CiPlan(GradleCase):
+    """The workflow's plan step next to the build it plans for: both read gauntlet.properties and must agree."""
+
+    def module(self, name):
+        """A build in a module directory: gauntlet/ stays at the repository root."""
+        shutil.copytree(os.path.join(kit.kit(), "gauntlet"), os.path.join(self.lab, "gauntlet"))
+        self.file(name + "/settings.gradle", f"rootProject.name = '{name}'\n")
+        self.file(name + "/build.gradle", BUILD.format(junit=JUNIT, extra="").replace("'gauntlet/", "'../gauntlet/"))
+
+    def planned(self):
+        """The plan step of .github/workflows/gauntlet.yml, run as the runner runs it: {build: (project, gate)}."""
+        from test_ci_workflow import PLAN, step_script       # the reader of the workflow's `run:` scripts
+        temp = os.path.join(self.tmp, "runner-temp")
+        script = kit.write(os.path.join(temp, "plan.sh"), step_script(PLAN))
+        env = dict(os.environ, RUNNER_TEMP=temp, GITHUB_OUTPUT=os.path.join(temp, "github-output"))
+        r = kit.run(["bash", "--noprofile", "--norc", "-e", script], cwd=self.lab, env=env)
+        self.assertEqual(r.code, 0, r)
+        rows = [line.split("\t") for line in kit.read(os.path.join(temp, "gauntlet-plan")).splitlines()]
+        return {row[0]: tuple(row[1:]) for row in rows}
+
+    def reported(self, module):
+        """The same two versions as `gauntletInfo` prints them in the module's build."""
+        env = kit.java_env()
+        env["GAUNTLET_GATE_JAVA_HOME"] = os.path.join(self.tmp, "gate-jdk")    # the gate JDK itself is not needed
+        r = kit.run(["gradle", "gauntletInfo", "-q", "--console=plain"], cwd=os.path.join(self.lab, module), env=env)
+        project = re.search(r"(?m)^project\.java\.version = (.*)$", r.out)
+        gate = re.search(r"(?m)^gate JVM +: version=(.*); home=", r.out)
+        self.assertTrue(project and gate, r.out[-4000:])
+        return project.group(1), gate.group(1)
+
+    def test_java_versions_written_with_any_separator_of_a_properties_file(self):
+        # java.util.Properties ends a key at `=`, `:` or blanks: what Gradle resolves, CI has to install
+        self.module("core")
+        common = os.path.join(self.lab, "gauntlet/config/gauntlet.properties")
+        other = re.sub(r"(?m)^(module|project\.java\.version|gate\.java\.version)=.*\n", "", kit.read(common))
+        for separator in ("=", ": ", " "):
+            with self.subTest(separator=separator):
+                kit.write(common, other + f"module=core\nproject.java.version{separator}17\ngate.java.version{separator}21\n")
+                kit.write(os.path.join(self.lab, "gauntlet/config/core/gauntlet.properties"), f"gate.java.version{separator}25\n")
+                self.assertEqual(self.planned(), {"core": ("17", "25")})
+                self.assertEqual(self.reported("core"), ("17", "25"))
 
 
 if __name__ == "__main__":

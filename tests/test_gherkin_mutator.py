@@ -19,7 +19,8 @@ KIT = kit.kit()
 CLASSES = kit.classes()
 TOOL = os.path.join(KIT, "gauntlet", "tools", "GherkinMutator.java")
 
-HEADER = "id\tfeature\tline\tscenario\tkey\toriginal\tmutated"
+HEADER = "id\tfeature\tline\tscenario\tkey\toriginal\tmutated"                    # a manifest as older generators wrote it
+GENERATED_HEADER = HEADER + "\tuses"     # + the line of the first step that uses the mutated column
 FEATURE = "features/doubling.feature"
 SCENARIO = "The price is doubled"
 ENGINE = "io.cucumber.junit.platform.engine.CucumberTestEngine"
@@ -57,7 +58,8 @@ def mutant_name(n, scenario=SCENARIO, change="price: 5 -> 9"):
 
 
 def control_name(n, scenario=SCENARIO):
-    return f"CONTROL c{n} | Doubling - CONTROL c{n} | {scenario} - Examples - Example #1.1"
+    cid = n if isinstance(n, str) else f"c{n}"          # c1 runs before the mutants, z1 after them
+    return f"CONTROL {cid} | Doubling - CONTROL {cid} | {scenario} - Examples - Example #1.1"
 
 
 def thrown(exc_type, message="boom", frames=(GLUE_FRAME, STEP_FRAME), tag="failure"):
@@ -302,6 +304,86 @@ class VerdictTest(Sandbox):
         self.assertEqual(0, code, out)
 
 
+class WhereItFailed(Sandbox):
+    """A kill is a failure the changed value caused: thrown by a step definition, on the first step that uses the
+    value or a later one, in a row that can be repeated in one run."""
+
+    def manifest_with_uses(self, uses, controls=("c1",)):
+        rows = [GENERATED_HEADER, "\t".join(["m1", FEATURE, "11", SCENARIO, "price", "5", "9", str(uses)])]
+        rows += ["\t".join([c, FEATURE, "11", SCENARIO, "(control)", "", "", ""]) for c in controls]
+        write(os.path.join(self.mutants, "manifest.tsv"), "\n".join(rows) + "\n")
+
+    def run_verdict(self, *extra):
+        return tool("verdict", "--mutants", "mutants", "--results", "results", *extra, cwd=self.dir)
+
+    def test_a_step_that_fails_before_the_value_is_used_kills_nothing(self):
+        # the shared-state harness: the row's first step ("a new account ACC-1") fails on every repetition
+        self.manifest_with_uses(7)
+        write_results(self.results, [(control_name(1), PASSED), (mutant_name(1), in_step())])     # step frame: line 5
+        code, out = self.run_verdict()
+        self.assertEqual(1, code, out)
+        self.assertIn("0 killed, 0 survived, 1 error(s)", self.summary(out))
+        self.assertIn("MUTANT ERROR    m1 failed on line 5, before the first step that uses <price> (line 7) - the changed"
+                      " value did not cause it, not a kill", out)
+
+    def test_a_step_that_fails_where_the_value_is_used_kills(self):
+        for uses in (5, 4):
+            with self.subTest(uses=uses):
+                self.manifest_with_uses(uses)
+                write_results(self.results, [(control_name(1), PASSED), (mutant_name(1), in_step())])
+                code, out = self.run_verdict()
+                self.assertEqual(0, code, out)
+                self.assertIn("1 killed, 0 survived, 0 error(s)", self.summary(out))
+
+    def test_a_control_after_the_mutants_that_fails_means_the_row_cannot_be_repeated(self):
+        self.manifest_with_uses(5, controls=("c1", "z1"))
+        write_results(self.results, [(control_name("c1"), PASSED), (mutant_name(1), in_step()),
+                                     (control_name("z1"), in_step(message="account ACC-1 already exists"))])
+        code, out = self.run_verdict()
+        self.assertEqual(1, code, out)
+        self.assertIn("1 killed, 0 survived, 0 error(s); 2 control(s) - 1 passed", self.summary(out))
+        self.assertIn("MUTANT ERROR    z1 control (unmutated scenario, after the mutants) failed in a step with", out)
+        self.assertIn("the row cannot be repeated in one run", out)
+
+    def test_a_value_cucumber_rejected_before_any_step_definition_ran_kills_nothing(self):
+        convert = ("io.cucumber.core.exception.CucumberException", "Could not convert arguments for step [the order is in "
+                   "status {}] defined at 'com.example.OrderSteps.inStatus(Status)'.",
+                   ("io.cucumber.core.runner.PickleStepDefinitionMatch.couldNotConvertArguments(PickleStepDefinitionMatch.java:111)",
+                    "io.cucumber.core.runner.PickleStepDefinitionMatch.runStep(PickleStepDefinitionMatch.java:56)"))
+        glue_object = ("io.cucumber.core.exception.CucumberException", "Failed to instantiate class com.example.Steps",
+                       ("io.cucumber.core.backend.DefaultObjectFactory.cacheNewInstance(DefaultObjectFactory.java:53)",
+                        "io.cucumber.core.runner.PickleStepDefinitionMatch.runStep(PickleStepDefinitionMatch.java:63)",
+                        STEP_FRAME))
+        ambiguous = ("io.cucumber.core.runner.AmbiguousStepDefinitionsException", "\"the price 9 is doubled\" matches more"
+                     " than one step definition", ("io.cucumber.core.runner.CachingGlue.findStepDefinitionMatch(CachingGlue.java:388)",))
+        for name, (exc, message, frames) in {"conversion": convert, "glue object": glue_object, "ambiguous": ambiguous}.items():
+            with self.subTest(name):
+                self.manifest_with_uses(5)
+                write_results(self.results, [(control_name(1), PASSED), (mutant_name(1), thrown(exc, message, frames))])
+                code, out = self.run_verdict()
+                self.assertEqual(1, code, out)
+                self.assertIn("0 killed, 0 survived, 1 error(s)", self.summary(out))
+                self.assertIn("MUTANT ERROR    m1 the value never reached a step definition (" + exc, out)
+
+    def test_a_transformer_that_rejects_the_value_kills_nothing(self):
+        # Cucumber cuts a transformer's stack at the transformer and appends the step frame - like a step's
+        write(self.path("glue/com/example/Types.java"), "package com.example;\n\nclass Types {\n"
+              "    @ParameterType(\".*\")\n    public Status status(String value) {\n        return Status.valueOf(value);\n    }\n}\n")
+        enum = ("java.lang.IllegalArgumentException", "No enum constant com.example.Status.STIPPED")
+        transformer = thrown(*enum, frames=("java.base/java.lang.Enum.valueOf(Enum.java:293)",
+                                            "app//com.example.Types.status(Types.java:6)", STEP_FRAME))
+        step_body = thrown(*enum, frames=("java.base/java.lang.Enum.valueOf(Enum.java:293)", GLUE_FRAME, STEP_FRAME))
+        self.manifest_with_uses(5)
+        write_results(self.results, [(control_name(1), PASSED), (mutant_name(1), transformer)])
+        code, out = self.run_verdict("--glue", "glue")
+        self.assertEqual(1, code, out)
+        self.assertIn("MUTANT ERROR    m1 the value never reached a step definition (java.lang.IllegalArgumentException", out)
+        write_results(self.results, [(control_name(1), PASSED), (mutant_name(1), step_body)])
+        code, out = self.run_verdict("--glue", "glue")
+        self.assertEqual(0, code, out)          # the same exception from the step's own code is a kill
+        self.assertIn("1 killed (1 by a non-assertion exception thrown in a step), 0 survived", self.summary(out))
+
+
 # ----------------------------------------------------------------------------- generate
 
 DOUBLING = """Feature: Doubling
@@ -367,19 +449,27 @@ def cells(row_line):
 
 class GenerateTest(Sandbox):
 
-    def test_one_control_per_mutated_row(self):
+    def test_two_controls_per_mutated_row(self):
+        # cN runs before every mutant, zN after them: Cucumber runs the files in the order of their names
         write(self.path("features/doubling.feature"), DOUBLING)
         code, out = self.generate()
         self.assertEqual(0, code, out)
-        self.assertIn("Gherkin mutation: 4 mutant(s) + 2 control(s) from 1 feature file(s) in scope -> mutants", out)
+        self.assertIn("Gherkin mutation: 4 mutant(s) + 4 control(s) from 1 feature file(s) in scope -> mutants", out)
         self.assertEqual(sorted(["c1.feature", "c2.feature", "m1.feature", "m2.feature", "m3.feature", "m4.feature",
-                                 "manifest.tsv"]), sorted(os.listdir(self.mutants)))
+                                 "z1.feature", "z2.feature", "manifest.tsv"]), sorted(os.listdir(self.mutants)))
+        self.assertEqual(["c1.feature", "c2.feature"], sorted(f for f in os.listdir(self.mutants) if f < "m"))
         rows = self.manifest()
-        self.assertEqual(["m1", "m2", "m3", "m4", "c1", "c2"], [r[0] for r in rows])
-        self.assertEqual(["c1", FEATURE, "11", SCENARIO, "(control)", "", ""], rows[4])
-        self.assertEqual(["c2", FEATURE, "12", SCENARIO, "(control)", "", ""], rows[5])
-        self.assertEqual([7, 7, 7, 7], [len(r) for r in rows[:4]])
-        self.assertEqual(HEADER, read_lines(os.path.join(self.mutants, "manifest.tsv"))[0])
+        self.assertEqual(["m1", "m2", "m3", "m4", "c1", "z1", "c2", "z2"], [r[0] for r in rows])
+        self.assertEqual(["c1", FEATURE, "11", SCENARIO, "(control)", "", "", ""], rows[4])
+        self.assertEqual(["z1", FEATURE, "11", SCENARIO, "(control)", "", "", ""], rows[5])
+        self.assertEqual(["c2", FEATURE, "12", SCENARIO, "(control)", "", "", ""], rows[6])
+        # the line of the first step that uses the column: <price> in a step's text, <result> in its data table
+        self.assertEqual([("price", "4"), ("result", "5"), ("price", "4"), ("result", "5")], [(r[4], r[7]) for r in rows[:4]])
+        self.assertEqual(GENERATED_HEADER, read_lines(os.path.join(self.mutants, "manifest.tsv"))[0])
+        z2 = read_lines(os.path.join(self.mutants, "z2.feature"))
+        c2 = read_lines(os.path.join(self.mutants, "c2.feature"))
+        self.assertEqual("# Gherkin control z2 (runs after the mutants) of features/doubling.feature - generated, do not edit", z2[0])
+        self.assertEqual([line.replace("c2", "z2") for line in c2[1:]], z2[1:])
         self.assertEqual(["# Gherkin control c2 of features/doubling.feature - generated, do not edit",
                           "Feature: CONTROL c2 | Doubling",
                           "  Scenario Outline: CONTROL c2 | The price is doubled",
@@ -428,7 +518,7 @@ class GenerateTest(Sandbox):
         write(self.path("features/addresses.feature"), RICH)
         code, out = self.generate()
         self.assertEqual(0, code, out)
-        self.assertIn("Gherkin mutation: 4 mutant(s) + 2 control(s) from 1 feature file(s)", out)
+        self.assertIn("Gherkin mutation: 4 mutant(s) + 4 control(s) from 1 feature file(s)", out)
         self.assertEqual(["# Gherkin control c1 of features/addresses.feature - generated, do not edit",
                           "@billing",
                           "Feature: CONTROL c1 | Addresses",
@@ -452,13 +542,16 @@ class GenerateTest(Sandbox):
         c2 = read_lines(os.path.join(self.mutants, "c2.feature"))
         self.assertNotIn("      @eu", c2)                             # the second Examples table has no tag
         self.assertEqual("      | Lima | none |", c2[-2])
-        self.assertEqual(["23", "27"], [r[2] for r in self.manifest() if r[4] == "(control)"])
+        self.assertEqual(["23", "23", "27", "27"], [r[2] for r in self.manifest() if r[4] == "(control)"])
+        # <address> and <note> are first used by the When step - line 12 of the generated feature, line 11 for the
+        # second table, which has no tag line; the doc string with <address> belongs to the later Then step
+        self.assertEqual(["12", "12", "11", "11"], [r[7] for r in self.manifest() if r[4] != "(control)"])
 
     def test_russian_keywords(self):
         write(self.path("features/discount.feature"), RUSSIAN)
         code, out = self.generate()
         self.assertEqual(0, code, out)
-        self.assertIn("2 mutant(s) + 1 control(s)", out)
+        self.assertIn("2 mutant(s) + 2 control(s)", out)
         self.assertEqual(["# language: ru",
                           "# Gherkin control c1 of features/discount.feature - generated, do not edit",
                           "Функция: CONTROL c1 | Расчёт скидки по заказу",
@@ -479,19 +572,30 @@ class GenerateTest(Sandbox):
         write(self.path("features/discount.feature"), RUSSIAN)
         code, out = self.generate("--only", "features/discount.feature")
         self.assertEqual(0, code, out)
-        self.assertIn("Gherkin mutation: 2 mutant(s) + 1 control(s) from 1 feature file(s) in scope", out)
+        self.assertIn("Gherkin mutation: 2 mutant(s) + 2 control(s) from 1 feature file(s) in scope", out)
         self.assertEqual({"features/discount.feature"}, {r[1] for r in self.manifest()})
 
     def test_generated_run_judged_end_to_end(self):
         write(self.path("features/doubling.feature"), DOUBLING)
         self.generate()
-        cases = [(control_name(int(r[0][1:])), PASSED) if r[4] == "(control)"
+        cases = [(control_name(r[0]), PASSED) if r[4] == "(control)"
                  else (mutant_name(int(r[0][1:]), change=f"{r[4]}: {r[5]} -> {r[6]}"), in_step(TABLE_DIFF)) for r in self.manifest()]
         write_results(self.results, cases)
         code, out = tool("verdict", "--mutants", "mutants", "--results", "results", cwd=self.dir)
         self.assertEqual("Gherkin mutation: 4 mutant(s) - 4 killed (4 by a non-assertion exception thrown in a step),"
-                         " 0 survived, 0 error(s); 2 control(s) - 2 passed", self.summary(out))
+                         " 0 survived, 0 error(s); 4 control(s) - 4 passed", self.summary(out))
         self.assertEqual(0, code, out)
+
+    def test_emoji_cells_are_mutated_as_whole_characters(self):
+        # a mutation that split a surrogate pair wrote no file and ended generate with exit 2
+        rows = "".join(f"      | Hi {i} \U0001F600 | {i} |\n" for i in range(30))
+        write(self.path("features/emoji.feature"), "Feature: Emoji\n\n  Scenario Outline: Reaction\n"
+              "    When <text> is sent\n    Then <n> reactions are counted\n\n    Examples:\n      | text | n |\n" + rows)
+        code, out = self.generate()
+        self.assertEqual(0, code, out)
+        for row in self.manifest():
+            if row[4] != "(control)":
+                read_lines(os.path.join(self.mutants, row[0] + ".feature"))       # valid UTF-8, or this raises
 
     # ---- behaviour that must not change
 
@@ -533,7 +637,7 @@ class GenerateTest(Sandbox):
 """)
         code, out = self.generate()
         self.assertIn('GHERKIN VACUOUS features/mixed.feature:14 scenario "Plain neighbour"', out)
-        self.assertIn("Gherkin mutation: 4 mutant(s) + 2 control(s)", out)
+        self.assertIn("Gherkin mutation: 4 mutant(s) + 4 control(s)", out)
         self.assertEqual(1, code, out)
 
     def test_missing_features_directory_is_an_error(self):

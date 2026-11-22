@@ -4,6 +4,7 @@ GitHub Actions itself is not available here, so everything the steps take from t
 GITHUB_OUTPUT, the JAVA_HOME_<major>_<ARCH> variables setup-java exports, and ./gradlew.
 """
 import os
+import re
 import stat
 import tempfile
 import unittest
@@ -59,6 +60,10 @@ class Workspace:
         path = kit.write(os.path.join(self.root, module, "gradlew"), GRADLEW)
         os.chmod(path, os.stat(path).st_mode | stat.S_IXUSR)
 
+    def properties(self, text, module=""):
+        """Replaces the common gauntlet.properties (or writes the module's overlay)."""
+        kit.write(os.path.join(self.root, "gauntlet/config", module, "gauntlet.properties"), text)
+
     def jdk(self, major):
         java = kit.write(os.path.join(self.jdks, str(major), "bin", "java"), "#!/bin/sh\n")
         os.chmod(java, 0o755)
@@ -97,6 +102,12 @@ class WorkflowText(unittest.TestCase):
         text = workflow()
         self.assertEqual(text.count("actions/setup-java@"), 1)
         self.assertIn("java-version: ${{ steps.plan.outputs.java }}", text)
+
+    def test_setup_java_is_not_a_deprecated_major(self):
+        # v1-v4 are deprecated upstream: v4 warns "setup-java v4 is deprecated ..." on every run
+        major = re.search(r"uses: actions/setup-java@v(\d+)\n", workflow())
+        self.assertIsNotNone(major)
+        self.assertGreaterEqual(int(major.group(1)), 5)
 
     def test_full_history_is_fetched(self):
         self.assertIn("fetch-depth: 0", workflow())
@@ -146,6 +157,106 @@ class PlanStep(unittest.TestCase):
         self.assertEqual(r.code, 1, r)
         self.assertIn("::error::Set project.java.version", r.out)
 
+    def test_colon_and_blank_separate_a_key_from_its_value_as_in_gradle(self):
+        # gauntlet.gradle loads both files with java.util.Properties: `key: value` and `key value` are assignments
+        ws = Workspace(self.tmp.name, "core,adapter")
+        ws.properties("module=core,adapter\nproject.java.version: 17\ngate.java.version 21\n")
+        ws.properties("project.java.version\t21\ngate.java.version : 25\r\n", "adapter")
+        r = ws.step(PLAN)
+        self.assertEqual(r.code, 0, r)
+        self.assertEqual(ws.plan(), [["core", "17", "21"], ["adapter", "21", "25"]])
+
+    def test_overlay_key_alone_on_its_line_assigns_nothing_and_still_wins(self):
+        ws = Workspace(self.tmp.name, "core")
+        ws.properties("gate.java.version\n", "core")
+        r = ws.step(PLAN)
+        self.assertEqual(r.code, 0, r)
+        self.assertEqual(ws.plan(), [["core", "17", "17"]])
+
+    def test_comment_or_longer_key_is_no_assignment(self):
+        ws = Workspace(self.tmp.name)
+        ws.properties("module=\nproject.java.version=17\ngate.java.version=21\n"
+                      "# gate.java.version: 8\n! gate.java.version 8\ngate.java.version.note 8\ngate.java.versions: 8\n")
+        r = ws.step(PLAN)
+        self.assertEqual(r.code, 0, r)
+        self.assertEqual(ws.plan(), [[".", "17", "21"]])
+
+    def test_last_assignment_wins_on_a_last_line_without_a_newline(self):
+        ws = Workspace(self.tmp.name)
+        ws.properties("module=\nproject.java.version=17\ngate.java.version=21\ngate.java.version=")
+        r = ws.step(PLAN)
+        self.assertEqual(r.code, 0, r)
+        self.assertEqual(ws.plan(), [[".", "17", "17"]])
+
+    def test_two_spellings_of_one_major_stop_the_job(self):
+        # setup-java exports ONE JAVA_HOME_21_<ARCH>: both 21.0.2 and 21 would run on whichever came last
+        ws = Workspace(self.tmp.name)
+        ws.properties("module=\nproject.java.version=21.0.2\ngate.java.version=21\n")
+        r = ws.step(PLAN)
+        self.assertEqual(r.code, 1, r)
+        self.assertIn("::error::Java 21 is asked for as '21.0.2' (project.java.version for '.') and as '21' "
+                      "(gate.java.version for '.')", r.out)
+        self.assertNotIn("GAUNTLET_EOF", ws.outputs())          # nothing is handed to setup-java
+
+    def test_two_spellings_of_one_major_in_two_builds_name_both_builds(self):
+        ws = Workspace(self.tmp.name, "core,adapter")
+        ws.properties("project.java.version=17.0.2\n", "adapter")
+        r = ws.step(PLAN)
+        self.assertEqual(r.code, 1, r)
+        self.assertIn("::error::Java 17 is asked for as '17' (project.java.version for 'core') and as '17.0.2' "
+                      "(project.java.version for 'adapter')", r.out)
+
+    def test_one_spelling_of_a_major_is_installed_once_for_every_build_that_uses_it(self):
+        ws = Workspace(self.tmp.name, "core,adapter")
+        ws.properties("module=core,adapter\nproject.java.version=21.0.2\n")       # no gate version: the application's JDK
+        ws.properties("project.java.version=17-ea\ngate.java.version=21.0.2\n", "adapter")
+        r = ws.step(PLAN)
+        self.assertEqual(r.code, 0, r)
+        self.assertEqual(ws.plan(), [["core", "21.0.2", "21.0.2"], ["adapter", "17-ea", "21.0.2"]])
+        self.assertIn("java<<GAUNTLET_EOF\n21.0.2\n17-ea\nGAUNTLET_EOF\n", ws.outputs())
+
+    def test_old_1_x_notation_is_planned_in_the_notation_setup_java_takes(self):
+        # setup-java rejects java-version 1.8 ("no matching version"): the plan and its output must say 8
+        ws = Workspace(self.tmp.name, "core,adapter")
+        ws.properties("module=core,adapter\nproject.java.version=1.8\ngate.java.version=21\n")
+        ws.properties("project.java.version=8\n", "adapter")                         # the same JDK, no second spelling
+        r = ws.step(PLAN)
+        self.assertEqual(r.code, 0, r)
+        self.assertEqual(ws.plan(), [["core", "8", "21"], ["adapter", "8", "21"]])
+        self.assertIn("java<<GAUNTLET_EOF\n8\n21\nGAUNTLET_EOF\n", ws.outputs())
+
+    def test_version_that_does_not_begin_with_one_major_stops_the_job(self):
+        # the run step finds a JDK by the major a version begins with: a range or a comment has none to offer
+        for version in (">=17", "17 || 21", "17||21", "17 # LTS", "latest", "1.x"):
+            with self.subTest(version=version), tempfile.TemporaryDirectory() as tmp:
+                ws = Workspace(tmp)
+                ws.properties(f"module=\nproject.java.version={version}\ngate.java.version=21\n")
+                r = ws.step(PLAN)
+                self.assertEqual(r.code, 1, r)
+                self.assertIn(f"::error::project.java.version '{version}' for '.' is not one Java version", r.out)
+
+    def test_module_directory_with_a_space_is_one_build(self):
+        ws = Workspace(self.tmp.name, "order service, billing")
+        r = ws.step(PLAN)
+        self.assertEqual(r.code, 0, r)
+        self.assertEqual(ws.plan(), [["order service", "17", "21"], ["billing", "17", "21"]])
+
+    def test_module_list_is_split_as_the_hooks_split_it(self):
+        # commas only; an entry is stripped of blanks and slashes, an empty one is none, nothing is a glob
+        ws = Workspace(self.tmp.name)
+        ws.properties("module= /svc/adapter/ ,, * ,./core\nproject.java.version=17\n")
+        ws.properties("gate.java.version=21\n", "svc/adapter")
+        r = ws.step(PLAN)
+        self.assertEqual(r.code, 0, r)
+        self.assertEqual(ws.plan(), [["svc/adapter", "17", "21"], ["*", "17", "17"], ["./core", "17", "17"]])
+
+    def test_module_list_of_empty_entries_is_the_root_build(self):
+        ws = Workspace(self.tmp.name)
+        ws.properties("module= , \nproject.java.version=17\n")
+        r = ws.step(PLAN)
+        self.assertEqual(r.code, 0, r)
+        self.assertEqual(ws.plan(), [[".", "17", "17"]])
+
 
 class BaseStep(unittest.TestCase):
 
@@ -171,6 +282,16 @@ class BaseStep(unittest.TestCase):
         r = self.ws.step(BASE, BASE_REF="")
         self.assertEqual(r.code, 0, r)
         self.assertIn("ref=origin/develop\n", self.ws.outputs())
+
+    def test_configured_base_is_read_with_the_separators_gradle_reads(self):
+        for line in ("baseRef: origin/release", "baseRef origin/release", "baseRef\t:\torigin/release\r"):
+            with self.subTest(line=line):
+                self.ws.properties(f"module=\nbaseRef=origin/develop\n{line}\nproject.java.version=17\n")
+                if os.path.exists(self.ws.output):
+                    os.remove(self.ws.output)
+                r = self.ws.step(BASE, BASE_REF="")
+                self.assertEqual(r.code, 0, r)
+                self.assertEqual(self.ws.outputs(), "ref=origin/release\n")
 
 
 class RunStep(unittest.TestCase):
@@ -236,6 +357,60 @@ class RunStep(unittest.TestCase):
         r = ws.step(RUN, GAUNTLET_BASE_REF="origin/main")
         self.assertEqual(r.code, 1, r)
         self.assertIn("::error::no guarded build ran", r.out)
+
+    def test_jdk_is_found_by_the_major_a_version_begins_with(self):
+        # setup-java names the variable after the major alone: 17-ea, 21.0.2 and 8.0.282+8 live in JAVA_HOME_17/21/8
+        ws = self.planned("core,adapter", [["core", "17-ea", "21.0.2"], ["adapter", "8.0.282+8", "17-ea"]])
+        r = ws.step(RUN, GAUNTLET_BASE_REF="origin/main", jdks=(8, 17, 21))
+        self.assertEqual(r.code, 0, r)
+        calls = ws.called()
+        self.assertEqual(len(calls), 6, calls)
+        self.assertTrue(calls[2].endswith(f"|JAVA_HOME={ws.jdk(17)}|GATE={ws.jdk(21)}|java={ws.jdk(17)}/bin/java"), calls[2])
+        self.assertTrue(calls[5].endswith(f"|JAVA_HOME={ws.jdk(8)}|GATE={ws.jdk(17)}|java={ws.jdk(8)}/bin/java"), calls[5])
+
+    def test_major_is_not_a_prefix_of_another_major(self):
+        ws = self.planned("", [[".", "1", "21"]])                     # JAVA_HOME_17_X64 is no JDK 1
+        r = ws.step(RUN, GAUNTLET_BASE_REF="origin/main")
+        self.assertEqual(r.code, 1, r)
+        self.assertEqual(ws.called(), [])
+        self.assertIn("::error::no JDK 1 for '.'", r.out)
+
+
+class PlannedRun(unittest.TestCase):
+    """The plan step's own plan handed to the run step, with the variables setup-java would export for it."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def run_planned(self, ws, jdks):
+        r = ws.step(PLAN)
+        self.assertEqual(r.code, 0, r)
+        r = ws.step(RUN, GAUNTLET_BASE_REF="origin/main", jdks=jdks)
+        self.assertEqual(r.code, 0, r)
+        return [c.split("|") for c in ws.called()]
+
+    def test_early_access_version(self):
+        # setup-java installs 17-ea as JAVA_HOME_17_<ARCH>
+        ws = Workspace(self.tmp.name)
+        ws.properties("module=\nproject.java.version=17-ea\ngate.java.version=21\n")
+        calls = self.run_planned(ws, (17, 21))
+        self.assertIn("java<<GAUNTLET_EOF\n17-ea\n21\nGAUNTLET_EOF\n", ws.outputs())
+        self.assertEqual(len(calls), 3, calls)
+        self.assertEqual(calls[2][2:4], [f"JAVA_HOME={ws.jdk(17)}", f"GATE={ws.jdk(21)}"])
+
+    def test_java_8_written_as_1_8(self):
+        ws = Workspace(self.tmp.name)
+        ws.properties("module=\nproject.java.version=1.8\ngate.java.version=21\n")
+        calls = self.run_planned(ws, (8, 21))
+        self.assertIn("java<<GAUNTLET_EOF\n8\n21\nGAUNTLET_EOF\n", ws.outputs())     # setup-java knows no 1.8
+        self.assertEqual(len(calls), 3, calls)
+        self.assertEqual(calls[2][2:4], [f"JAVA_HOME={ws.jdk(8)}", f"GATE={ws.jdk(21)}"])
+
+    def test_module_directory_with_a_space(self):
+        ws = Workspace(self.tmp.name, "order service,billing")
+        calls = self.run_planned(ws, (17, 21))
+        self.assertEqual([c[0] for c in calls], ["order service"] * 3 + ["billing"] * 3)
 
 
 if __name__ == "__main__":

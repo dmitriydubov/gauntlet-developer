@@ -151,11 +151,23 @@ class ChangedScopeWithDebugInfo(CrapCase):
         self.assertIn("1 method(s) analysed", r.out)
 
     def test_class_the_scan_cannot_name_stays_in_scope_without_a_namesake(self):
-        # a Unicode escape in the name: the scan reads "Tarif", the class is Tarifé - never dropped on silence
-        changed = self.source("src/main/java/a/Tarifs.java", "package a;\nclass Tarif\\u00e9 { }\n")
-        xml = report(("a/Tarifé", "Tarifs.java", [method("fee", **COMPLEX)]))
+        # a Java 25 compact source file: no type declaration to read, the class is named after the file -
+        # never dropped on the scan's silence
+        changed = self.source("src/main/java/Batch.java", "int quote(int amount) {\n    return amount;\n}\n\nvoid main() {\n}\n")
+        xml = report(("Batch", "Batch.java", [method("quote", "(I)I", **COMPLEX)]))
         r = self.gate(xml, "--only", changed, "--sources", "src/main/java")
         self.assertEqual(r.code, 1, r)
+        self.assertIn("Batch#quote", r.out)
+
+    def test_changed_namesake_in_another_source_root_stays_in_scope(self):
+        # both Rules.java changed (gauntlet.gradle lists the changed sources of every main root): nothing is a namesake
+        changed = [self.source("src/main/java/a/Rules.java", "package a;\nclass CurrentRules { }\n"),
+                   self.source("src/compat/java/a/Rules.java", "package a;\nclass CompatRules { }\n")]
+        xml = report(("a/CurrentRules", "Rules.java", [method("fee")]), ("a/CompatRules", "Rules.java", [method("old", **COMPLEX)]))
+        r = self.gate(xml, "--only", ",".join(changed), "--sources", "src/main/java,src/compat/java")
+        self.assertEqual(r.code, 1, r)
+        self.assertIn("2 method(s) analysed", r.out)
+        self.assertIn("a.CompatRules#old", r.out)
 
     def test_nested_and_anonymous_classes_follow_their_top_level_type(self):
         changed = self.source("src/main/java/a/Outer.java", "package a;\nclass Outer { class Inner { } }\n")
@@ -232,6 +244,81 @@ class ChangedScopeWithoutDebugInfo(CrapCase):
         r = self.gate(report(("a/Other", None, [method("x", **COMPLEX)])), "--only", changed)
         self.assertEqual(r.code, 0, r)
         self.assertIn("no source filenames (debug=false)", r.out)
+
+
+class SourceAsJavacReadsIt(CrapCase):
+    """Without debug info only the scan binds a class to a changed source: it must read what javac 21/25 read."""
+
+    # what is written -> (the source, the top-level classes javac compiles from it, names a wrong reading would find)
+    SHAPES = {
+        "a lone CR ends a line comment": (
+            "package a;\n\n// pricing rules\rclass Pricing { }\n// more\r\nclass Rates { }\n",
+            ["a.Pricing", "a.Rates"], []),
+        "Unicode escapes are translated before anything else": (
+            "package a;\n"
+            "\\u0063lass Keyword { }\n"                             # an escaped letter of the keyword
+            "class Tarif\\u00e9 { }\n"                              # ... of the name
+            "class U\\uuu0041 { }\n"                                # any number of u
+            "// note \\u000a class AfterEscapedLf { }\n"            # an escaped line end closes the comment
+            "/* \\u002a\\u002f class AfterEscapedEnd { }\n"         # an escaped */ closes this one
+            "class Quoted { String s = \"a\\u0022; }\n"             # an escaped quote closes the literal
+            "class AfterQuoted { }\n"
+            "class Holder { char c = '\\u005c\\u005c'; String s = \"\\u005c\\u0022\"; }\n"
+            "class AfterHolder { }\n",
+            ["a.AfterEscapedEnd", "a.AfterEscapedLf", "a.AfterHolder", "a.AfterQuoted", "a.Holder", "a.Keyword",
+             "a.Quoted", "a.Tarifé", "a.UA"], ["a.Tarif", "a.U"]),
+        "a backslash after an odd number of backslashes starts no escape": (
+            "package a;\n"
+            "// C:\\\\u000a class Ghost { }\n"                      # two backslashes: text, the comment goes on
+            "// C:\\\\\\u000a class Shown { }\n"                    # three: a backslash, then an escaped line end
+            "class Real { String s = \"\\\\u0022\"; }\n",
+            ["a.Real", "a.Shown"], ["a.Ghost"]),
+        "ignorable characters inside keywords and names are dropped": (     # a zero-width (non-)joiner, a NUL
+            "pack\u200cage a\u200db;\n\ncl\u200cass Pri\u200ccing { }\ncl\x00ass K\x00w { }\n",
+            ["ab.Kw", "ab.Pricing"], ["ab.Pri\u200ccing"]),
+    }
+
+    def judged(self, text, classes, name="Sources.java"):
+        """Runs the gate on one changed source; every listed class is in the report, complex and uncovered."""
+        changed = self.source("src/main/java/a/" + name, text)
+        r = self.gate(report(*[(c.replace(".", "/"), None, [method("m", **COMPLEX)]) for c in classes]), "--only", changed)
+        return r, sorted(line.split("#")[0].split()[-1] for line in r.out.splitlines() if line.startswith("CRAP FAIL"))
+
+    def test_scan_binds_the_classes_javac_compiles(self):
+        for shape, (text, classes, decoys) in self.SHAPES.items():
+            with self.subTest(shape):
+                r, failed = self.judged(text, classes + decoys)
+                self.assertEqual(failed, classes, r)
+
+    def test_javac_compiles_exactly_these_classes(self):
+        # the expectations above are javac's own reading, not this suite's opinion
+        for index, (shape, (text, classes, _)) in enumerate(self.SHAPES.items()):
+            with self.subTest(shape):
+                out = os.path.join(self.dir, f"classes{index}")
+                r = kit.run(["javac", "-d", out, self.source(f"javac{index}/Sources.java", text)], cwd=self.dir, env=kit.java_env())
+                self.assertEqual(r.code, 0, r)
+                compiled = sorted(os.path.relpath(os.path.join(d, f), out)[:-len(".class")].replace(os.sep, ".")
+                                  for d, _, files in os.walk(out) for f in files)
+                self.assertEqual(compiled, classes)
+
+    def test_source_without_a_readable_declaration_is_an_input_error(self):
+        # a compact source file compiles to the class Batch; nothing in the source or the report says so
+        r, failed = self.judged("int quote(int amount) {\n    return amount;\n}\n\nvoid main() {\n}\n", ["Batch"], name="Batch.java")
+        self.assertEqual(r.code, 2, r)
+        self.assertIn("cannot tell which types the changed source", r.out)
+        self.assertIn("Batch.java", r.out)
+
+    def test_files_that_declare_no_type_are_no_error(self):
+        other = report(("a/Other", None, [method("x", **COMPLEX)]))
+        for name, text in (("package-info.java", "/** Doc. */\n@Deprecated\npackage a;\n"),
+                           ("module-info.java", "module a {\n    exports a;\n}\n"),
+                           ("Notes.java", "// class Draft { }\n/* nothing yet */\n"),
+                           ("Imports.java", "package a;\n\nimport java.util.List;\nimport static java.util.Map.entry;\n;\n"),
+                           ("Empty.java", "")):
+            with self.subTest(name):
+                r = self.gate(other, "--only", self.source("src/main/java/a/" + name, text))
+                self.assertEqual(r.code, 0, r)
+                self.assertIn("0 method(s) analysed", r.out)
 
 
 class SourceEncoding(CrapCase):

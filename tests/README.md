@@ -23,6 +23,8 @@ python3 tests/run.py -k crap      # только тесты, в идентифи
 | `test_install.py` | `install.sh`: чистая установка, слияние с существующими настройками, обновление, пользовательские хуки |
 | `test_crap_gate.py` | `CrapGate` на синтетических отчётах JaCoCo: порог, allowlist, область `changed` с debug-информацией и без |
 | `test_integrity_check.py` | `IntegrityCheck`: каждое правило, освобождение packaging-задач (матрица «свободно»/B1), кодировки |
+| `test_gherkin_mutator.py` | `GherkinMutator`: генерация мутантов и контрольных сценариев, вердикт по JUnit XML в формате Gradle (стадия падения, контроли), `no-skipped` |
+| `test_gradle_e2e.py` | только с `--gradle`: настоящий проект на Gradle — полный `gauntlet` на примере из набора и сценарии, найденные ревью (вердикт Gherkin-мутаций, область `changed`, JVM гейтов) |
 
 GitHub Actions локально не запускается: шаги workflow проверяются как shell-скрипты, сам workflow — только
 настоящим прогоном в репозитории, куда набор установлен.

@@ -400,6 +400,31 @@ ArchUnit-тест, шаблоны, установку и документаци�
 - `hooks/stop_gate.py`: `buildSrc` входит в отслеживаемые пути — правка только build-логики запускает гейт (была
   вынесена «в отдельную задачу» с ревью Kimi); при таймауте Gradle агент получает частичный вывод (на POSIX он
   приходит как bytes и терялся).
+- `tools/GherkinMutator.java`: вердикт решает стадия, а не список типов исключений. Падение с кадром шага
+  Cucumber — kill при любом типе: `DataTable.diff` самого Cucumber (`TableDiffException`), проверки Mockito и
+  WireMock, Awaitility на `166287c` давали «0 killed, N errors» и красную сборку; `<failure>` и `<error>` судятся
+  одинаково, падение без кадра шага (хук, фикстура, контекст) — по-прежнему ошибка. На каждую мутируемую строку
+  «Примеров» генерируется контрольный сценарий `cN.feature` — та же отрисовка без изменений; контроль обязан
+  пройти, иначе вердикт красный: на `166287c` мутанты сценария, которому в стенде не хватало предусловия,
+  считались убитыми (`Gherkin mutation: OK`, BUILD SUCCESSFUL). Мутант повторяющегося заголовка «Примеров»
+  меняет свою колонку, а не первую одноимённую. Строка итога: `… K killed, S survived, E error(s); C control(s) - P passed`.
+- `hooks/guard.py`: git принимает любой однозначный префикс длинной опции — закрыты `commit --amen`,
+  `push --mirro`/`--al`/`--branches`, `branch --forc`/`--delet`/`--mov`/`--cop`, `switch --force-creat`, кластеры
+  `-qB`/`-Bname`/`-fC`; глобальная опция со значением (`git --namespace x commit --amend`) больше не прячет
+  подкоманду; `core.hooksPath` запрещён через `-c`/`--config-env` перед любой подкомандой и записью
+  `git config` (чтение и `--unset` разрешены); запись `alias.*`, `include.path`, `includeIf.*` запрещена (алиас
+  прячет любую human-only команду); `gh workflow disable` и не-GET `gh api` к `/protection`, `/rulesets`,
+  `/actions/permissions`, `/actions/workflows/…/disable`, GraphQL-мутации защиты ветки запрещены. Сняты ложные
+  блокировки: значение опции не считается кластером флагов (`commit -uno`, `branch --sort -committerdate`,
+  `branch --contains HEAD` у ревьюера), сообщение коммита `-m "--amend"` — не опция.
+- `.claude/settings.json`: `permissions.deny` дополнен префиксными формами сокращений, `git config core.hooksPath`
+  и `gh workflow disable` (11 записей).
+- `hooks/selftest.py`: 997 → 1429 проверок (сокращения и их разрешающие контроли, конфигурация git, `gh`,
+  `buildSrc`, вывод при таймауте). `README.md`, `INSTALL.md`, `config/gauntlet.properties` — описание синхронизировано.
+- Проверки: `python3 tests/run.py` в репозитории набора (распакованный бандл): самопроверка хуков 1429/1429,
+  инструменты, установщик, shell-шаги CI, побайтная пересборка; реальные Gradle 8.14.3/JDK 21 и 25, Cucumber
+  7.23.0 и 8.0.1 — полный `gauntlet` на примере (9/9 Gherkin-мутантов, 3 контроля, PIT 2/2) и сценарии находок.
+  GitHub Actions в этой среде не запускался: шаги workflow исполнены локально как shell.
 
 ## Как распаковать (Claude выполняет это на шаге 2 протокола `start`)
 
@@ -429,23 +454,23 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 - `.claude/agents/hardener.md` (4233 байт)
 - `.claude/agents/reviewer.md` (7509 байт)
 - `.claude/agents/specifier.md` (5026 байт)
-- `.claude/settings.json` (2211 байт)
+- `.claude/settings.json` (2586 байт)
 - `.github/workflows/gauntlet.yml` (5615 байт)
 - `CLAUDE.md` (279 байт)
 - `gauntlet/CLAUDE.md` (64586 байт)
-- `gauntlet/INSTALL.md` (14369 байт)
-- `gauntlet/README.md` (51401 байт)
+- `gauntlet/INSTALL.md` (14544 байт)
+- `gauntlet/README.md` (57717 байт)
 - `gauntlet/archtest/gauntlet/architecture/ArchitectureTest.java` (7906 байт)
 - `gauntlet/config/architecture.properties` (1420 байт)
 - `gauntlet/config/checkstyle.xml` (4593 байт)
 - `gauntlet/config/crap-allowlist.txt` (924 байт)
-- `gauntlet/config/gauntlet.properties` (6384 байт)
+- `gauntlet/config/gauntlet.properties` (6568 байт)
 - `gauntlet/config/integrity-allowlist.txt` (445 байт)
 - `gauntlet/config/pit-runerror-allowlist.txt` (1485 байт)
 - `gauntlet/config/pmd-ruleset.xml` (11398 байт)
 - `gauntlet/gauntlet.gradle` (43456 байт)
-- `gauntlet/hooks/guard.py` (44168 байт)
-- `gauntlet/hooks/selftest.py` (69153 байт)
+- `gauntlet/hooks/guard.py` (53684 байт)
+- `gauntlet/hooks/selftest.py` (84316 байт)
 - `gauntlet/hooks/session_start.sh` (3116 байт)
 - `gauntlet/hooks/stop_gate.py` (20978 байт)
 - `gauntlet/install.sh` (11572 байт)
@@ -453,7 +478,7 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 - `gauntlet/templates/acceptanceTest/resources/features/example_discount.feature` (1258 байт)
 - `gauntlet/tools/CrapGate.java` (27932 байт)
 - `gauntlet/tools/DryGate.java` (6538 байт)
-- `gauntlet/tools/GherkinMutator.java` (42883 байт)
+- `gauntlet/tools/GherkinMutator.java` (49759 байт)
 - `gauntlet/tools/IntegrityCheck.java` (24746 байт)
 - `gauntlet/tools/PitSummary.java` (11633 байт)
 
@@ -764,7 +789,18 @@ before any code is written; the coder must then make your scenarios pass without
       "Bash(git switch -C:*)",
       "Bash(git branch -f:*)",
       "Bash(git branch -D:*)",
-      "Bash(git branch -M:*)"
+      "Bash(git branch -M:*)",
+      "Bash(git commit --am:*)",
+      "Bash(git push --m:*)",
+      "Bash(git push --al:*)",
+      "Bash(git push --b:*)",
+      "Bash(git branch --forc:*)",
+      "Bash(git branch --d:*)",
+      "Bash(git branch --mo:*)",
+      "Bash(git branch --cop:*)",
+      "Bash(git switch --force-:*)",
+      "Bash(git config core.hooksPath:*)",
+      "Bash(gh workflow disable:*)"
     ]
   }
 }
@@ -1356,7 +1392,8 @@ PR открыт. Бизнес-код и существующие тесты не
   репозитория: `GAUNTLET_GATE_JAVA_HOME` или `-Pgauntlet.gateJavaHome`; старый tracked `gate.java.home` не
   используется. Не меняй Java приложения или его toolchain. CI устанавливает проектную Java и gate Java
   раздельно; wrapper запускается с проектной `JAVA_HOME`, а установленный gate JDK передаётся инструментам
-  через `GAUNTLET_GATE_JAVA_HOME`. Если gate-версия пуста, CI использует `project.java.version`.
+  через `GAUNTLET_GATE_JAVA_HOME`. Если gate-версия пуста, CI использует `project.java.version`. В монорепо
+  обе версии можно задать модулю в его оверлее: CI берёт их для каждой сборки отдельно.
 - `cucumber.version`, `archunit.version`, `pit.version`, `pit.junit5PluginVersion`, `jacoco.version`,
   `checkstyle.version`, `pmd.version` и плагин PIT — совместимые с обнаруженными Java/Gradle/JUnit/Spring
   версии, зафиксированные после реального прогона. Например, Boot 3.5 с JUnit 5.12 → Cucumber 7.23.0;
@@ -1492,7 +1529,7 @@ gauntlet/
   archtest/               ArchUnit-тест, читающий config/architecture.properties
   hooks/                  guard.py (PreToolUse), stop_gate.py (Stop; SubagentStop hardener'а — matcher в
                           .claude/settings.json), session_start.sh (SessionStart; в облаке поднимает dockerd),
-                          selftest.py (997 проверок хуков в трёх раскладках: python3 gauntlet/hooks/selftest.py)
+                          selftest.py (1429 проверок хуков в трёх раскладках: python3 gauntlet/hooks/selftest.py)
   templates/              конфигурация Cucumber+Spring, пример фичи на русском
   claude/, ci/            только до установки: install.sh переносит их в .claude/ и .github/workflows/
 ```
@@ -1515,7 +1552,7 @@ gauntlet/
 | `crapGate` | свой (`CrapGate.java`) по JaCoCo XML, формула crap4java | **8** | `crap.threshold`, `config/crap-allowlist.txt` |
 | `dryGate` | PMD CPD 7.27 | 0 дублей ≥ 60 токенов (имена и литералы игнорируются; `dry.exclude` — пути вне поиска, например каталог JPA-сущностей) | `dry.*` |
 | `mutationGate` | PIT 1.22 + gradle-pitest-plugin 1.19.0, свой `PitSummary.java` | **все покрытые мутанты убиты** (test strength 100 %), покрытие мутируемых классов ≥ 80 %; RUN_ERROR (JVM тестов упала на `redefineClasses`, PIT считает его обнаруженным) **не засчитывается убитым** — только строкой в allowlist, которую человек добавил, прочитав тесты | `pit.*`, `config/pit-runerror-allowlist.txt` |
-| `gherkinMutation` | свой (`GherkinMutator.java`) | 0 выживших мутантов значений Examples | — |
+| `gherkinMutation` | свой (`GherkinMutator.java`) | 0 выживших мутантов значений Examples; мутант убит, когда сценарий упал **в шаге**; контроль — каждая мутируемая строка без изменений в том же прогоне — обязан пройти | — |
 
 Значения Мартина и их источники — в комментариях `config/gauntlet.properties`
 (CRAP > 8 у crap4java, «ни один покрытый мутант не выживает» у mutate4java, DRY 0.82 у dry4java, CC < 4).
@@ -1579,9 +1616,12 @@ gauntlet/
 строка статуса SessionStart в начале сессии: `guard: on; stop hook: on`. Имя окружения ничего не гарантирует:
 переменную видно только в его настройках.
 
-**CI и защита ветки.** `.github/workflows/gauntlet.yml` устанавливает отдельно `project.java.version`
-и `gate.java.version` (при пустой — проектную), запускает wrapper с проектной `JAVA_HOME`, а gate JDK передаёт
-инструментам через `GAUNTLET_GATE_JAVA_HOME`. Поэтому байткод приложения остаётся на его Java. CI печатает
+**CI и защита ветки.** `.github/workflows/gauntlet.yml` для каждой охраняемой сборки берёт её
+`project.java.version` и `gate.java.version` (оверлей `config/<module>/` перекрывает общий файл, пустая
+gate-версия — проектная), ставит все нужные JDK одним шагом и запускает wrapper сборки с её `JAVA_HOME` и
+`PATH`, а gate JDK передаёт инструментам через `GAUNTLET_GATE_JAVA_HOME`. Поэтому байткод приложения остаётся
+на его Java, и модули монорепо могут жить на разных версиях. Каталог из `module`, которого нет, — красный
+прогон, а не прогон корневой сборки под чужим именем. CI печатает
 `./gradlew --version` и `gauntletInfo`, затем гоняет `./gradlew gauntlet` на каждый PR с
 полной историей (`fetch-depth: 0`) — это проверка, которую агент не может обойти (хуки работают только
 внутри Claude Code). Если репозиторий приватный на бесплатном плане GitHub, правила защиты веток
@@ -1624,7 +1664,7 @@ Auto-fix (кнопка в CI status bar сессии): на упавший CI и
 | Лазейка | Что закрывает |
 |---|---|
 | поднять порог, выключить задачу, поправить роль | `gauntlet/`, `.claude/`, `CLAUDE.md`, workflow защищены guard-хуком; правки `build.gradle*`, `buildSrc/`, `gradle/*` вроде `enabled = false`, фильтров тестов, `afterEvaluate` находит `integrityCheck` (правила B1–B5) |
-| подогнать спецификацию под код | после коммита спецификации guard отклоняет её правку; `--amend`, `rebase`, `revert`, `reset --hard`, `push --force`/`--mirror`/`--all`, `checkout -B`, `branch -f`/`-D` запрещены: guard ловит их семантически (в т. ч. внутри `bash -c`, `eval`, обёрток `sudo`/`env`), а `permissions.deny` дублирует прямые формы префиксом. Префиксный deny и эвристика guard обходятся хитрой командой — настоящая опора для базовой ветки: GitHub branch protection + CI + diff PR, который читает человек |
+| подогнать спецификацию под код | после коммита спецификации guard отклоняет её правку; `--amend`, `rebase`, `revert`, `reset --hard`, `push --force`/`--mirror`/`--all`, `checkout -B`, `branch -f`/`-D` запрещены: guard ловит их семантически (в т. ч. внутри `bash -c`, `eval`, обёрток `sudo`/`env`, в сокращённой записи длинных опций, которую git принимает, — `commit --amen`, `push --mirro`, `branch --delet`, `switch --force-creat` — и за глобальной опцией вроде `git --namespace x …`), а `permissions.deny` дублирует прямые формы префиксом. Префиксный deny и эвристика guard обходятся хитрой командой — настоящая опора для базовой ветки: GitHub branch protection + CI + diff PR, который читает человек |
 | смержить самому | `gh pr merge` и API-merge запрещены; push в базовую ветку — тоже (и невозможен через GitHub-прокси облака) |
 | `@Disabled`, `@Ignore`, `assume*`, `disabledWithoutDocker` | `integrityCheck` T1–T5 |
 | спрятать код от JaCoCo и PIT через `@Generated` | `integrityCheck` M1 |
@@ -1639,15 +1679,20 @@ Auto-fix (кнопка в CI status bar сессии): на упавший CI и
 | обход guard через ключевые слова shell (`for … do rm`, `if …; then git push --force`) | guard разбирает команду после `do`, `then`, `else`, `{`, `!` так же, как после `&&` |
 | обход human-only правил через обёртки и inline-код (`sudo git push --force`, `bash -c '…'`, `eval`, `echo '…' \| sh`, `echo git push --force \| bash` без кавычек, `python3 -c "os.system('…')"`, `python3.12 -c`, `node --eval "…"`, `perl -E '…'`, `subprocess.run(['git','push','--force'])`, `env -S 'git push --force'`, `"$(git push --force)"`, `"$(python3 -c 'print(")")'; git push --force)"`) | guard снимает обёртки (`sudo`/`env`/`exec`/`command`/`nohup`/`time` с их опциями, включая `env -S`/`--split-string`), рекурсивно проверяет код после `-c`/`-e` (и `--eval`/`--print` у node, `-E` у perl, версионные имена `python3.X`), `eval`/`source`, весь текст `echo`/`printf` через pipe (в кавычках и без), argv из отдельных кавычек (`subprocess`/`os.exec`/`execSync`) и тела подстановок `$(…)`/`` `…` `` вне одинарных кавычек — глубина учитывает кавычки, поэтому `)` внутри кавычек не обрывает тело |
 | удалить `.git`, чтобы снять заморозку и Stop-хук, или подделать зелёный статус | `.git/` — зона человека: guard отклоняет запись/удаление, в т. ч. `last-green-*` в `.git/gauntlet-hook/` |
-| `git push --mirror`/`--all`, `push HEAD`/`push origin @` (`@` — синоним HEAD) или push без refspec сидя на базовой ветке; `git -C <worktree> push` из feature-сессии, когда worktree на базовой ветке; `--no-verif` (сокращение), `core.hooksPath=/dev/null`; пути в другом регистре (`GAUNTLET/…`) | guard ловит все эти формы (push без refspec на базовой ветке = push базовой ветки при `push.default=simple`; текущая ветка берётся с учётом `-C`/`--git-dir`); `HEAD:other`/`@:other` базовой веткой не считаются и разрешены; сравнение путей и `mentions` регистронезависимы (macOS/Windows) |
+| `git push --mirror`/`--all`/`--branches`, `push HEAD`/`push origin @` (`@` — синоним HEAD) или push без refspec сидя на базовой ветке; `git -C <worktree> push` из feature-сессии, когда worktree на базовой ветке; `--no-verif` (сокращение); `core.hooksPath` через `-c`/`--config-env` перед любой подкомандой и записью `git config core.hooksPath …`; алиасы и `include.path` (`git config alias.fp 'push --force'`), прячущие любую из этих команд; пути в другом регистре (`GAUNTLET/…`) | guard ловит все эти формы (чтение конфигурации и `--unset` разрешены) (push без refspec на базовой ветке = push базовой ветки при `push.default=simple`; текущая ветка берётся с учётом `-C`/`--git-dir`); `HEAD:other`/`@:other` базовой веткой не считаются и разрешены; сравнение путей и `mentions` регистронезависимы (macOS/Windows) |
 | step-определение игнорирует параметр | `gherkinMutation` |
+| мутант «убит» не изменённым значением, а сломанным стендом: упала фикстура, сценарий зависит от соседнего или от своего имени | контрольные сценарии `gherkinMutation`: каждая мутируемая строка «Примеров» прогоняется в том же стенде без изменений и обязана пройти, иначе вердикт красный; падение вне шага (хук, фикстура, контекст) — ошибка, а не kill |
+| область `changed` молча не увидела изменённый класс (кодировка исходников, необычное объявление типа) и гейт прошёл по пустому множеству | `gauntletScope` падает на изменённом исходнике, не читаемом в кодировке javac; перед PIT и CRAP каждый выведенный тип обязан существовать как скомпилированный класс |
+| выключить CI-гейт или защиту ветки через `gh` | `gh workflow disable`, не-GET `gh api` к `/protection`, `/rulesets`, `/actions/permissions`, `/actions/workflows/…/disable` и GraphQL-мутации защиты ветки запрещены; чтение разрешено |
 | слабые ассерты | `mutationGate` |
 | сабагент вышел за роль | guard по `agent_type`: specifier пишет только фичи, hardener — только тесты, reviewer — ничего |
 | закончить работу с красным гейтом | Stop-хук возвращает падения; после 3 попыток отпускает с предупреждением «работа не сделана» |
 
 Проверка shell-команд в guard эвристическая: сознательный обход через хитрый Bash возможен. Известный
 остаток — подстановка команды, порождающая имя бинарника (`$(which git) push --force`), разворачивание
-переменной (`G=git; $G push --force`) и закодированные payload'ы: статический разбор их не видит.
+переменной (`G=git; $G push --force`), закодированные payload'ы, конфигурация git через переменные окружения
+(`GIT_CONFIG_*`), алиасы, уже лежащие в глобальном конфиге, `push.default=upstream` с push без refspec и
+настройки репозитория через `gh api -X PATCH repos/…`: статический разбор их не видит.
 `permissions.deny` тоже префиксный и обходится обёрткой. Опора — `integrityCheck`, CI, GitHub branch
 protection базовой ветки и то, что любая попытка видна в diff PR, который читает человек. Это растяжка,
 а не сейф.
@@ -1655,7 +1700,7 @@ protection базовой ветки и то, что любая попытка �
 ## 8. Что проверено в этой версии, а что нет
 
 Проверено здесь (Gradle 8.14.3, Java 21):
-- Хуки, `hooks/selftest.py`, 997 проверок в трёх раскладках (сборка в корне; модуль `core/`; два модуля
+- Хуки, `hooks/selftest.py`, 1429 проверок в трёх раскладках (сборка в корне; модуль `core/`; два модуля
   `core/` + `adapter/` — Gradle только в изменённом модуле, красный модуль блокирует, коммит
   спецификации одного модуля замораживает фичи другого, чужая незакоммиченная работа не считается)
   на временном git-репозитории с фиктивным `origin/main`:
@@ -1776,6 +1821,27 @@ protection базовой ветки и то, что любая попытка �
   здесь не запускался. Дополнительно: `help`/`classes` проходят с отсутствующей gate-JDK 99; проектная JDK 17 +
   gate 21 дают байткод 61 (контроль на 21 — 65); `archTest` с launcher 17/21 зелёный; ISO-8859-1 + debug=false —
   PIT 2/2 и CRAP 2 метода для `Tarifé`; installer 20/20, standalone `//` перед closure-параметром не даёт B1.
+- Ревью `166287c` и независимое ревью набора (Gradle 8.14.3, JDK 21 и 25, Cucumber 7.23.0 и 8.0.1): все семь
+  находок раунда воспроизведены и закрыты. CI — отсутствующий модуль красный (регрессия `166287c`: `cd` внутри
+  `( … ) || status=1`), версии JVM и `PATH` по модулям с оверлеем, один шаг `setup-java` (workflow — 7 шагов).
+  `gauntlet.gradle` — кодировка из `options.compilerArgs`, нечитаемый изменённый исходник — ошибка
+  `gauntletScope`, страховка «выведенный тип существует как класс» (ловит `class Tarif\u00e9`: на `166287c`
+  `mutationGate` в `changed` был зелёным при четырёх мутантах в `all`), gate-launcher согласован с проектным
+  `Test.executable`. `CrapGate` — два `Rules.java` одного объявленного пакета не затирают друг друга, чужой
+  одноимённый файл другого корня исключается только доказанно. `IntegrityCheck` — не падает на не-UTF-8
+  исходниках (раньше exit 2 на первом ISO-8859-1 символе), `/* … */` перед параметром замыкания не даёт B1.
+  `GherkinMutator` — kill решает стадия, а не список типов исключений: `DataTable.diff` самого Cucumber
+  (`TableDiffException`), проверки Mockito/WireMock, Awaitility в шаге раньше давали «0 killed, N errors» и
+  красную сборку; контрольные сценарии закрывают обратную сторону — на `166287c` мутанты сценария, которому в
+  стенде не хватало предусловия, считались убитыми (`Gherkin mutation: OK`, BUILD SUCCESSFUL); мутант
+  повторяющегося заголовка меняет свою колонку. `install.sh` — второй `stop_gate.py` с другой `--task`
+  остаётся пользовательским. `stop_gate` — `buildSrc` отслеживается, вывод при таймауте не теряется. guard —
+  сокращения длинных опций (`--amen`, `--mirro`, `--al`, `branch --delet`, `switch --force-creat`),
+  `--branches`, кластеры `-qB`/`-Bname`, глобальные опции со значением (`--namespace x commit --amend`),
+  `core.hooksPath` для любой подкоманды и в `git config`, алиасы и `include.path`, `gh workflow disable` и
+  не-GET `gh api` к защите ветки; сняты ложные блокировки `commit -uno`, `branch --sort -committerdate` и
+  `branch --contains HEAD` у ревьюера. Самопроверка 997 → 1429 (+144 на раскладку). Регрессии инструментов,
+  установщика и CI лежат в `tests/` репозитория набора и гоняются по распакованному бандлу.
 - `install.sh` на демо-проекте: чистая установка; слияние с существующим `.claude/settings.json`
   (хуки и права добавлены, `disableAllHooks=false`); обновление 4.2 → 4.3 освежает поля gauntlet-хуков и
   масштабирует таймауты по модулям, чужие хуки и роль/`CLAUDE.md` не перезаписаны; идемпотентно (без дублей);
@@ -2260,6 +2326,8 @@ project.test.junit-jupiter.version=6.1.2
 
 # JVM for Gauntlet tools only. The application keeps its own Java/toolchain and dependencies.
 # Optional local path: GAUNTLET_GATE_JAVA_HOME or -Pgauntlet.gateJavaHome (never commit it).
+# In a monorepo a module may set its own project.java.version / gate.java.version in its overlay
+# (gauntlet/config/<module>/gauntlet.properties): CI runs every build on its own pair.
 gate.java.version=21
 
 ===== END FILE gauntlet/config/gauntlet.properties =====
@@ -3348,7 +3416,8 @@ Keeps agents from changing their own constraints:
   3. role scopes: specifier -> specs only, hardener -> test code only, reviewer -> read-only;
   4. human-only actions are refused: merging the PR, rewriting or re-pointing the branch (--amend,
      rebase, force push, reset/checkout -B/branch -f to another revision), pushing to the base branch,
-     --no-verify, switching the hooks off.
+     --no-verify, core.hooksPath, git aliases and config includes (they hide any of the above), switching
+     the hooks, the CI gate or the branch protection off.
 
 Shell commands are checked heuristically: every path-like token of a command that writes to the working
 tree is resolved (following `cd` and `git -C`, expanding globs) and compared with the protected paths.
@@ -3391,6 +3460,16 @@ GIT_READ_ONLY_FORMS = {"branch": ("--show-current", "--list", "-l", "-a", "-r", 
                        "stash": ("list", "show"), "tag": ("--list", "-l", "-n", "--contains", "--points-at"),
                        "worktree": ("list",), "notes": ("list", "show"), "submodule": ("status",)}
 HISTORY_REWRITING = {"rebase", "filter-branch", "filter-repo", "update-ref", "replace", "revert"}
+# global git options whose value is the NEXT argument: `git --namespace x push --force` still runs push
+GIT_GLOBAL_VALUE_OPTIONS = ("-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--attr-source",
+                            "--super-prefix")
+# `git config` options that take a value as the next argument, with the shortest prefix git resolves to them
+GIT_CONFIG_VALUE_OPTIONS = (("--file", 5), ("--blob", 4), ("--type", 3), ("--default", 3), ("--comment", 9),
+                            ("--value", 7), ("--url", 5))
+# listing options of `git branch` whose value may be the next argument, with the shortest prefix git resolves
+BRANCH_VALUE_OPTIONS = (("--sort", 4), ("--format", 6), ("--contains", 5), ("--no-contains", 8), ("--merged", 4),
+                        ("--no-merged", 7), ("--points-at", 3))
+CI_SWITCH = "Switching the CI gate or the branch protection off is reserved for the human."
 INTERPRETERS = {"python", "python3", "node", "ruby", "bash", "sh", "zsh"}   # with -c / -e inline code
 WRAPPERS = {"sudo", "command", "exec", "nohup", "time", "env", "timeout", "nice"}
 # options of wrappers that take a separate value: skipped together with the value so the wrapped command surfaces
@@ -3899,7 +3978,35 @@ def gh_human_only(args):
         return "Merging through the GitHub API is reserved for the human."
     if rest[:1] == ["repo"] and rest[1:2] and rest[1] in ("delete", "edit", "rename", "archive"):
         return "Changing the repository itself is reserved for the human."
+    if rest[:2] == ["workflow", "disable"]:
+        return CI_SWITCH
+    if rest[:1] == ["api"]:
+        text = " ".join(rest[1:]).lower()
+        # reading the protection is fine (GET); changing or deleting it, a ruleset, the Actions permissions or
+        # disabling a workflow takes the CI gate away. GraphQL has the same mutations under other names.
+        rest_api = gh_api_method(rest[1:]) != "GET" and (
+            any(path in text for path in ("/protection", "/rulesets", "/actions/permissions"))
+            or ("/actions/workflows/" in text and "/disable" in text))
+        graphql = "graphql" in rest[1:] and "mutation" in text and ("branchprotectionrule" in text or "ruleset" in text)
+        if rest_api or graphql:
+            return CI_SWITCH
     return None
+
+
+def gh_api_method(args):
+    """HTTP method of a `gh api` call: -X/--method when given, otherwise POST as soon as a field or a request
+    body is sent and GET for a plain read (gh's own default)."""
+    method, body = "", False
+    for i, a in enumerate(args):
+        if a in ("-X", "--method"):
+            method = args[i + 1] if i + 1 < len(args) else ""
+        elif a.startswith("--method="):
+            method = a.split("=", 1)[1]
+        elif a.startswith("-X") and len(a) > 2:
+            method = a[2:].lstrip("=")
+        elif a in ("--field", "--raw-field", "--input") or a.startswith(("-f", "-F", "--field=", "--raw-field=", "--input=")):
+            body = True
+    return (method or ("POST" if body else "GET")).upper()
 
 
 def push_branch_dir(args, cwd):
@@ -3936,21 +4043,151 @@ def push_current_branch(args, cwd):
     return git(base, "symbolic-ref", "--short", "HEAD")
 
 
+def long_opt(arg, name, min_len):
+    """Git accepts every unambiguous prefix of a long option: `git commit --amen` amends, `git push --mirro`
+    mirrors. True when arg - up to an optional `=value` - is such a prefix of name, at least min_len characters
+    long. min_len is the shortest prefix some git version resolves to this option; anything shorter is rejected
+    by git as ambiguous, and a prefix that belongs to another option (`--fol` is --follow-tags, `--form` is
+    --format) is no prefix of name at all."""
+    opt = arg.split("=", 1)[0]
+    return len(opt) >= min_len and opt.startswith("--") and name.startswith(opt)
+
+
+def commit_options(rest):
+    """The option tokens of a `git commit` command line. The value of an option that takes one (-m "--amend",
+    --message "...", the argument after a cluster such as -am) and everything after `--` are data, not options."""
+    options, skip = [], False
+    for a in rest:
+        if skip:
+            skip = False
+        elif a == "--":
+            break
+        elif a in GIT_VALUE_OPTIONS:
+            skip = True
+        elif a.startswith("--"):
+            options.append(a)
+        elif a.startswith("-"):
+            for i, flag in enumerate(a[1:]):      # short-option cluster such as -an or -am "msg"
+                if flag in "Su":                  # -S[<key-id>] / -u[<mode>]: the rest of the cluster is their value
+                    break
+                if flag in "mFCct":               # takes a value: attached ("-mfix") or the next argument
+                    skip = i == len(a) - 2
+                    break
+    return options
+
+
+def recreates_branch(sub, rest):
+    """`git checkout -B` / `git switch -C|--force-create`: also abbreviated (`--force-c`), with the name attached
+    (`-Bname`) or inside a short cluster (`-qB`, `-fC`). The lower-case -b / -c create a NEW branch and their
+    attached value is a name (`-bBugfix`, `-cCleanup`), not more flags; `--force` alone only discards changes."""
+    force, create = ("B", "b") if sub == "checkout" else ("C", "c")
+    for a in rest:
+        if a == "--":
+            break
+        if a in ("-B", "-C") or long_opt(a, "--force-create", 8):
+            return True
+        if a.startswith("-") and not a.startswith("--"):
+            for flag in a[1:]:
+                if flag == force:
+                    return True
+                if flag == create:
+                    break                         # the rest of the cluster is the new branch's name
+    return False
+
+
+def guarded_config_key(key):
+    """Config keys only the human sets: core.hooksPath switches the project's git hooks off, an alias or an
+    included config file hides any human-only command behind another name. Git compares section and variable
+    names case-insensitively."""
+    k = key.lower()
+    return k == "core.hookspath" or k.startswith("alias.") or k == "include.path" or k.startswith("includeif.")
+
+
+def config_reason(key):
+    k = key.lower()
+    if k == "core.hookspath":
+        return "Setting core.hooksPath switches the project's git hooks off. Reserved for the human."
+    if k.startswith("alias."):
+        return "A git alias can hide a human-only command behind another name. Reserved for the human."
+    return "Including another git config file can bring in aliases or core.hooksPath. Reserved for the human."
+
+
+def config_override(args):
+    """A guarded key set for this one command: the value of a global `-c name=value` or `--config-env
+    name=ENVVAR` before the subcommand - whatever the subcommand is, and not a commit message that happens
+    to mention core.hooksPath."""
+    index = git_subcommand_index(args)
+    region = args[:index] if index >= 0 else args
+    i = 0
+    while i < len(region):
+        a = region[i]
+        value = None
+        if a in ("-c", "--config-env"):
+            value = region[i + 1] if i + 1 < len(region) else ""
+            i += 1
+        elif a.startswith("--config-env="):
+            value = a.split("=", 1)[1]
+        elif a.startswith("-c") and not a.startswith("--") and len(a) > 2:
+            value = a[2:]
+        if value is not None and guarded_config_key(value.split("=", 1)[0]):
+            return value.split("=", 1)[0]
+        i += 1
+    return None
+
+
+def config_write(rest):
+    """The guarded key a `git config` command writes, or None: `git config <key> <value>`, also with --add /
+    --replace-all, a file option (--global, --file f) or the newer `git config set`; and `--rename-section
+    <old> alias|core|include`, which turns an ordinary section into a guarded one. Reads (a name alone, --get*,
+    --list, `get`) and --unset* / --remove-section stay allowed: they neither switch a hook off nor create
+    an alias."""
+    positional, rename, skip, literal = [], False, False, False
+    for a in rest:
+        if skip:
+            skip = False
+        elif literal or not a.startswith("-") or a == "-":
+            positional.append(a)
+        elif a == "--":
+            literal = True
+        elif a == "-l" or long_opt(a, "--list", 4) or a.startswith(("--get", "--unset")) \
+                or long_opt(a, "--remove-section", 5):
+            return None
+        elif long_opt(a, "--rename-section", 5):
+            rename = True
+        elif "=" not in a and (a in ("-f", "-t") or any(long_opt(a, name, m) for name, m in GIT_CONFIG_VALUE_OPTIONS)):
+            skip = True                           # the next argument is this option's value, not a key
+    action = positional[0] if positional else ""
+    if action in ("get", "list", "unset", "remove-section", "edit"):
+        return None                               # subcommands of newer git; an older git rejects them as keys
+    if rename or action == "rename-section":
+        names = positional[1:] if action == "rename-section" else positional
+        target = names[1].lower() if len(names) > 1 else ""
+        if target in ("alias", "core", "include") or target.startswith("includeif"):
+            return {"alias": "alias.*", "core": "core.hooksPath"}.get(target, "include.path")
+        return None
+    return next((p for p in positional[:-1] if guarded_config_key(p)), None)   # a key followed by its value
+
+
 def git_human_only(args, ctx, cwd):
-    sub = git_subcommand(args)
-    rest = args[args.index(sub) + 1:] if sub in args else []
+    index = git_subcommand_index(args)
+    sub = args[index] if index >= 0 else ""
+    rest = args[index + 1:] if index >= 0 else []
+    key = config_override(args) or (config_write(rest) if sub == "config" else None)
+    if key:
+        return config_reason(key)
     if skips_git_hooks(args):
         return "Skipping git hooks (--no-verify) is reserved for the human."
     if sub in HISTORY_REWRITING:
         return (f"git {sub} rewrites or undoes history, which may drop the approved specification commit. "
                 f"Reserved for the human (fix forward with a new commit instead).")
-    if sub == "commit" and "--amend" in rest:
+    if sub == "commit" and any(long_opt(a, "--amend", 4) for a in commit_options(rest)):
         return "git commit --amend rewrites history (the approved spec commit must stay as it is). Make a new commit."
     if sub == "push":
-        if any(a.startswith("--force") or (a.startswith("-") and not a.startswith("--") and "f" in a[1:])
-               for a in rest):
+        if any(a.startswith("--force") or long_opt(a, "--force", 5)
+               or (a.startswith("-") and not a.startswith("--") and "f" in a[1:]) for a in rest):
             return "Force-pushing is reserved for the human."
-        if any(a in ("--mirror", "--all") for a in rest):
+        # --branches is git's own alias of --all (2.43); every prefix from --m / --a / --b on means one of them
+        if any(long_opt(a, "--mirror", 3) or long_opt(a, "--all", 3) or long_opt(a, "--branches", 3) for a in rest):
             return ("git push --mirror/--all rewrites every ref including the base branch. "
                     "Reserved for the human. Push your own branch only.")
         refspecs = [a for a in rest if not a.startswith("-")][1:]   # after the remote name
@@ -3974,32 +4211,28 @@ def git_human_only(args, ctx, cwd):
         # `git reset`, `git reset HEAD file`, `git reset file` unstage; anything else moves the branch
         if revision not in (None, "HEAD") and not os.path.exists(os.path.join(cwd, revision)):
             return "git reset to another revision drops commits (possibly the approved spec). Reserved for the human."
-    if sub in ("checkout", "switch") and any(a in ("-B", "-C", "--force-create") for a in rest):
+    if sub in ("checkout", "switch") and recreates_branch(sub, rest):
         return "Re-creating the branch at another revision drops its commits (the approved spec). Reserved for the human."
-    if sub == "branch" and any(a in ("-f", "--force", "-D", "-M", "-d", "-m", "--delete", "--move", "--copy", "-c", "-C")
+    if sub == "branch" and any(a in ("-f", "-D", "-M", "-d", "-m", "-c", "-C")
+                               or long_opt(a, "--force", 3) or long_opt(a, "--delete", 3)
+                               or long_opt(a, "--move", 4) or long_opt(a, "--copy", 5)
                                or (a.startswith("-") and not a.startswith("--") and any(ch in "fDMdmcC" for ch in a[1:]))
-                               for a in rest):
+                               for a in branch_options(rest)):
         return "Moving, forcing or deleting branches is reserved for the human."
     return None
 
 
-def hooksPath_override(args):
-    """`git -c core.hooksPath=…` disables hooks. Only a real config override — the value of a global -c
-    before the subcommand — not a commit message that happens to mention core.hooksPath."""
-    sub = git_subcommand(args)
-    region = args[:args.index(sub)] if sub in args else args
-    i = 0
-    while i < len(region):
-        a = region[i]
-        if a == "-c":
-            if i + 1 < len(region) and region[i + 1].lower().startswith("core.hookspath="):
-                return True
-            i += 2
+def branch_options(rest):
+    """The arguments of `git branch` without the separate VALUE of a listing option: in
+    `git branch --sort -committerdate` the second word is a sort key, not a cluster of -c -m -d flags."""
+    kept, skip = [], False
+    for a in rest:
+        if skip:
+            skip = False
             continue
-        if a.startswith("-c") and not a.startswith("--") and a[2:].lower().startswith("core.hookspath="):
-            return True
-        i += 1
-    return False
+        kept.append(a)
+        skip = "=" not in a and any(long_opt(a, name, m) for name, m in BRANCH_VALUE_OPTIONS)
+    return kept
 
 
 def skips_git_hooks(args):
@@ -4007,8 +4240,6 @@ def skips_git_hooks(args):
         return True
     if git_subcommand(args) != "commit":
         return False
-    if hooksPath_override(args):
-        return True
     skip = False
     for a in args:
         if skip:
@@ -4017,6 +4248,8 @@ def skips_git_hooks(args):
             skip = True
         elif a.startswith("-") and not a.startswith("--"):
             for i, flag in enumerate(a[1:]):      # short-option cluster such as -an or -am "msg"
+                if flag in "Su":                  # -S[<key-id>] / -u[<mode>]: the rest is their value (-uno, -Sname)
+                    break
                 if flag == "n":
                     return True
                 if flag in "mFCct":               # takes a value: attached ("-mfix") or the next argument
@@ -4223,22 +4456,29 @@ def git_read_only(sub, rest):
         return sub != "stash"              # bare `git stash` saves; bare branch/tag/notes/submodule list
     if sub in ("stash", "worktree", "notes", "submodule") or rest[0] in ("-l", "--list"):
         return rest[0] in forms or rest[0] in ("-l", "--list")
+    if sub == "branch":
+        rest = branch_options(rest)        # `--contains HEAD`, `--sort -committerdate`: the value is not a flag
     return all(a in forms or a.startswith(("--format", "--sort", "--contains", "--points-at", "--merged", "--no-merged"))
                or (a.startswith("-") and not a.startswith("--") and set(a[1:]) <= set("larvn")) for a in rest)
 
 
-def git_subcommand(args):
+def git_subcommand_index(args):
+    """Index of the subcommand in a git argument list, or -1. Global options are skipped together with the
+    value of those that take it as the next argument: `git --namespace x commit --amend` is a commit."""
     skip = False
-    for a in args:
+    for i, a in enumerate(args):
         if skip:
             skip = False
-            continue
-        if a in ("-C", "-c", "--git-dir", "--work-tree"):
+        elif a in GIT_GLOBAL_VALUE_OPTIONS:
             skip = True
-            continue
-        if not a.startswith("-"):
-            return a
-    return ""
+        elif not a.startswith("-"):
+            return i
+    return -1
+
+
+def git_subcommand(args):
+    index = git_subcommand_index(args)
+    return args[index] if index >= 0 else ""
 
 
 def path_tokens(words, cwd, project):
@@ -4730,6 +4970,183 @@ def guard_tests(repo):
                  command="git commit -m 'core.hooksPath=/dev/null is bad'")
     expect_allow(repo, "no-verify words in message", "main", "Bash",
                  command='git commit -m "docs: mention --no-verify in the message"')
+    # --- hardening: git resolves every unambiguous prefix of a long option (`--amen` amends, `--mirro` mirrors),
+    #     takes the branch name attached to -B/-C or inside a short cluster, and knows --branches as --all
+    for name, command in (
+            ("commit --amen", "git commit --amen -m x"),
+            ("commit --am", "git commit --am -m x"),
+            ("commit --ame after the message", 'git commit -m "x" --ame'),
+            ("bash -c commit --amen", "bash -c 'git commit --amen -m x'"),
+            ("push --mirro", "git push --mirro origin"),
+            ("push --m", "git push --m origin"),
+            ("push --al", "git push --al origin"),
+            ("push --branches (alias of --all)", "git push --branches origin"),
+            ("push --b", "git push --b origin"),
+            ("push --forc", "git push --forc origin HEAD"),
+            ("push --for", "git push --for origin HEAD"),
+            ("push --force-with-leas", "git push --force-with-leas origin HEAD"),
+            ("branch --forc", "git branch --forc claude/feature-x origin/main"),
+            ("branch --fo", "git branch --fo claude/feature-x origin/main"),
+            ("branch --delet", "git branch --delet scratch"),
+            ("branch --d", "git branch --d scratch"),
+            ("branch --mov", "git branch --mov a b"),
+            ("branch --cop", "git branch --cop a b"),
+            ("switch --force-creat", "git switch --force-creat claude/feature-x origin/main"),
+            ("switch --force-", "git switch --force- claude/feature-x origin/main"),
+            ("checkout -qB cluster", "git checkout -qB claude/feature-x origin/main"),
+            ("checkout -Bname attached", "git checkout -Bclaude/feature-x origin/main"),
+            ("switch -fC cluster", "git switch -fC claude/feature-x origin/main"),
+            ("switch -Cname attached", "git switch -Cclaude/feature-x origin/main")):
+        expect_deny(repo, "abbreviation: " + name, "main", "Bash", command=command)
+    for name, command in (
+            ("commit message --am", 'git commit -m "--am"'),
+            ("commit cluster message --amend", 'git commit -am "--amend"'),
+            ("commit message mentions --amend", 'git commit -m "docs: --amend is forbidden"'),
+            ("commit pathspec after --", "git commit -m x -- --amend"),
+            ("commit --allow-empty", "git commit --allow-empty -m x"),
+            ("commit --all", "git commit --all -m x"),
+            ("commit --author", 'git commit --author="A <a@b.c>" -m x'),
+            ("commit --no-amend", "git commit --no-amend -m x"),
+            ("push --follow-tags", "git push --follow-tags origin HEAD"),
+            ("push --fol", "git push --fol origin HEAD"),
+            ("push --atomic", "git push --atomic origin HEAD"),
+            ("push --at", "git push --at origin HEAD"),
+            ("branch --merged", "git branch --merged"),
+            ("branch --me", "git branch --me"),
+            ("branch --no-merged", "git branch --no-merged"),
+            ("branch --format", "git branch --format='%(refname)'"),
+            ("branch --form", "git branch --form '%(refname)'"),
+            ("branch --contains", "git branch --contains HEAD"),
+            ("branch --column", "git branch --column"),
+            ("branch --create-reflog", "git branch --create-reflog tmp"),
+            ("checkout -bBugfix", "git checkout -bBugfix"),
+            ("checkout -q -b", "git checkout -q -b tmp"),
+            ("switch -cCleanup", "git switch -cCleanup"),
+            ("switch --create", "git switch --create tmp"),
+            ("switch --cr", "git switch --cr tmp"),
+            ("switch --force (discard changes, no re-creation)", "git switch --force claude/feature-x")):
+        expect_allow(repo, "abbreviation control: " + name, "main", "Bash", command=command)
+    expect_allow(repo, "reviewer branch --merged", "reviewer", "Bash", command="git branch --merged")
+    expect_allow(repo, "reviewer branch --format", "reviewer", "Bash", command="git branch --format='%(refname)'")
+    # --- over-block: the VALUE of an option is not a cluster of flags (`--sort -committerdate` has c, m and d in it;
+    #     `-uno` is --untracked-files=no, not -n)
+    for name, command in (
+            ("branch --sort -committerdate", "git branch --sort -committerdate"),
+            ("branch --sort=-committerdate", "git branch --sort=-committerdate"),
+            ("branch -r --sort -committerdate", "git branch -r --sort -committerdate"),
+            ("commit -uno", 'git commit -uno -m "feat: y"'),
+            ("commit -S", 'git commit -S -m "feat: y"'),
+            ("commit -Sname", 'git commit -Sname -m "feat: y"')):
+        expect_allow(repo, "option value: " + name, "main", "Bash", command=command)
+    expect_allow(repo, "option value: reviewer branch --sort -committerdate", "reviewer", "Bash",
+                 command="git branch --sort -committerdate")
+    expect_allow(repo, "option value: reviewer branch --contains HEAD", "reviewer", "Bash",
+                 command="git branch --contains HEAD")
+    for name, command in (
+            ("branch --sort -committerdate -D", "git branch --sort -committerdate -D scratch"),
+            ("commit -n", "git commit -n -m x"),
+            ("commit -an", "git commit -an -m x"),
+            ("commit -uno -n", "git commit -uno -n -m x")):
+        expect_deny(repo, "option value control: " + name, "main", "Bash", command=command)
+    expect_deny(repo, "option value control: reviewer branch --contains HEAD -D", "reviewer", "Bash",
+                command="git branch --contains HEAD -D scratch")
+    # --- hardening: a global option that takes its value as the next argument does not hide the subcommand
+    for name, command in (
+            ("--namespace commit --amend", "git --namespace x commit --amend -m x"),
+            ("--namespace push --force", "git --namespace x push --force origin HEAD"),
+            ("--config-env commit --amend", "git --config-env user.name=HOME commit --amend -m x"),
+            ("--attr-source rebase", "git --attr-source HEAD rebase main"),
+            ("--super-prefix push --force", "git --super-prefix x/ push --force origin HEAD")):
+        expect_deny(repo, "global option: " + name, "main", "Bash", command=command)
+    expect_deny(repo, "global option: reviewer add behind --namespace", "reviewer", "Bash", command="git --namespace x add -A")
+    for name, command in (
+            ("--namespace status", "git --namespace x status"),
+            ("--namespace plain commit", 'git --namespace x commit -m "feat: y"'),
+            ("--attr-source log", "git --attr-source HEAD log --oneline -1"),
+            ("--config-env plain commit", 'git --config-env user.name=AUTHOR commit -m "feat: y"')):
+        expect_allow(repo, "global option control: " + name, "main", "Bash", command=command)
+    # --- hardening: core.hooksPath for any subcommand and written to a config file; aliases and config includes
+    #     (they hide any human-only command behind another name)
+    for name, command in (
+            ("-c core.hooksPath push", "git -c core.hooksPath=/dev/null push origin HEAD"),
+            ("--config-env=core.hooksPath", "git --config-env=core.hooksPath=NOHOOKS commit -m x"),
+            ("--config-env core.hooksPath", "git --config-env core.hooksPath=NOHOOKS commit -m x"),
+            ("config core.hooksPath", "git config core.hooksPath /dev/null"),
+            ("config --local core.hookspath", "git config --local core.hookspath /dev/null"),
+            ("config --global core.hooksPath", "git config --global core.hooksPath /dev/null"),
+            ("config --file core.hooksPath", "git config --file .git/config core.hooksPath /dev/null"),
+            ("config --add core.hooksPath", "git config --add core.hooksPath /dev/null"),
+            ("config --replace-all core.hooksPath", "git config --replace-all core.hooksPath /dev/null"),
+            ("config set core.hooksPath", "git config set core.hooksPath /dev/null"),
+            ("bash -c config core.hooksPath", "bash -c 'git config core.hooksPath /dev/null'"),
+            ("argv config core.hooksPath",
+             "python3 -c \"import subprocess; subprocess.run(['git','config','core.hooksPath','/dev/null'])\""),
+            ("config alias", 'git config alias.fp "push --force"'),
+            ("config --global alias", "git config --global alias.fp 'push --force'"),
+            ("-c alias", "git -c alias.fp='push --force' fp origin HEAD"),
+            ("config include.path", "git config include.path /tmp/x.cfg"),
+            ("-c include.path", "git -c include.path=/tmp/x.cfg commit -m x"),
+            ("config includeIf", "git config includeIf.gitdir:/x/.path /tmp/x.cfg"),
+            ("config --rename-section to alias", "git config --rename-section scratch alias"),
+            ("config --rename-section to core", "git config --rename-section scratch core")):
+        expect_deny(repo, "git config: " + name, "main", "Bash", command=command)
+    for name, command in (
+            ("read core.hooksPath", "git config core.hooksPath"),
+            ("--get core.hooksPath", "git config --get core.hooksPath"),
+            ("--get-all core.hooksPath", "git config --get-all core.hooksPath"),
+            ("--show-origin core.hooksPath", "git config --show-origin core.hooksPath"),
+            ("--type path core.hooksPath", "git config --type path core.hooksPath"),
+            ("get core.hooksPath", "git config get core.hooksPath"),
+            ("--list", "git config --list"),
+            ("-l", "git config -l"),
+            ("--unset core.hooksPath", "git config --unset core.hooksPath"),
+            ("unset core.hooksPath", "git config unset core.hooksPath"),
+            ("user.name", 'git config user.name "Agent"'),
+            ("--global user.email", "git config --global user.email a@b.c"),
+            ("-c user.name commit", "git -c user.name=x commit -m y"),
+            ("-c core.quotePath status", "git -c core.quotePath=false status"),
+            ("commit message mentions the command", 'git commit -m "docs: git config core.hooksPath /dev/null is forbidden"'),
+            ("read alias", "git config alias.co"),
+            ("--get-regexp alias", "git config --get-regexp '^alias\\.'"),
+            ("--unset alias", "git config --unset alias.fp"),
+            ("--remove-section alias", "git config --remove-section alias"),
+            ("--get include.path", "git config --get include.path"),
+            ("--rename-section elsewhere", "git config --rename-section old new")):
+        expect_allow(repo, "git config control: " + name, "main", "Bash", command=command)
+    # --- hardening: the CI gate and the branch protection are switched off only by the human
+    for name, command in (
+            ("workflow disable", "gh workflow disable gauntlet.yml"),
+            ("-R workflow disable", "gh -R o/r workflow disable gauntlet.yml"),
+            ("bash -c workflow disable", "bash -c 'gh workflow disable 12345'"),
+            ("api workflow disable", "gh api -X PUT repos/o/r/actions/workflows/gauntlet.yml/disable"),
+            ("api delete protection", "gh api --method DELETE repos/o/r/branches/main/protection"),
+            ("api -XDELETE protection part", "gh api -XDELETE repos/o/r/branches/main/protection/required_status_checks"),
+            ("api protection with a field (POST)", "gh api repos/o/r/branches/main/protection -f required_status_checks=null"),
+            ("api actions permissions", "gh api -X PUT repos/o/r/actions/permissions -F enabled=false"),
+            ("api patch ruleset", "gh api --method=PATCH repos/o/r/rulesets/1 -f enforcement=disabled"),
+            ("api graphql protection mutation",
+             "gh api graphql -f query='mutation { deleteBranchProtectionRule(input: {branchProtectionRuleId: \"x\"}) "
+             "{ clientMutationId } }'")):
+        expect_deny(repo, "gh CI switch: " + name, "main", "Bash", command=command)
+    for name, command in (
+            ("workflow list", "gh workflow list"),
+            ("workflow view", "gh workflow view gauntlet.yml"),
+            ("workflow run", "gh workflow run gauntlet.yml"),
+            ("workflow enable", "gh workflow enable gauntlet.yml"),
+            ("run rerun", "gh run rerun 123 --failed"),
+            ("api read protection", "gh api repos/o/r/branches/main/protection"),
+            ("api -X GET rulesets", "gh api -X GET repos/o/r/rulesets"),
+            ("api --method GET rulesets with a field", "gh api --method GET repos/o/r/rulesets -f per_page=5"),
+            ("api read actions permissions", "gh api repos/o/r/actions/permissions"),
+            ("api workflow enable", "gh api -X PUT repos/o/r/actions/workflows/gauntlet.yml/enable"),
+            ("api graphql protection query",
+             "gh api graphql -f query='query { repository(owner:\"o\",name:\"r\") { branchProtectionRules(first: 5) "
+             "{ nodes { pattern } } } }'"),
+            ("pr checks", "gh pr checks 12"),
+            ("pr view", "gh pr view 12"),
+            ("pr comment", 'gh pr comment 12 --body "CI is green"'),
+            ("pr create", "gh pr create --fill")):
+        expect_allow(repo, "gh CI switch control: " + name, "main", "Bash", command=command)
     # --- hardening: case-insensitive protected paths (macOS/Windows)
     expect_deny(repo, "edit uppercase GAUNTLET", "main", "Edit",
                 file_path="GAUNTLET/config/gauntlet.properties", old_string="a", new_string="b")
@@ -4774,6 +5191,8 @@ def guard_tests(repo):
     expect_deny(repo, "rm -rf src when frozen", "main", "Bash", command=f"rm -rf {M}src/acceptanceTest/resources")
     expect_deny(repo, "git rm -r src/acceptanceTest when frozen", "main", "Bash", command=f"git rm -r {M}src/acceptanceTest")
     expect_deny(repo, "git checkout base -- src when frozen", "main", "Bash", command=f"git checkout origin/main -- {M}src")
+    expect_deny(repo, "git checkout base -- src behind a global option when frozen", "main", "Bash",
+                command=f"git --namespace x checkout origin/main -- {M}src")
     expect_deny(repo, "cd then cp into features when frozen", "specifier", "Bash",
                 command=f"cd {M}src/acceptanceTest/resources && cp /tmp/x.feature features/order.feature")
     head = git(repo, "rev-parse", "HEAD")
@@ -4995,6 +5414,23 @@ def baseline_revert_tests(repo):
           r.stdout + r.stderr)
 
 
+def build_logic_tests(repo):
+    """buildSrc is build logic that IntegrityCheck scans: a change only there must reach the Stop gate too."""
+    git(repo, "reset", "--hard", "-q", "main")
+    git(repo, "clean", "-fdq")
+    git(repo, "checkout", "-q", "-b", "claude/build-logic")
+    log = os.path.join(repo, M + "build/gauntlet/gauntletFast-hook.log")
+    if os.path.exists(log):
+        os.remove(log)
+    run_hook(repo, "stop_gate.py", {"session_id": "s-buildsrc", "cwd": repo, "hook_event_name": "SessionStart"},
+             args=("--record-start",))
+    write(repo, M + "buildSrc/src/main/groovy/Custom.gradle", "test.enabled = false\n")
+    write(repo, M + "build/gauntlet/fake-exit", "1")
+    event = {"session_id": "s-buildsrc", "cwd": repo, "hook_event_name": "Stop", "stop_hook_active": False}
+    r = run_hook(repo, "stop_gate.py", event, args=("--task", "gauntletFast", "--max-attempts", "3", "--timeout", "60"))
+    check("buildSrc-only change -> gate runs", r.returncode == 2 and os.path.exists(log), r.stdout + r.stderr)
+
+
 def multi_module_stop_tests(repo):
     """Two modules: Gradle runs only where something changed; a red module blocks."""
     core, adapter = MODULES[0], MODULES[1]
@@ -5124,6 +5560,18 @@ def gate_scope_tests(repo):
         check("V6-c: negative code red across modules", code2 == 1, str(code2))
     finally:
         sg.run_gradle = orig_gradle
+
+    # a run that hits the timeout must hand its partial output to the agent (POSIX delivers it as bytes)
+    slow = tempfile.mkdtemp(prefix="gauntlet-selftest-slow-")
+    try:
+        with open(os.path.join(slow, "gradlew"), "w") as f:
+            f.write("#!/bin/sh\necho 'CRAP FAIL com.example.X#y'\nexec sleep 30\n")
+        os.chmod(os.path.join(slow, "gradlew"), 0o755)
+        code, _, output = sg.run_gradle("gauntletFast", [], 1, slow)
+        check("timeout is red and keeps the partial Gradle output",
+              code == 124 and "CRAP FAIL com.example.X#y" in output and "TIMEOUT" in output, f"{code} {output!r}")
+    finally:
+        shutil.rmtree(slow, ignore_errors=True)
 
     sg.MODULES = ["core", "adapter"]
     am = sg.affected_modules
@@ -5256,6 +5704,7 @@ def main():
             session_start_tests(repo)
             stop_tests(repo)
             baseline_revert_tests(repo)
+            build_logic_tests(repo)
             continuation_window_tests(repo)
             gate_scope_tests(repo)
             if len(MODULES) > 1:
@@ -6917,11 +7366,20 @@ import org.w3c.dom.NodeList;
  * {@code generate} writes one feature file per mutant: the original Scenario Outline with its
  * {@code <placeholders>} and Background intact, and a single Examples row whose one target cell is
  * mutated - Cucumber interpolates every other value exactly as in the original run, so a non-mutated
- * column (e.g. an address holding a newline) is never distorted. Plus manifest.tsv. Run them with
- * Cucumber, then {@code verdict} reads the JUnit XML results: a {@code <failure>} that is an assertion
- * with a Cucumber STEP frame = killed (an undefined step for the new value is counted separately); passed =
- * survived; a {@code <error>}, a non-assertion {@code <failure>} (IOException etc.), an assertion without
- * a step frame (including a @Before/@After hook), skipped/aborted or missing = error, never a kill.
+ * column (e.g. an address holding a newline) is never distorted. For every Examples row that yields a
+ * mutant it also writes one CONTROL feature ({@code cN.feature}): the same rendering with the row left
+ * exactly as written. Plus manifest.tsv (mutant rows {@code mN}, then control rows {@code cN} with the key
+ * {@code (control)}). Run them with Cucumber, then {@code verdict} reads the JUnit XML results. The STAGE
+ * of a failure decides, not the exception type: a {@code <failure>} or {@code <error>} whose trace carries
+ * a Cucumber STEP frame = killed, whatever was thrown (an assertion library's own error, Cucumber's
+ * TableDiffException, a Mockito or WireMock verification, a timeout waiting for a condition). A kill by an
+ * undefined step for the new value and a kill by a non-assertion exception are counted separately in the
+ * summary. Passed = survived. A failure without a step frame (a @Before/@After hook, a fixture, the
+ * context), skipped/aborted or missing = error, never a kill.
+ * Every control must pass: it is the original row run in the mutant harness with nothing changed. A control
+ * that does not pass means the mutant run itself is broken (the environment or a fixture is down, or the
+ * scenario depends on other scenarios or on its own name/position), so failing mutants prove nothing and
+ * the verdict fails.
  * {@code no-skipped} fails when the {@code --features} directory is missing, when a normal acceptance run
  * skipped scenarios, or ran none although {@code --features} holds feature files; an existing directory
  * without feature files passes without reading any results.
@@ -7008,9 +7466,24 @@ public class GherkinMutator {
         final List<Scenario> scenarios = new ArrayList<>();
     }
 
-    record Mutant(String id, FeatureDoc feature, Scenario scenario, Examples examples, int row, String key,
+    record Mutant(String id, FeatureDoc feature, Scenario scenario, Examples examples, int row, int column, String key,
                   String original, String mutated) {
     }
+
+    /** The unmutated Examples row behind one or more mutants, run in the same harness as they are. */
+    record Control(String id, FeatureDoc feature, Scenario scenario, Examples examples, int row) {
+    }
+
+    /** What one generated scenario did: kind = passed | aborted | undefined | failed (an exception thrown IN A
+     *  STEP) | error (a failure outside every step); type = the exception class the runner reported, or "". */
+    record Outcome(String kind, String type) {
+    }
+
+    /** Key column of a control row in manifest.tsv (its original/mutated columns stay empty). */
+    static final String CONTROL_KEY = "(control)";
+    static final Pattern CONTROL_ID = Pattern.compile("c\\d+");
+    /** Mutants and controls are told apart by the id their feature and scenario titles start with. */
+    static final Pattern RESULT_ID = Pattern.compile("(?:MUTANT (m\\d+)|CONTROL (c\\d+))\\b");
 
     // ---------------------------------------------------------------- entry points
 
@@ -7066,6 +7539,7 @@ public class GherkinMutator {
             files = s.filter(p -> p.toString().endsWith(".feature")).sorted().toList();
         }
         List<Mutant> mutants = new ArrayList<>();
+        List<Control> controls = new ArrayList<>();
         int inScope = 0;
         int unreadable = 0;
         int vacuous = 0;
@@ -7089,7 +7563,7 @@ public class GherkinMutator {
                 continue;
             }
             int before = mutants.size();
-            collectMutants(doc, mutants);
+            collectMutants(doc, mutants, controls);
             Keywords kw = LANGUAGES.get(doc.language);
             for (Scenario sc : doc.scenarios) {
                 if (stepCount(sc, kw) == 0) {
@@ -7119,9 +7593,14 @@ public class GherkinMutator {
             manifest.add(String.join("\t", m.id(), m.feature().path, String.valueOf(m.examples().rowLines.get(m.row())),
                     tsv(m.scenario().name), tsv(m.key()), tsv(m.original()), tsv(m.mutated())));
         }
+        for (Control c : controls) {
+            Files.write(outDir.resolve(c.id() + ".feature"), render(c), StandardCharsets.UTF_8);
+            manifest.add(String.join("\t", c.id(), c.feature().path, String.valueOf(c.examples().rowLines.get(c.row())),
+                    tsv(c.scenario().name), CONTROL_KEY, "", ""));
+        }
         Files.write(outDir.resolve("manifest.tsv"), manifest, StandardCharsets.UTF_8);
-        out.println("Gherkin mutation: " + mutants.size() + " mutant(s) from " + inScope + " feature file(s) in scope -> "
-                + outDir);
+        out.println("Gherkin mutation: " + mutants.size() + " mutant(s) + " + controls.size() + " control(s) from "
+                + inScope + " feature file(s) in scope -> " + outDir);
         if (vacuous > 0) {
             out.println("  Every value a scenario depends on must be an Examples parameter (Scenario Outline), so that");
             out.println("  a hollow step definition shows up as a surviving mutant. The specifier rewrites the feature;");
@@ -7130,7 +7609,7 @@ public class GherkinMutator {
         return unreadable == 0 && vacuous == 0 ? 0 : 1;
     }
 
-    static void collectMutants(FeatureDoc doc, List<Mutant> mutants) {
+    static void collectMutants(FeatureDoc doc, List<Mutant> mutants, List<Control> controls) {
         Keywords kw = LANGUAGES.get(doc.language);
         for (int s = 0; s < doc.scenarios.size(); s++) {
             Scenario sc = doc.scenarios.get(s);
@@ -7144,14 +7623,19 @@ public class GherkinMutator {
                 }
                 for (int r = 0; r < ex.rowsRaw.size(); r++) {
                     List<String> row = ex.rowsRaw.get(r);
+                    int before = mutants.size();
                     for (int k = 0; k < ex.headerRaw.size() && k < row.size(); k++) {
                         String key = unescape(ex.headerRaw.get(k));
                         String original = unescape(row.get(k));
                         String seed = doc.path + "|" + s + "|" + e + "|" + r + "|" + key + "|" + original;
                         String mutated = mutate(original, new Random(seed.hashCode()));
                         if (!mutated.equals(original)) {
-                            mutants.add(new Mutant("m" + (mutants.size() + 1), doc, sc, ex, r, key, original, mutated));
+                            mutants.add(new Mutant("m" + (mutants.size() + 1), doc, sc, ex, r, k, key, original, mutated));
                         }
+                    }
+                    if (mutants.size() > before) {
+                        // one control per mutated row: the same row, unchanged, judged in the same run
+                        controls.add(new Control("c" + (controls.size() + 1), doc, sc, ex, r));
                     }
                 }
             }
@@ -7159,46 +7643,55 @@ public class GherkinMutator {
     }
 
     static List<String> render(Mutant m) {
-        FeatureDoc doc = m.feature();
+        // the mutant's own column, not the first header with the same text: with a repeated header Cucumber
+        // feeds the FIRST column to the steps, and mutating that one would "kill" a mutant of the dead column
+        return render(m.feature(), m.scenario(), m.examples(), m.row(), "mutant " + m.id(), "MUTANT " + m.id(),
+                " | " + m.key() + ": " + tsv(m.original()) + " -> " + tsv(m.mutated()), m.column(), m.mutated());
+    }
+
+    /** The control of a mutated row: exactly what a mutant of that row looks like, with no cell changed. */
+    static List<String> render(Control c) {
+        return render(c.feature(), c.scenario(), c.examples(), c.row(), "control " + c.id(), "CONTROL " + c.id(),
+                "", -1, null);
+    }
+
+    /**
+     * One generated feature: the scenario as a single-row Scenario Outline. {@code what} names it in the header
+     * comment, {@code label} starts the feature and scenario titles (verdict finds the id there), {@code change}
+     * is appended to the scenario title; {@code keyIndex < 0} leaves every cell of the row as written.
+     */
+    static List<String> render(FeatureDoc doc, Scenario scenario, Examples ex, int rowIndex, String what, String label,
+                               String change, int keyIndex, String mutated) {
         Keywords kw = LANGUAGES.get(doc.language);
         List<String> lines = new ArrayList<>();
         if (doc.languageLine != null) {
             lines.add(doc.languageLine);
         }
-        lines.add("# Gherkin mutant " + m.id() + " of " + doc.path + " - generated, do not edit");
+        lines.add("# Gherkin " + what + " of " + doc.path + " - generated, do not edit");
         lines.addAll(doc.tags);
-        lines.add(featureKeyword(doc) + ": MUTANT " + m.id() + " | " + doc.name);
+        lines.add(featureKeyword(doc) + ": " + label + " | " + doc.name);
         lines.addAll(doc.background);
-        Rule rule = m.scenario().rule;
+        Rule rule = scenario.rule;
         if (rule != null) {
             lines.addAll(rule.tags);
             lines.add(rule.header);
             lines.addAll(rule.background);
         }
-        List<String> tags = new ArrayList<>(m.scenario().tags);
-        tags.addAll(m.examples().tags);
+        List<String> tags = new ArrayList<>(scenario.tags);
+        tags.addAll(ex.tags);
         lines.addAll(tags);
         // Keep the Scenario Outline and its <placeholders> verbatim: Cucumber interpolates the Examples
         // values itself, exactly as in the original run. Flattening to a plain Scenario and re-escaping the
         // substituted values would distort every other column (a real newline in an address cell becomes a
         // literal \n in step text, failing an unrelated check and falsely "killing" this mutant). Only the
         // single target cell of the single target row changes; all other cells stay byte-for-byte as written.
-        lines.add("  " + kw.outline().get(0) + ": MUTANT " + m.id() + " | " + m.scenario().name + " | " + m.key() + ": "
-                + tsv(m.original()) + " -> " + tsv(m.mutated()));
-        lines.addAll(m.scenario().body);
-        Examples ex = m.examples();
+        lines.add("  " + kw.outline().get(0) + ": " + label + " | " + scenario.name + change);
+        lines.addAll(scenario.body);
         lines.add("    " + kw.examples().get(0) + ":");
         lines.add("      | " + String.join(" | ", ex.headerRaw) + " |");
-        int keyIndex = -1;
-        for (int k = 0; k < ex.headerRaw.size(); k++) {
-            if (unescape(ex.headerRaw.get(k)).equals(m.key())) {
-                keyIndex = k;
-                break;
-            }
-        }
-        List<String> row = new ArrayList<>(ex.rowsRaw.get(m.row()));
+        List<String> row = new ArrayList<>(ex.rowsRaw.get(rowIndex));
         if (keyIndex >= 0 && keyIndex < row.size()) {
-            row.set(keyIndex, escapeCell(m.mutated()));
+            row.set(keyIndex, escapeCell(mutated));
         }
         lines.add("      | " + String.join(" | ", row) + " |");
         return lines;
@@ -7596,43 +8089,66 @@ public class GherkinMutator {
             return 0;
         }
         Map<String, String[]> manifest = new LinkedHashMap<>();
+        Map<String, String[]> controls = new LinkedHashMap<>();   // none in a manifest written before controls existed
         List<String> lines = Files.readAllLines(manifestFile, StandardCharsets.UTF_8);
         for (String line : lines.subList(1, lines.size())) {
             String[] f = line.split("\t", -1);
-            manifest.put(f[0], f);
+            (CONTROL_ID.matcher(f[0]).matches() ? controls : manifest).put(f[0], f);
         }
         if (manifest.isEmpty()) {
             out.println("Gherkin mutation: no mutants (no Examples values in scope) - OK.");
             return 0;
         }
-        Map<String, String> outcome = readResults(resultsDir);
+        Map<String, Outcome> outcome = readResults(resultsDir);
         int killed = 0;
         int byUndefinedStep = 0;
+        int byOtherException = 0;
         List<String> survived = new ArrayList<>();
         List<String> errors = new ArrayList<>();
         for (Map.Entry<String, String[]> e : manifest.entrySet()) {
             String[] f = e.getValue();
             String what = f[1] + ":" + f[2] + " \"" + f[3] + "\" " + f[4] + ": " + f[5] + " -> " + f[6];
-            String o = outcome.get(e.getKey());
+            Outcome o = outcome.get(e.getKey());
             if (o == null) {
                 errors.add("MUTANT ERROR    " + e.getKey() + " not executed  " + what);
-            } else if (o.equals("passed")) {
+            } else if (o.kind().equals("passed")) {
                 survived.add("MUTANT SURVIVED " + e.getKey() + "  " + what);
-            } else if (o.equals("aborted")) {
+            } else if (o.kind().equals("aborted")) {
                 errors.add("MUTANT ERROR    " + e.getKey() + " skipped/aborted, not a kill  " + what);
-            } else if (o.equals("error")) {
-                errors.add("MUTANT ERROR    " + e.getKey() + " errored (exception/crash), not a kill  " + what);
+            } else if (o.kind().equals("error")) {
+                errors.add("MUTANT ERROR    " + e.getKey() + " failed outside a step (" + thrown(o)
+                        + " - hook, fixture or context), not a kill  " + what);
             } else {
                 killed++;
-                byUndefinedStep += o.equals("undefined") ? 1 : 0;
+                if (o.kind().equals("undefined")) {
+                    byUndefinedStep++;
+                } else if (!assertionType(o.type())) {
+                    byOtherException++;
+                }
+            }
+        }
+        int controlsPassed = 0;
+        List<String> brokenControls = new ArrayList<>();
+        for (Map.Entry<String, String[]> e : controls.entrySet()) {
+            String[] f = e.getValue();
+            Outcome o = outcome.get(e.getKey());
+            if (o != null && o.kind().equals("passed")) {
+                controlsPassed++;
+            } else {
+                // "MUTANT ERROR" on purpose: the Stop hook hands lines with that prefix back to the agent
+                brokenControls.add("MUTANT ERROR    " + e.getKey() + " control (unmutated scenario) " + controlProblem(o)
+                        + "  " + f[1] + ":" + f[2] + " \"" + f[3] + "\"");
             }
         }
         out.println("Gherkin mutation: " + manifest.size() + " mutant(s) - " + killed + " killed"
                 + (byUndefinedStep > 0 ? " (" + byUndefinedStep + " only because no step definition matched the new value)" : "")
-                + ", " + survived.size() + " survived, " + errors.size() + " error(s)");
+                + (byOtherException > 0 ? " (" + byOtherException + " by a non-assertion exception thrown in a step)" : "")
+                + ", " + survived.size() + " survived, " + errors.size() + " error(s)"
+                + (controls.isEmpty() ? "" : "; " + controls.size() + " control(s) - " + controlsPassed + " passed"));
         survived.forEach(out::println);
         errors.forEach(out::println);
-        if (survived.isEmpty() && errors.isEmpty()) {
+        brokenControls.forEach(out::println);
+        if (survived.isEmpty() && errors.isEmpty() && brokenControls.isEmpty()) {
             out.println("Gherkin mutation: OK");
             return 0;
         }
@@ -7643,10 +8159,33 @@ public class GherkinMutator {
             out.println("  specifier should remove it from the Examples (human approval required).");
         }
         if (!errors.isEmpty()) {
-            out.println("  Errors: the mutant scenario did not run to a verdict (skipped by an assumption, parse error,");
-            out.println("  crash, timeout). A skipped scenario proves nothing. See the test report.");
+            out.println("  Errors: the mutant scenario did not run to a verdict (it failed outside every step - in a hook,");
+            out.println("  a fixture or the context -, was skipped by an assumption, did not parse, crashed or timed out).");
+            out.println("  A scenario that never reached a failing step proves nothing. See the test report.");
+        }
+        if (!brokenControls.isEmpty()) {
+            out.println("  Controls: a control is the original Examples row run in the mutant harness with nothing changed.");
+            out.println("  If it does not pass, the mutant run itself is broken (the environment or a fixture is down, or the");
+            out.println("  scenario depends on other scenarios or on its own name/position), so failing mutants prove nothing.");
         }
         return 1;
+    }
+
+    static String thrown(Outcome o) {
+        return o.type().isEmpty() ? "unknown exception" : o.type();
+    }
+
+    /** Why a control did not pass ({@code null} = no result for it at all). */
+    static String controlProblem(Outcome o) {
+        if (o == null) {
+            return "was not executed";
+        }
+        return switch (o.kind()) {
+            case "aborted" -> "was skipped/aborted";
+            case "undefined" -> "has a step without a matching step definition";
+            case "failed" -> "failed in a step with " + thrown(o);
+            default -> "failed outside a step (" + thrown(o) + " - hook, fixture or context)";
+        };
     }
 
     /** Cucumber reports undefined steps as aborted, which Gradle shows as skipped - not as failed. */
@@ -7732,36 +8271,49 @@ public class GherkinMutator {
         return list;
     }
 
-    static Map<String, String> readResults(Path resultsDir) throws IOException {
-        Map<String, String> outcome = new LinkedHashMap<>();
-        Pattern id = Pattern.compile("MUTANT (m\\d+)\\b");
+    static Map<String, Outcome> readResults(Path resultsDir) throws IOException {
+        Map<String, Outcome> outcome = new LinkedHashMap<>();
         for (Element tc : testcases(resultsDir)) {
-            Matcher m = id.matcher(tc.getAttribute("name") + " " + tc.getAttribute("classname"));
+            Matcher m = RESULT_ID.matcher(tc.getAttribute("name") + " " + tc.getAttribute("classname"));
             if (!m.find()) {
                 continue;
             }
-            String result = "passed";
+            String id = m.group(1) != null ? m.group(1) : m.group(2);
+            Outcome result = new Outcome("passed", "");
             for (Node n = tc.getFirstChild(); n != null; n = n.getNextSibling()) {
                 if (n instanceof Element e) {
                     switch (e.getTagName()) {
-                        // A kill is an assertion that failed IN A STEP. Gradle writes a @Before/@After hook
-                        // exception (IOException, or an assertion in the hook) as <failure> too, but no step
-                        // reached a verdict - that is an error, not a kill. <error> = a crash/glue/harness
-                        // failure that never reached a verdict: also an error.
-                        case "failure" -> result = undefinedStep(e) ? "undefined" : stepAssertionKill(e) ? "failed" : "error";
-                        case "error" -> result = undefinedStep(e) ? "undefined" : "error";
-                        case "skipped" -> result = result.equals("passed") ? "aborted" : result;
+                        // The stage decides, not the element name: Gradle writes every failed scenario as
+                        // <failure>, Surefire-style writers use <error> for a non-assertion exception.
+                        case "failure", "error" -> result = failureOutcome(e);
+                        case "skipped" -> result = result.kind().equals("passed") ? new Outcome("aborted", "") : result;
                         default -> {
                         }
                     }
                 }
             }
-            String prev = outcome.get(m.group(1));
-            if (prev == null || prev.equals("passed") || prev.equals("aborted")) {
-                outcome.put(m.group(1), result);
+            Outcome prev = outcome.get(id);
+            if (prev == null || prev.kind().equals("passed") || prev.kind().equals("aborted")) {
+                outcome.put(id, result);
             }
         }
         return outcome;
+    }
+
+    /**
+     * A failed scenario counts as "failed" (a kill for a mutant) only with positive evidence that the exception
+     * was thrown IN A STEP - whatever its type: a hard-coded list of assertion classes can never be complete
+     * (Cucumber's own TableDiffException, Mockito and WireMock verifications, Awaitility timeouts are none of
+     * java.lang.AssertionError's usual names). A @Before/@After hook or a fixture fails without a step frame:
+     * no step reached a verdict, so that is an "error". The control scenarios guard the other direction - a
+     * harness in which the UNMUTATED row fails in a step proves nothing either.
+     */
+    static Outcome failureOutcome(Element failure) {
+        String type = failure.getAttribute("type");
+        if (undefinedStep(failure)) {
+            return new Outcome("undefined", type);
+        }
+        return new Outcome(stepStage(failure.getTextContent()) ? "failed" : "error", type);
     }
 
     /** Cucumber reports a step without a matching definition with this specific exception. */
@@ -7770,12 +8322,8 @@ public class GherkinMutator {
         return text.contains("UndefinedStepException");
     }
 
-    /** A mutant is killed only by an assertion with positive evidence that a STEP ran. Runner filtering can
-     *  omit all hook frames from a @Before failure, so absence of hook markers is not evidence of a step. */
-    static boolean stepAssertionKill(Element failure) {
-        return assertionType(failure.getAttribute("type")) && stepStage(failure.getTextContent());
-    }
-
+    /** Only for the summary note: kills by an exception that is not one of the usual assertion classes are
+     *  counted separately so the human can see them. It never decides between kill and error. */
     static boolean assertionType(String type) {
         return type.endsWith("AssertionError") || type.endsWith("AssertionFailedError")
                 || type.endsWith("AssertFailedError") || type.endsWith("ComparisonFailure")
@@ -7783,6 +8331,9 @@ public class GherkinMutator {
                 || type.endsWith("MultipleFailuresError");
     }
 
+    /** Positive evidence that a STEP threw: Cucumber appends the step's own frame ("at ✽.<step text>(feature:line)")
+     *  to an exception thrown by a step definition. Runner filtering can omit all hook frames from a @Before
+     *  failure, so the absence of hook markers is not evidence of a step. */
     static boolean stepStage(String trace) {
         return trace.contains("PickleStepDefinitionMatch") || trace.contains("StepDefinitionMatch")
                 || trace.contains("✽.");

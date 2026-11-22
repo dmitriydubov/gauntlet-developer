@@ -428,13 +428,54 @@
       build-логики, которую `IntegrityCheck` сканирует, раньше не запускала гейт (заметка ревью Kimi, дважды
       отложенная). При таймауте Gradle частичный вывод терялся (на POSIX он приходит как bytes) — теперь агент
       видит, до чего дошёл прогон.
+    - **`GherkinMutator`: стадия вместо списка типов исключений (независимое ревью).** С третьего раунда kill
+      требовал тип исключения из зашитого списка; два раунда подряд список дополняли типами Google Truth. Список
+      не может быть полным: `DataTable.diff` самого Cucumber бросает `TableDiffException`, Mockito —
+      `WantedButNotInvoked`, WireMock — `VerificationException`, Awaitility — `ConditionTimeoutException`. На
+      `166287c` оба мутанта фичи с табличной проверкой в `Then` падали в шаге (кадр `✽.` в трассе), а гейт сообщал
+      `0 killed, 2 error(s)` и валил сборку; на 4.2 та же фича проходила. Теперь kill — падение с кадром шага
+      Cucumber при любом типе исключения; `<failure>` и `<error>` судятся одинаково; падение без кадра шага (хук,
+      фикстура, контекст), skipped и отсутствие результата — по-прежнему ошибка. Kill не-assertion исключением
+      считается отдельно в строке итога.
+    - **`GherkinMutator`: контрольные сценарии (независимое ревью).** Мутант, упавший не из-за изменённого
+      значения, а из-за стенда, считался убитым. Воспроизведено на `166287c`: сценарий B опирается на состояние,
+      которое оставляет сценарий A из другой, неизменённой фичи; в `scope=changed` в прогон мутантов попадают
+      только мутанты B, каждый падает в `When` на отсутствующем предусловии — `2 killed`, `Gherkin mutation: OK`,
+      BUILD SUCCESSFUL, хотя `Then` у B пустой и в исправном стенде его мутант выживает. Теперь на каждую
+      мутируемую строку «Примеров» генерируется контроль `cN.feature` — та же отрисовка без изменений, в том же
+      прогоне; контроль обязан пройти, иначе вердикт красный с объяснением. Контроль ловит и стенд, упавший
+      целиком (фикстура в `@Before`), и ошибку самого генератора. Мутант повторяющегося заголовка «Примеров»
+      менял первую одноимённую колонку вместо своей — исправлено.
+    - **guard: сокращения длинных опций и конфигурация git (независимое ревью).** git принимает любой однозначный
+      префикс длинной опции; ревизия закрыла это только для `--no-verify`. На `166287c` хук разрешал, а git 2.43
+      выполнял: `commit --amen` (amend), `push --mirro`, `push --al`, `push --branches`, `branch --forc`,
+      `branch --delet`, `switch --force-creat`, кластеры `checkout -qB`/`-Bname`; глобальная опция со значением
+      прятала подкоманду (`git --namespace x commit --amend`); `core.hooksPath` ловился только у `commit` и только
+      через `-c` — `git -c core.hooksPath=/dev/null push` и постоянное `git config core.hooksPath /dev/null`
+      проходили; алиас (`git config alias.fp 'push --force'`) прятал любую human-only команду. Всё это закрыто
+      одним помощником `long_opt` и разбором `git config` (чтение и `--unset` разрешены). Через `gh` можно было
+      выключить саму проверку «которую нельзя обойти»: `gh workflow disable`, не-GET `gh api` к защите ветки,
+      rulesets и разрешениям Actions — теперь human-only. Сняты ложные блокировки, где значение опции принималось
+      за кластер флагов: `commit -uno`, `branch --sort -committerdate`, `branch --contains HEAD` у ревьюера;
+      сообщение коммита `-m "--amend"` — не опция. `permissions.deny` дополнен 11 префиксными формами.
+      Самопроверка: 997 → 1429 (+144 на раскладку: запреты с парными разрешающими контролями).
+    - **Регрессионный набор в репозитории.** Третий раунд ревью советовал «сохранить небольшой Gradle-проект в
+      повторяемой проверке самого дистрибутива»; совет остался без ответа, а цифры «Java/XML 35/35, installer
+      20/20» жили в разовых стендах исполнителей. Теперь `python3 tests/run.py` распаковывает бандл скриптом из его
+      шапки и проверяет манифест, побайтную пересборку сборщиком из раздела 8.4, единство ревизии в документах,
+      хуки, все пять инструментов, установщик и shell-шаги CI; `--gradle` добавляет одиннадцать сценариев на
+      настоящем Gradle, включая оба ложнозелёных случая выше.
 
 ### Остаток эвристики guard (честно)
 
 guard — растяжка, а не сейф (это заявлено в наборе). Статический разбор shell не видит:
 - подстановку команды, порождающую имя бинарника: `$(which git) push --force`;
 - разворачивание переменной: `G=git; $G push --force`;
-- закодированные payload'ы (base64 и т. п.).
+- закодированные payload'ы (base64 и т. п.);
+- конфигурацию git через переменные окружения (`GIT_CONFIG_KEY_n`, `GIT_CONFIG_PARAMETERS`, `GIT_CONFIG_GLOBAL`)
+  и алиасы, уже лежащие в глобальном конфиге пользователя;
+- `push.default=upstream` с push без refspec на ветке, чей upstream — базовая;
+- настройки репозитория через `gh api -X PATCH repos/…`.
 
 `permissions.deny` тоже префиксный и обходится обёрткой (`bash -c 'git push --force'` не начинается с
 `git push`). Настоящая опора для базовой ветки — GitHub branch protection, CI (`fetch-depth: 0`,
@@ -453,7 +494,7 @@ guard — растяжка, а не сейф (это заявлено в наб�
 - `.claude/agents/{specifier,hardener,reviewer}.md`, `.github/workflows/gauntlet.yml`, `gauntlet/CLAUDE.md`,
   `INSTALL.md`, `config/gauntlet.properties` (обнаруженные версии проекта и отдельная JVM гейта);
 - `gauntlet/tools/IntegrityCheck.java`, `CrapGate.java`, `GherkinMutator.java`, `PitSummary.java`;
-- `gauntlet/hooks/guard.py`, `stop_gate.py`, `selftest.py` (997 проверок в трёх раскладках);
+- `gauntlet/hooks/guard.py`, `stop_gate.py`, `selftest.py` (1429 проверок в трёх раскладках);
 - `gauntlet/install.sh` (обновление gauntlet-хуков при слиянии, бюджет таймаута по модулям);
 - `gauntlet/gauntlet.gradle` (входы `acceptanceTest`, `mutationGate` source → compiled types);
 - `gauntlet/config/crap-allowlist.txt` (пример записи с сигнатурой перегрузки);
@@ -461,6 +502,8 @@ guard — растяжка, а не сейф (это заявлено в наб�
 - `gauntlet/templates/acceptanceTest/resources/features/example_discount.feature`;
 - `gauntlet/README.md` (таблица лазеек, раздел 8, остаток, пункт `install.sh`);
 - манифест: пересчитаны байтовые размеры 20 изменённых файлов (см. ниже).
+
+**`tests/`** (новый каталог, в бандл не входит): регрессионный набор дистрибутива, `python3 tests/run.py`.
 
 ### Манифест бандла
 
@@ -472,21 +515,21 @@ guard — растяжка, а не сейф (это заявлено в наб�
 | `.claude/agents/hardener.md` | 4210 | 4233 |
 | `.claude/agents/reviewer.md` | 7473 | 7509 |
 | `.claude/agents/specifier.md` | 4920 | 5026 |
-| `.claude/settings.json` | 1720 | 2211 |
+| `.claude/settings.json` | 1720 | 2586 |
 | `.github/workflows/gauntlet.yml` | 1978 | 5615 |
 | `gauntlet/CLAUDE.md` | 63625 | 64586 |
-| `gauntlet/INSTALL.md` | 11426 | 14369 |
-| `gauntlet/README.md` | 29851 | 51401 |
+| `gauntlet/INSTALL.md` | 11426 | 14544 |
+| `gauntlet/README.md` | 29851 | 57717 |
 | `gauntlet/config/crap-allowlist.txt` | 448 | 924 |
-| `gauntlet/config/gauntlet.properties` | 5921 | 6384 |
+| `gauntlet/config/gauntlet.properties` | 5921 | 6568 |
 | `gauntlet/gauntlet.gradle` | 32451 | 43456 |
-| `gauntlet/hooks/guard.py` | 26740 | 44168 |
-| `gauntlet/hooks/selftest.py` | 41192 | 69153 |
+| `gauntlet/hooks/guard.py` | 26740 | 53684 |
+| `gauntlet/hooks/selftest.py` | 41192 | 84316 |
 | `gauntlet/hooks/stop_gate.py` | 16669 | 20978 |
 | `gauntlet/install.sh` | 4933 | 11572 |
 | `gauntlet/templates/acceptanceTest/resources/features/example_discount.feature` | 928 | 1258 |
 | `gauntlet/tools/CrapGate.java` | 12638 | 27932 |
-| `gauntlet/tools/GherkinMutator.java` | 35990 | 42883 |
+| `gauntlet/tools/GherkinMutator.java` | 35990 | 49759 |
 | `gauntlet/tools/IntegrityCheck.java` | 15688 | 24746 |
 | `gauntlet/tools/PitSummary.java` | 11401 | 11633 |
 
@@ -499,8 +542,17 @@ guard — растяжка, а не сейф (это заявлено в наб�
 
 ### Проверено
 
-- `python3 gauntlet/hooks/selftest.py` — 997 проверок, 0 падений, три раскладки (корень; `core/`;
+- `python3 gauntlet/hooks/selftest.py` — 1429 проверок, 0 падений, три раскладки (корень; `core/`;
   `core/` + `adapter/`); в том числе из распакованной копии пересобранного бандла.
+- `python3 tests/run.py --gradle` — регрессионный набор дистрибутива по бандлу, распакованному скриптом из его
+  шапки: манифест и побайтная пересборка сборщиком из раздела 8.4, единство ревизии и таблицы размеров, хуки,
+  `CrapGate`, `IntegrityCheck`, `GherkinMutator`, установщик, shell-шаги CI и одиннадцать сценариев на настоящем
+  Gradle 8.14.3 (JDK 21 и 25, Cucumber 7.23.0): полный `gauntlet` на примере — 29 задач, PIT 2/2, 9/9
+  Gherkin-мутантов и 3 контроля; `DataTable.diff` в шаге — kill; фикстура, упавшая в прогоне мутантов, и
+  сценарий без предусловия — красный вердикт по контролям; `-encoding` из `compilerArgs`; `class Tarif\u00e9`;
+  два `Rules.java` при `debug=false`; gate-JVM 25 при проектном `Test.executable` 21; обычная сборка с
+  отсутствующей gate-JDK 99. Отдельно Cucumber 8.0.1 с JUnit 6.1.2 — 9/9 kill, 3 контроля. GitHub Actions в этой
+  среде не запускался: шаги workflow исполнены локально как shell со стабами JDK и wrapper.
 - Компиляция всех single-file инструментов (`javac`): `CrapGate`, `DryGate`, `GherkinMutator`,
   `IntegrityCheck`, `PitSummary` — без ошибок (22 class-файла).
 - Целевые регрессии: allowlist `CrapGate` (ключ `Class#method` цел), опенер `IntegrityCheck` (10 случаев),

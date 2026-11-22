@@ -429,12 +429,28 @@ ArchUnit-тест, шаблоны, установку и документаци�
   команда, поэтому чтение через обёртку (`bash -c 'grep … gauntlet/config/…'`) больше не блокируется. Конвейер:
   нагрузка ищется во всём тексте слева от pipe (команда перед `echo`, фильтр, `|&`, `if … fi`); подстановка: свой
   контекст кавычек на каждом уровне, шаблон `case`, строки `$'…'`, вложенные обратные кавычки.
+- `hooks/guard.py`, чтение командной строки: хук читал команду не так, как оболочка. На `166287c` апостроф в
+  комментарии или в теле heredoc открывал «кавычку» до конца команды, и следующая строка не проверялась:
+  `# don't forget` + `git push --force origin main` проходил, как и `rm -rf gauntlet; echo 'done'` после такого
+  комментария; перенос строки через `\` рвал команду (`cp src/A.java \` + `gauntlet/config/` проходил); `<<` в строке
+  или в арифметике (`"1 << shift"`, `$((1<<2))`) считался heredoc и прятал строки после себя; программа, поданная
+  оболочке или интерпретатору через heredoc, here-string или pipe (`bash <<EOF`, `python3 - <<EOF`,
+  `bash <<< '…'`, `echo '…' | python3`), и подстановка в теле heredoc не судились. Теперь команда сначала читается
+  одним проходом (`shell_code`): комментарии убираются, строки с `\` склеиваются, тело heredoc выносится из
+  командной строки и судится как программа того, кто его читает (для `cat` и `tee` это данные), шаблон `case` не
+  закрывает подоболочку. Сверка с настоящим bash на 119 командах: расхождений в том, что исполняется, было 35,
+  осталось одно (функция-обёртка, определённая в той же команде). Скрипт `sed`, программа `awk` и условия `find`
+  — не пути (specifier и hardener не могли править свои файлы через `sed -i 's/a/b/'`), `find … -exec sed -i`,
+  `-exec perl -i` и `-fprint` считаются записью; путь в соседнем worktree того же репозитория защищён как свой;
+  кластеры флагов интерпретаторов (`python3 -Bc`, `perl -we`, `node -pe`, несколько `-e`) и argv-вызовы
+  `run([...])`, `execvp('git', [...])`, `spawnSync('git', [...])` разбираются.
 - `.claude/agents/specifier.md`, `hardener.md`, `gauntlet/CLAUDE.md`: сценарий обязан исполняться сам по себе;
   красный контроль — зависимость сценария от соседнего или от стенда, а не слабое step-определение.
-- `hooks/selftest.py`: 997 → 1708 проверок (сокращения и их разрешающие контроли, конфигурация git, `gh`,
-  оболочки/обёртки/вложенный код для human-only, путей и ролей, `buildSrc`, вывод при таймауте). `README.md`,
+- `hooks/selftest.py`: 997 → 2059 проверок (сокращения и их разрешающие контроли, конфигурация git, `gh`,
+  оболочки/обёртки/вложенный код для human-only, путей и ролей, чтение командной строки, `buildSrc`, вывод при
+  таймауте). `README.md`,
   `INSTALL.md`, `config/gauntlet.properties` — описание синхронизировано.
-- Проверки: `python3 tests/run.py` в репозитории набора (распакованный бандл): самопроверка хуков 1708/1708,
+- Проверки: `python3 tests/run.py` в репозитории набора (распакованный бандл): самопроверка хуков 2059/2059,
   инструменты, установщик, shell-шаги CI, побайтная пересборка; реальные Gradle 8.14.3/JDK 21 и 25, Cucumber
   7.23.0 и 8.0.1 — полный `gauntlet` на примере (9/9 Gherkin-мутантов, 3 контроля, PIT 2/2) и сценарии находок.
   GitHub Actions в этой среде не запускался: шаги workflow исполнены локально как shell.
@@ -472,7 +488,7 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 - `CLAUDE.md` (279 байт)
 - `gauntlet/CLAUDE.md` (65106 байт)
 - `gauntlet/INSTALL.md` (14544 байт)
-- `gauntlet/README.md` (60167 байт)
+- `gauntlet/README.md` (62731 байт)
 - `gauntlet/archtest/gauntlet/architecture/ArchitectureTest.java` (7906 байт)
 - `gauntlet/config/architecture.properties` (1420 байт)
 - `gauntlet/config/checkstyle.xml` (4593 байт)
@@ -482,8 +498,8 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 - `gauntlet/config/pit-runerror-allowlist.txt` (1485 байт)
 - `gauntlet/config/pmd-ruleset.xml` (11398 байт)
 - `gauntlet/gauntlet.gradle` (43456 байт)
-- `gauntlet/hooks/guard.py` (61817 байт)
-- `gauntlet/hooks/selftest.py` (93009 байт)
+- `gauntlet/hooks/guard.py` (79280 байт)
+- `gauntlet/hooks/selftest.py` (109465 байт)
 - `gauntlet/hooks/session_start.sh` (3116 байт)
 - `gauntlet/hooks/stop_gate.py` (20978 байт)
 - `gauntlet/install.sh` (11572 байт)
@@ -1549,7 +1565,7 @@ gauntlet/
   archtest/               ArchUnit-тест, читающий config/architecture.properties
   hooks/                  guard.py (PreToolUse), stop_gate.py (Stop; SubagentStop hardener'а — matcher в
                           .claude/settings.json), session_start.sh (SessionStart; в облаке поднимает dockerd),
-                          selftest.py (1708 проверок хуков в трёх раскладках: python3 gauntlet/hooks/selftest.py)
+                          selftest.py (2059 проверок хуков в трёх раскладках: python3 gauntlet/hooks/selftest.py)
   templates/              конфигурация Cucumber+Spring, пример фичи на русском
   claude/, ci/            только до установки: install.sh переносит их в .claude/ и .github/workflows/
 ```
@@ -1700,6 +1716,7 @@ Auto-fix (кнопка в CI status bar сессии): на упавший CI и
 | обход human-only правил через обёртки и inline-код (`sudo git push --force`, `bash -c '…'`, `eval`, `echo '…' \| sh`, `echo git push --force \| bash` без кавычек, `python3 -c "os.system('…')"`, `python3.12 -c`, `node --eval "…"`, `perl -E '…'`, `subprocess.run(['git','push','--force'])`, `env -S 'git push --force'`, `"$(git push --force)"`, `"$(python3 -c 'print(")")'; git push --force)"`); оболочка с `-c` внутри кластера опций или за их значениями (`bash -lc '…'`, `sh -ec`, `bash -euo pipefail -c`, `dash -c`), обёртка под полным путём или с опцией-значением (`/usr/bin/env git …`, `nice -n 10 …`, `timeout -s KILL 60 …`, `xargs -n 1 …`), `su -c`, `find … -exec`, `env -S'…'`, конвейер, где перед `echo` стоит другая команда или между ним и оболочкой фильтр (`true && echo … \| bash`, `echo '…' \| cat \| bash`, `\|&`) | guard снимает обёртки (`sudo`/`env`/`exec`/`command`/`nohup`/`time` с их опциями, включая `env -S`/`--split-string`), рекурсивно проверяет код после `-c`/`-e` (и `--eval`/`--print` у node, `-E` у perl, версионные имена `python3.X`), `eval`/`source`, весь текст `echo`/`printf` через pipe (в кавычках и без), argv из отдельных кавычек (`subprocess`/`os.exec`/`execSync`) и тела подстановок `$(…)`/`` `…` `` вне одинарных кавычек — глубина учитывает кавычки, поэтому `)` внутри кавычек не обрывает тело; оболочки (`bash`, `sh`, `zsh`, `dash`, `ksh`) разбираются по своей грамматике опций — командная строка `-c` берётся как первый операнд после всех опций; обёртка узнаётся по имени программы, а не по написанию пути; тот же разбор применяется к правилам путей и ролей: `bash -lc 'rm -rf gauntlet'`, `echo 'rm -rf gauntlet' \| sh` и `echo "$(rm -rf gauntlet)"` отклоняются как сама команда, а чтение через ту же обёртку (`bash -lc 'cat gauntlet/README.md'`) разрешено; у подстановки свой контекст кавычек на каждом уровне вложенности |
 | удалить `.git`, чтобы снять заморозку и Stop-хук, или подделать зелёный статус | `.git/` — зона человека: guard отклоняет запись/удаление, в т. ч. `last-green-*` в `.git/gauntlet-hook/` |
 | `git push --mirror`/`--all`/`--branches`, `push HEAD`/`push origin @` (`@` — синоним HEAD) или push без refspec сидя на базовой ветке; `git -C <worktree> push` из feature-сессии, когда worktree на базовой ветке; `--no-verif` (сокращение); `core.hooksPath` через `-c`/`--config-env` перед любой подкомандой и записью `git config core.hooksPath …`; алиасы и `include.path` (`git config alias.fp 'push --force'`), прячущие любую из этих команд; пути в другом регистре (`GAUNTLET/…`) | guard ловит все эти формы (чтение конфигурации и `--unset` разрешены) (push без refspec на базовой ветке = push базовой ветки при `push.default=simple`; текущая ветка берётся с учётом `-C`/`--git-dir`); `HEAD:other`/`@:other` базовой веткой не считаются и разрешены; сравнение путей и `mentions` регистронезависимы (macOS/Windows) |
+| команда, которую guard читал иначе, чем оболочка: апостроф в комментарии или в теле heredoc (`# don't forget` и следующей строкой `git push --force`), перенос строки через `\` (`cp src/A.java \` + `gauntlet/config/`), `<<` в строке или в арифметике, программа через heredoc, here-string или pipe (`bash <<EOF`, `python3 - <<EOF`, `bash <<< '…'`, `echo '…' \| python3`), подстановка в теле heredoc, `find … -exec sed -i` | до правил команда читается одним проходом: комментарии убираются, строки с `\` склеиваются, тело heredoc выносится из командной строки и судится как программа того, кто его читает (для `cat` и `tee` это данные), шаблон `case` не закрывает подоболочку; чтение сверено с настоящим bash; скрипт `sed`, программа `awk` и условия `find` — не пути, а `find` пишет, когда пишет команда его `-exec` |
 | step-определение игнорирует параметр | `gherkinMutation` |
 | мутант «убит» не изменённым значением, а сломанным стендом: упала фикстура, сценарий зависит от соседнего или от своего имени | контрольные сценарии `gherkinMutation`: каждая мутируемая строка «Примеров» прогоняется в том же стенде без изменений и обязана пройти, иначе вердикт красный; падение вне шага (хук, фикстура, контекст) — ошибка, а не kill |
 | область `changed` молча не увидела изменённый класс (кодировка исходников, необычное объявление типа) и гейт прошёл по пустому множеству | `gauntletScope` падает на изменённом исходнике, не читаемом в кодировке javac; перед PIT и CRAP каждый выведенный тип обязан существовать как скомпилированный класс |
@@ -1710,7 +1727,8 @@ Auto-fix (кнопка в CI status bar сессии): на упавший CI и
 
 Проверка shell-команд в guard эвристическая: сознательный обход через хитрый Bash возможен. Известный
 остаток — подстановка команды, порождающая имя бинарника (`$(which git) push --force`), разворачивание
-переменной (`G=git; $G push --force`), закодированные payload'ы, конфигурация git через переменные окружения
+переменной (`G=git; $G push --force`), закодированные payload'ы, функция оболочки, определённая в той же
+команде, код из файла (скрипт, который запускает интерпретатор), конфигурация git через переменные окружения
 (`GIT_CONFIG_*`), алиасы, уже лежащие в глобальном конфиге, `push.default=upstream` с push без refspec и
 настройки репозитория через `gh api -X PATCH repos/…`: статический разбор их не видит.
 `permissions.deny` тоже префиксный и обходится обёрткой. Опора — `integrityCheck`, CI, GitHub branch
@@ -1720,7 +1738,7 @@ protection базовой ветки и то, что любая попытка �
 ## 8. Что проверено в этой версии, а что нет
 
 Проверено здесь (Gradle 8.14.3, Java 21):
-- Хуки, `hooks/selftest.py`, 1708 проверок в трёх раскладках (сборка в корне; модуль `core/`; два модуля
+- Хуки, `hooks/selftest.py`, 2059 проверок в трёх раскладках (сборка в корне; модуль `core/`; два модуля
   `core/` + `adapter/` — Gradle только в изменённом модуле, красный модуль блокирует, коммит
   спецификации одного модуля замораживает фичи другого, чужая незакоммиченная работа не считается)
   на временном git-репозитории с фиктивным `origin/main`:
@@ -1866,8 +1884,15 @@ protection базовой ветки и то, что любая попытка �
   `bash -lc 'rm -rf gauntlet'`, и запись ревьюера или hardener'а вне своей роли. Оболочки теперь разбираются
   по грамматике опций, обёртка узнаётся по имени программы, а вложенный shell-код (нагрузка другой оболочки,
   текст через pipe, тело подстановки) судится теми же правилами путей, ролей и human-only, что и сама команда;
-  чтение через обёртку (`bash -c 'grep … gauntlet/config/…'`) больше не блокируется. Самопроверка 997 → 1708
-  (+237 на раскладку). Регрессии инструментов, установщика и CI лежат в `tests/` репозитория набора и гоняются
+  чтение через обёртку (`bash -c 'grep … gauntlet/config/…'`) больше не блокируется. Чтение командной строки:
+  на `166287c` апостроф в комментарии или в теле heredoc прятал следующую команду (`# don't forget` и строкой
+  ниже `git push --force origin main` проходил), перенос через `\` рвал её (`cp src/A.java \` + `gauntlet/config/`),
+  `<<` в строке или арифметике считался heredoc, а программа через heredoc, here-string или pipe
+  (`bash <<EOF`, `python3 - <<EOF`, `echo '…' | python3`) не судилась; теперь команда читается одним проходом,
+  сверенным с настоящим bash (119 команд: 35 расхождений на `166287c`, осталось одно — функция-обёртка из той
+  же команды). Скрипт `sed` и программа `awk` — не пути (specifier и hardener могут править свои файлы через
+  `sed -i`), `find … -exec sed -i` — запись, путь в соседнем worktree защищён как свой. Самопроверка
+  997 → 2059 (+354 на раскладку). Регрессии инструментов, установщика и CI лежат в `tests/` репозитория набора и гоняются
   по распакованному бандлу.
 - `install.sh` на демо-проекте: чистая установка; слияние с существующим `.claude/settings.json`
   (хуки и права добавлены, `disableAllHooks=false`); обновление 4.2 → 4.3 освежает поля gauntlet-хуков и
@@ -3539,7 +3564,7 @@ def main():
     ctx = Context(project)
     if tool in ("Edit", "Write", "MultiEdit", "NotebookEdit"):
         path = params.get("file_path") or params.get("notebook_path") or ""
-        reason = user_config_violation(path) or path_violation(agent, relative(path, project), ctx)
+        reason = user_config_violation(path) or path_violation(agent, ctx.relative(path), ctx)
     elif tool == "Bash":
         reason = command_violation(agent, params.get("command", ""), ctx, event.get("cwd") or project)
     else:
@@ -3570,6 +3595,7 @@ class Context:
         self.base_branch = self.base_ref.split("/", 1)[1] if "/" in self.base_ref else self.base_ref
         self.approval = props.get("spec.approval", "chat").lower()
         self._frozen = None
+        self._worktrees = None
 
     @property
     def frozen(self):
@@ -3588,6 +3614,23 @@ class Context:
                 differs = git_code(self.project, "diff", "--quiet", self.base_ref, "HEAD", "--", *specs) == 1
                 self._frozen = count.isdigit() and int(count) > 0 and differs
         return self._frozen
+
+    def relative(self, path, cwd=None):
+        """The path relative to the project - or, for a file in ANOTHER worktree of the same repository
+        (`git worktree add ../wt`), relative to that worktree: its gauntlet/, .claude/ and feature files are the
+        same human-owned files in another checkout, and a commit made there lands in the same repository."""
+        rel = relative(path, self.project, cwd)
+        if rel is not None or not path:
+            return rel
+        if self._worktrees is None:
+            listing = git(self.project, "worktree", "list", "--porcelain")
+            self._worktrees = [os.path.realpath(line[len("worktree "):]) for line in listing.splitlines()
+                               if line.startswith("worktree ")]
+        for root in self._worktrees:
+            rel = relative(path, root, cwd)
+            if rel is not None:
+                return rel
+        return None
 
     def role_scope(self, agent):
         return {"specifier": self.features_dirs, "hardener": self.test_code, "reviewer": ()}.get(agent)
@@ -3670,13 +3713,13 @@ def frozen_reason(rel):
 # ----------------------------------------------------------------------------- shell
 
 def command_violation(agent, command, ctx, cwd=None):
+    command = shell_code(command)           # no comments, no continuation lines, no heredoc bodies
     reason = human_only(command, ctx, cwd)
     if reason:
         return reason
     scope = ctx.role_scope(agent)
     read_only = scope is not None and not scope
     protected = ctx.protected(agent)
-    command = strip_heredocs(command)       # a heredoc body is data, not commands
     cwd = cwd or ctx.project
     reason = nested_violation(agent, command, ctx, cwd)
     if reason:
@@ -3733,10 +3776,11 @@ def shell_payloads(words):
 
 
 def nested_violation(agent, command, ctx, cwd):
-    """The path and role rules inside shell code that runs within the command: the payload of another shell,
-    text piped into a shell, and the bodies of command substitutions. `bash -lc 'rm -rf gauntlet'`,
-    `echo 'rm -rf gauntlet' | sh` and `echo "$(rm -rf gauntlet)"` write exactly like the bare command does -
-    and `bash -lc 'cat gauntlet/README.md'` reads exactly like the bare command does."""
+    """The path and role rules inside code that runs within the command: the payload of another shell, a program
+    fed to a shell or an interpreter through a pipe, a here-string or a heredoc, and the bodies of command
+    substitutions. `bash -lc 'rm -rf gauntlet'`, `echo 'rm -rf gauntlet' | sh`, `bash <<EOF ... EOF` and
+    `echo "$(rm -rf gauntlet)"` write exactly like the bare command does - and `bash -lc 'cat gauntlet/README.md'`
+    reads exactly like the bare command does."""
     stack = []
     for segment in split_shell(command):
         if segment == "(":
@@ -3748,7 +3792,7 @@ def nested_violation(agent, command, ctx, cwd):
             continue
         words = words_of(segment)
         cwd = follow_cd(words, cwd, ctx.project)
-        for code in shell_payloads(words):
+        for code in shell_payloads(words) + stdin_programs(segment):
             reason = command_violation(agent, code, ctx, cwd)
             if reason:
                 return reason
@@ -3760,18 +3804,304 @@ def nested_violation(agent, command, ctx, cwd):
     return None
 
 
-def strip_heredocs(command):
-    """Drop heredoc bodies (`<<EOF` ... `EOF`): they are text, and `->` or `rm` inside them are not commands."""
-    lines = command.split("\n")
-    out, delimiters = [], []
-    for line in lines:
-        if delimiters:
-            if line.strip() == delimiters[0]:
-                delimiters.pop(0)
+# ----------------------------------------------------------------------------- reading the command line
+
+HEREDOCS = {}                               # the here-string word that stands for a heredoc -> (body, expanded)
+HEREDOC_REF = "__GAUNTLET_HEREDOC_%d__"
+HEREDOC = re.compile(r"""<<(-?)[ \t]*((?:'[^']*'|"[^"]*"|\\.|[^\s;&|()<>'"\\])+)""")
+SHELL_WORD = r"""(?:'[^']*'|"(?:\\.|[^"\\])*"|\\.|[^\s;&|()<>'"\\])+"""
+HERE_WORD = re.compile(r"[ \t]*(" + SHELL_WORD + r")?")
+RAW_WORD = re.compile(r"[^\s;&|()<>`]+")
+WORD_BREAK = " \t\n;&|()<>`"
+COMMAND_STARTERS = {"then", "do", "else", "elif", "if", "while", "until", "!", "time", "{"}
+READ_AS_ONE = COMMAND_STARTERS | {"case", "esac", "in"}
+
+
+class Frame:
+    """One level of the syntax being read: the command line, $( ... ), ` ... `, ( ... ), a double-quoted
+    string, or the body of a heredoc the shell expands."""
+
+    def __init__(self, kind, arith=False):
+        self.kind, self.arith = kind, arith     # arith: inside (( ... )), where << is a shift
+        self.pending = []                       # heredocs whose bodies start after the next newline
+        self.cases = []                         # open case statements, each "head", "pattern" or "body"
+        self.fresh = True                       # no word of the current simple command has been read yet
+        self.subject = False                    # the word between `case` and `in` has been read
+        self.pattern = False                    # inside a case pattern: its opening parenthesis is written
+
+
+def shell_code(command, kind="top"):
+    """The command as the shell reads it, in the plain form the rules below can judge:
+      - comments are gone (the apostrophe of `# don't` would open a quote that swallows the next command);
+      - a backslash at the end of a line joins it with the next one, as the shell does before anything else;
+      - a heredoc is the here-string `<<< __GAUNTLET_HEREDOC_n__` and its body is kept in HEREDOCS: the body
+        is what the command reads on stdin - data for cat, a program for bash or python3 - and never a part
+        of this command line, whatever quotes, `#` or `<<` it contains;
+      - a case pattern is written `(: a b)`, an inert subshell, so that its closing parenthesis pairs with an
+        opening one and is not taken for the end of a subshell or of $( ... ).
+    Reading its own output changes nothing. If the reader fails, the rules judge the raw text."""
+    try:
+        return read_shell(command, kind)
+    except Exception:
+        return command
+
+
+def read_shell(command, kind):
+    out, frames, i, n = [], [Frame(kind)], 0, len(command)
+
+    def reader():                               # whose parser takes the heredoc bodies: the line, $( ) or ` `
+        return next(f for f in reversed(frames) if f.kind in ("top", "here", "subst", "tick"))
+
+    def close(k):                               # frames[k:] end here; unread heredocs pass to the enclosing reader
+        pending = [h for frame in frames[k:] for h in frame.pending]
+        del frames[k:]
+        reader().pending.extend(pending)
+
+    def begin_word(f):
+        f.fresh = False
+        if f.cases and f.cases[-1] == "head":
+            f.subject = True
+
+    while i < n:
+        c, two, f = command[i], command[i:i + 2], frames[-1]
+        prev = out[-1][-1] if out else "\n"
+        if two == "\\\n":                        # a line continuation (single-quoted text is copied whole below)
+            i += 2
+        elif f.kind in ("dq", "here"):
+            if c == "\\":
+                out.append(two)
+                i += 2
+            elif c == '"' and f.kind == "dq":
+                out.append(c)
+                frames.pop()
+                i += 1
+            elif two == "$(":
+                out.append(two)
+                i += 2
+                frames.append(Frame("subst", command.startswith("(", i)))
+            elif c == "`":
+                out.append(c)
+                i += 1
+                frames.append(Frame("tick"))
+            else:
+                out.append(c)
+                i += 1
+        elif c == "#" and prev in WORD_BREAK:     # a comment runs to the end of the line
+            end = command.find("\n", i)
+            i = n if end < 0 else end
+        elif f.cases and f.cases[-1] == "pattern" and not f.pattern and c not in " \t\n":
+            word = RAW_WORD.match(command, i)
+            if word and word.group(0) == "esac":
+                out.append("esac")
+                i += 4
+                f.cases.pop()
+            else:
+                out.append("(")
+                if c == "(":                    # the optional parenthesis before a pattern
+                    i += 1
+                if not command[i:].lstrip(" \t").startswith(": "):
+                    out.append(": ")
+                f.pattern = True
+        elif f.pattern and c == "|":
+            out.append(" ")
+            i += 1
+        elif f.pattern and c == ")":
+            out.append(c)
+            i += 1
+            f.cases[-1], f.pattern, f.fresh = "body", False, True
+        elif c == "\\":
+            out.append(two)
+            i += 2
+            begin_word(f)
+        elif c == "'":
+            end = command.find("'", i + 1)
+            end = n if end < 0 else end + 1
+            out.append(command[i:end])
+            i = end
+            begin_word(f)
+        elif two == "$'":
+            end = min(ansi_c_end(command, i + 2), n)
+            out.append(command[i:end])
+            i = end
+            begin_word(f)
+        elif c == '"' or two == '$"':
+            out.append('"')
+            i += 2 if c == "$" else 1
+            begin_word(f)
+            frames.append(Frame("dq"))
+        elif two == "$(":
+            out.append(two)
+            i += 2
+            begin_word(f)
+            frames.append(Frame("subst", command.startswith("(", i)))
+        elif c == "`":
+            out.append(c)
+            i += 1
+            opened = next(k for k in range(len(frames) - 1, -1, -1) if frames[k].kind != "paren")
+            if frames[opened].kind == "tick":
+                close(opened)
+            else:
+                begin_word(f)
+                frames.append(Frame("tick"))
+        elif c == "(":
+            out.append(c)
+            i += 1
+            frames.append(Frame("paren", f.arith or (f.fresh and command.startswith("(", i))))
+        elif c == ")":
+            out.append(c)
+            i += 1
+            if f.kind in ("paren", "subst"):
+                close(len(frames) - 1)
+                if f.kind == "paren":
+                    frames[-1].fresh = True
+        elif c == "\n":
+            out.append(c)
+            i += 1
+            f.fresh = not f.pattern
+            pending = reader().pending
+            if pending:
+                i = read_heredocs(command, i, pending)
+                del pending[:]
+        elif two == "<<" and not f.arith:
+            m = None if command.startswith("<<<", i) else HEREDOC.match(command, i)
+            if m is None:
+                out.append("<<<" if command.startswith("<<<", i) else two)
+                i += 3 if command.startswith("<<<", i) else 2
+            else:
+                delimiter = "".join(shlex.split(m.group(2)))
+                ref = HEREDOC_REF % len(HEREDOCS)
+                HEREDOCS[ref] = ("", not re.search(r"['\"\\]", m.group(2)))
+                reader().pending.append((ref, delimiter, bool(m.group(1))))
+                out.append(" <<< " + ref + " ")
+                i = m.end()
+        elif c in ";&|":
+            if f.cases and f.cases[-1] == "body" and c == ";" and command[i + 1:i + 2] in (";", "&"):
+                end = i + 2 + (command[i + 2:i + 3] == "&")
+                out.append(command[i:end])
+                i = end
+                f.cases[-1], f.pattern, f.fresh = "pattern", False, False
+            else:
+                out.append(c)
+                i += 1
+                f.fresh = True
+        elif c in " \t<>":
+            out.append(c)
+            i += 1
+        else:
+            word = RAW_WORD.match(command, i).group(0) if prev in WORD_BREAK else ""
+            if f.cases and f.cases[-1] == "head":
+                if word == "in" and f.subject:
+                    f.cases[-1], f.pattern = "pattern", False
+                f.subject = True
+            elif f.fresh and word == "case":
+                f.cases.append("head")
+                f.subject = False
+            elif f.fresh and word == "esac" and f.cases:
+                f.cases.pop()
+            f.fresh = f.fresh and word in COMMAND_STARTERS
+            if word == "{":
+                f.fresh = True                  # `f() { case ...`: a group starts a command wherever it stands
+            step = len(word) if word in READ_AS_ONE else 1
+            out.append(command[i:i + step])
+            i += step
+    return "".join(out)
+
+
+def read_heredocs(command, i, pending):
+    """Take the bodies of the pending heredocs, which start at i, out of the command line: the index after them."""
+    n = len(command)
+    for ref, delimiter, strip_tabs in pending:
+        lines = []
+        while i < n:
+            end = command.find("\n", i)
+            end = n if end < 0 else end
+            line = command[i:end].lstrip("\t") if strip_tabs else command[i:end]
+            i = min(end + 1, n)
+            if line == delimiter:
+                break
+            lines.append(line)
+        HEREDOCS[ref] = ("\n".join(lines), HEREDOCS[ref][1])
+    return i
+
+
+def here_strings(segment):
+    """(the segment without its here-strings, [(text, expanded by the shell)]). `<<< word` is what the command
+    reads on stdin, not an argument of it; a heredoc is the here-string shell_code made of it."""
+    if "<<<" not in segment:
+        return segment, []
+    out, texts, quote, i, n = [], [], None, 0, len(segment)
+    while i < n:
+        c = segment[i]
+        if c == "\\" and quote != "'":
+            out.append(segment[i:i + 2])
+            i += 2
             continue
-        out.append(line)
-        delimiters += [m.group(2) for m in re.finditer(r"<<-?\s*(['\"]?)(\w+)\1", line)]
-    return "\n".join(out)
+        if quote:
+            quote = None if c == quote else quote
+        elif c in "'\"":
+            quote = c
+        elif segment.startswith("<<<", i):
+            m = HERE_WORD.match(segment, i + 3)
+            word = m.group(1) or ""
+            try:
+                text = "".join(shlex.split(word))
+            except ValueError:
+                text = word
+            texts.append(HEREDOCS.get(text, (text, False)))
+            out.append(" ")
+            i = m.end()
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out), texts
+
+
+def heredoc_substitutions(body):
+    """Bodies of the command substitutions the shell runs while it expands a heredoc whose delimiter is not
+    quoted: there quotes are plain text and only $( ... ) and ` ... ` are live."""
+    body = shell_code(body, "here")
+    bodies, i, n = [], 0, len(body)
+    while i < n:
+        if body[i] == "\\":
+            i += 2
+        elif body.startswith("$(", i):
+            end = substitution_end(body, i + 2)
+            bodies.append(body[i + 2:end - 1])
+            i = end
+        elif body[i] == "`":
+            end = backtick_end(body, i + 1)
+            bodies.append(re.sub(r"\\([`$\\])", r"\1", body[i + 1:end - 1]))
+            i = end
+        else:
+            i += 1
+    return bodies
+
+
+def as_program(words, text):
+    """The command that stands for `text` being the program of the shell or interpreter that `words` start:
+    for a shell the text itself, for python / node / ruby / perl their -c / -e form."""
+    cmd = os.path.basename(words[0])
+    if cmd in SHELLS:
+        return text
+    return cmd + (" -c " if cmd == "python" or PYTHON_VERSIONED.match(cmd) else " -e ") + shlex.quote(text)
+
+
+def stdin_programs(segment):
+    """Commands that stand for what a stage is fed through a here-string or a heredoc. A shell without a script
+    (`bash <<EOF`, `sh -s <<< "..."`) runs the text, python3 / node / ruby / perl without a script run it as
+    their program; and whoever reads it, the shell itself first runs the substitutions of a heredoc body whose
+    delimiter is not quoted."""
+    rest, texts = here_strings(segment)
+    if not texts:
+        return []
+    words = words_of(rest)
+    codes = []
+    for text, expanded in texts:
+        if expanded:
+            codes.extend(heredoc_substitutions(text))
+        if reads_stdin_program(words):
+            codes.append(as_program(words, text))
+    return codes
 
 
 def unresolvable(segment, command):
@@ -3793,7 +4123,7 @@ def write_violation(agent, target, cwd, ctx, protected, read_only, scope, what):
     reason = user_config_violation(target)
     if reason:
         return reason
-    rel = relative(target, ctx.project, cwd)
+    rel = ctx.relative(target, cwd)
     if rel is None:
         return None
     if read_only:
@@ -3818,6 +4148,7 @@ def protected_reason(agent, hit, ctx):
 def human_only(command, ctx, cwd=None):
     if cwd is None:
         cwd = ctx.project
+    command = shell_code(command)
     if HOOK_SWITCH.search(QUOTED.sub("''", command)):
         return "Switching the gauntlet hooks off is reserved for the human."
     stack = []                              # subshell cwd scopes: a cd inside ( ... ) must not leak to the parent
@@ -3831,6 +4162,10 @@ def human_only(command, ctx, cwd=None):
             continue
         words = words_of(segment)
         cwd = follow_cd(words, cwd, ctx.project)   # `cd worktree && git push`: judge the branch of that worktree
+        for code in stdin_programs(segment):       # `bash <<EOF`, `python3 - <<EOF`: the body is the program
+            reason = human_only(code, ctx, cwd)
+            if reason:
+                return reason
         if len(words) < 2:
             continue
         cmd, args = os.path.basename(words[0]), words[1:]
@@ -3858,7 +4193,9 @@ def human_only(command, ctx, cwd=None):
 
 
 PYTHON_VERSIONED = re.compile(r"^python[23](?:\.\d+)?$")
-ARGV_EXEC = re.compile(r"(?:subprocess\.\w+|os\.exec\w*|os\.spawn\w*|os\.popen)\s*\(\s*"
+ARGV_EXEC = re.compile(r"(?:subprocess\.\w+|os\.exec\w*|os\.spawn\w*|os\.popen"
+                       r"|\b(?:run|call|check_call|check_output|Popen|execv\w*|execFile\w*|spawn\w*)\b)\s*\(\s*"
+                       r"(?:['\"]([^'\"]*)['\"]\s*,\s*)?"                     # execvp('git', [...]) / spawnSync('git', [...])
                        r"(\[\s*(?:['\"][^'\"]*['\"]\s*,?\s*)+\])")
 # an exec-style call whose first argument is a shell string: os.system('git push --force'),
 # subprocess.run('gh pr merge'), perl system("..."), node child_process.execSync('...'). A quoted string
@@ -3882,7 +4219,9 @@ def argv_commands(codes):
     out = []
     for code in codes:
         for m in ARGV_EXEC.finditer(code):
-            parts = re.findall(r"['\"]([^'\"]*)['\"]", m.group(1))
+            parts = re.findall(r"['\"]([^'\"]*)['\"]", m.group(2))
+            if m.group(1) and parts[:1] != [m.group(1)]:
+                parts.insert(0, m.group(1))                # the program named before the argument list
             if parts:
                 out.append(" ".join(shlex.quote(p) for p in parts))
     return out
@@ -3930,6 +4269,52 @@ def interpreter_option_value(cmd, args, index):
     return False
 
 
+# first letters of short options whose value is attached (-Werror, -Ilib, -rjson, -i.bak): not a flag cluster
+ATTACHED_VALUE_OPTIONS = {"python": "WX", "node": "r", "ruby": "IrCEKTWx0F", "perl": "IMmxCDFV0i"}
+CODE_FLAGS = {"python": "c", "node": "pe", "ruby": "e", "perl": "eE"}
+
+
+def interpreter_programs(cmd, args):
+    """Inline programs of python / node / ruby / perl. Each has its own flags and they cluster with others:
+    python -c CODE (`python3 -Bc`), everything after it is argv, as after a script or a module; node -e / -p /
+    --eval / --print CODE (`node -pe`), every one is read; ruby -e CODE and perl -e / -E CODE (`perl -we`,
+    `perl -lE`, `ruby -ne`), every one runs."""
+    kind = "python" if cmd == "python" or PYTHON_VERSIONED.match(cmd) else cmd
+    flags, attached = CODE_FLAGS.get(kind, "e"), ATTACHED_VALUE_OPTIONS.get(kind, "")
+    codes, i = [], 0
+    while i < len(args):
+        a = args[i]
+        if kind != "perl":
+            if a in ("--", "-"):
+                break                       # stdin: the rest belongs to the application
+            if kind == "python" and (a == "-m" or (a.startswith("-m") and not a.startswith("--"))):
+                break                       # a module: the rest is its argv
+            if not a.startswith("-"):
+                if interpreter_option_value(cmd, args, i):
+                    i += 1
+                    continue
+                break                       # the script file: option-looking words after it are its argv
+        if kind == "node" and a.split("=", 1)[0] in ("--eval", "--print"):
+            if "=" in a:
+                codes.append(a.split("=", 1)[1])
+            elif i + 1 < len(args):
+                codes.append(args[i + 1])
+                i += 1
+        elif a.startswith("-") and not a.startswith("--") and len(a) > 1 and a[1] not in attached:
+            position = next((k for k, flag in enumerate(a[1:], 1) if flag in flags), -1)
+            if position > 0:
+                rest = a[position + 1:]
+                if rest and not all(flag in flags for flag in rest):
+                    codes.append(rest)                      # attached: -c'code'; in -pe the e is one more flag
+                elif i + 1 < len(args):
+                    codes.append(args[i + 1])
+                    i += 1
+                if kind == "python":
+                    break                   # after the program everything is argv data, not more code
+        i += 1
+    return codes
+
+
 def inline_code_strings(cmd, args):
     """Code handed to an interpreter or eval: the human-only git/gh rules apply inside it too."""
     codes = []
@@ -3938,34 +4323,7 @@ def inline_code_strings(cmd, args):
         if code is not None:
             codes.append(code)
     elif is_interpreter(cmd) or cmd == "perl":
-        python = cmd == "python" or PYTHON_VERSIONED.match(cmd) is not None
-        for i, a in enumerate(args):
-            if cmd != "perl":
-                if a in ("--", "-") or (python and (a == "-m" or (a.startswith("-m") and not a.startswith("--")))):
-                    break                   # stdin/script/module: the rest belongs to the application
-                if not a.startswith("-") and not interpreter_option_value(cmd, args, i):
-                    break                   # script filename: option-looking values after it are application argv
-            flag = a.lower() if cmd == "perl" else a   # perl -E runs code like -e
-            if flag in ("-c", "-e"):
-                if i + 1 < len(args):
-                    codes.append(args[i + 1])
-                if cmd != "perl":
-                    break                   # everything after the program is argv data, not more code flags
-            elif flag.startswith("-c") and len(flag) > 2 and not flag.startswith("--"):
-                codes.append(a[2:])
-                if cmd != "perl":
-                    break
-            elif flag.startswith("-e") and len(flag) > 2 and not flag.startswith("--"):
-                codes.append(a[2:])
-                if cmd != "perl":
-                    break
-            elif cmd == "node" and (flag in ("--eval", "--print")
-                                    or flag.startswith("--eval=") or flag.startswith("--print=")):
-                if "=" in a:
-                    codes.append(a.split("=", 1)[1])
-                elif i + 1 < len(args):
-                    codes.append(args[i + 1])
-                break
+        codes.extend(interpreter_programs(cmd, args))
         for code in list(codes):
             for m in STRING_EXEC.finditer(code):
                 q = QUOTED.match(code, m.end())
@@ -3994,13 +4352,13 @@ def inline_code_strings(cmd, args):
 
 
 def reads_stdin_program(words):
-    """True when an interpreter runs a program read from stdin (bare, '-', or shell -s), so text piped to it
-    is code. A script file (`python3 s.py`), a module (`python3 -m m`) or inline code (-c/-e/--eval) is not:
-    there the piped text is data the program reads, not commands the shell runs."""
+    """True when a shell or an interpreter runs a program read from stdin (bare, '-', or shell -s), so text
+    piped or redirected to it is code. A script file (`python3 s.py`), a module (`python3 -m m`) or inline
+    code (-c/-e/--eval) is not: there that text is data the program reads, not commands."""
     if not words:
         return False
     cmd, args = os.path.basename(words[0]), words[1:]
-    if not is_interpreter(cmd) or inline_code(words):
+    if not (is_interpreter(cmd) or cmd == "perl") or inline_code(words):
         return False
     if any(a in ("--eval", "--print") or a.startswith(("--eval=", "--print=")) for a in args):
         return False
@@ -4036,21 +4394,25 @@ def pipe_points(command):
 
 
 def piped_shell_code(command):
-    """Text piped into a shell or interpreter that reads its program from stdin (`echo 'git push --force' | bash`).
-    Everything LEFT of that pipe can end up in the program: every quoted fragment, and the words of every
-    echo/printf - also when another command comes first (`true && echo git push --force | bash`), a filter
-    sits in between (`echo '...' | cat | bash`), the stage is inside `if ...; then ...; fi`, or the pipe is `|&`."""
+    """Commands that stand for text piped into a shell or an interpreter that reads its program from stdin
+    (`echo 'git push --force' | bash`, `printf '...' | python3`). Everything LEFT of that pipe can end up in
+    the program: every quoted fragment, the words of every echo/printf and every here-string or heredoc - also
+    when another command comes first (`true && echo git push --force | bash`), a filter sits in between
+    (`cat <<EOF | bash`), the stage is inside `if ...; then ...; fi`, the pipe is `|&` or the reading stage
+    starts on the next line."""
     codes = []
     for point in pipe_points(command):
-        after = command[point + 1:].lstrip("&")             # |& pipes stderr as well
-        stage = re.split(r"[|;&\n)]", after, maxsplit=1)[0]   # the command that reads the pipe
-        if not reads_stdin_program(words_of(stage)):
+        after = command[point + 1:].lstrip("&").lstrip()     # |& pipes stderr as well
+        reader = words_of(re.split(r"[|;&\n)]", after, maxsplit=1)[0])   # the command that reads the pipe
+        if not reads_stdin_program(reader):
             continue
         left = command[:point]
-        for m in QUOTED.finditer(left):
-            codes.append(m.group(0)[1:-1])
+        texts = [m.group(0)[1:-1] for m in QUOTED.finditer(left)]
         for segment in split_shell(left):
-            words = [] if segment in ("(", ")") else words_of(segment)
+            if segment in ("(", ")"):
+                continue
+            texts.extend(text for text, _ in here_strings(segment)[1])
+            words = words_of(segment)
             if not words:
                 continue
             lcmd = os.path.basename(words[0])
@@ -4059,17 +4421,14 @@ def piped_shell_code(command):
                 while rest and rest[0] in ("-n", "-e", "-E", "-ne", "-en", "-nE"):
                     rest = rest[1:]
                 if rest:
-                    codes.append(" ".join(rest))
+                    texts.append(" ".join(rest))
             elif lcmd == "printf":
                 if len(words) > 1:
-                    codes.append(" ".join(words[1:]))   # the format string may itself be the payload
+                    texts.append(" ".join(words[1:]))   # the format string may itself be the payload
                 if len(words) > 2:
-                    codes.append(" ".join(words[2:]))   # ...or the args printed after the format
+                    texts.append(" ".join(words[2:]))   # ...or the args printed after the format
+        codes.extend(as_program(reader, text) for text in texts)
     return codes
-
-
-CASE_WORD = re.compile(r"(?<![\w./-])case\s")
-ESAC_WORD = re.compile(r"(?<![\w./-])esac(?![\w./-])")
 
 
 def ansi_c_end(command, i):
@@ -4093,8 +4452,8 @@ def backtick_end(command, i):
 def substitution_end(command, i):
     """Index just past the `)` that closes a `$(` whose body starts at i (len + 1 when it never closes).
     Quoting is per level: every nested $( ... ) and `...` opens a fresh context, so a quoted `)` inside it does
-    not end this body - and neither does the `)` that ends a case pattern (`case x in x) ...;; esac`)."""
-    n, quote, depth, cases = len(command), None, 0, 0
+    not end this body. (The `)` of a case pattern has its own `(` after shell_code.)"""
+    n, quote, depth = len(command), None, 0
     while i < n:
         c = command[i]
         if quote == "'":
@@ -4113,13 +4472,9 @@ def substitution_end(command, i):
         elif quote is None:
             if c == "'":
                 quote = "'"
-            elif CASE_WORD.match(command, i):
-                cases += 1
-            elif ESAC_WORD.match(command, i):
-                cases = max(0, cases - 1)
-            elif c == "(" and not cases:
+            elif c == "(":
                 depth += 1
-            elif c == ")" and not cases:
+            elif c == ")":
                 if depth == 0:
                     return i + 1
                 depth -= 1
@@ -4458,10 +4813,10 @@ def segments(command):
 def split_shell(command):
     """Like segments, but separators inside quotes do not split: `bash -c 'echo ok; git push --force'`
     stays one segment so the inline code reaches inline_code_strings intact (the ';' is code, not a separator).
-    Subshell boundaries are emitted as standalone '(' / ')' markers (a '$(' opens a scope too) so the caller
-    can keep a cd inside ( ... ) from leaking to the parent shell."""
+    Subshell boundaries are emitted as standalone '(' / ')' markers (a '$(' and a backtick open a scope too) so
+    the caller can keep a cd inside ( ... ) from leaking to the parent shell."""
     parts, buf = [], []
-    quote, esc, i, n = None, False, 0, len(command)
+    quote, esc, i, n, backtick = None, False, 0, len(command), False
     while i < n:
         c = command[i]
         if esc:
@@ -4490,15 +4845,16 @@ def split_shell(command):
             buf = []
             parts.append("(")
             i += 1
-        elif c == "(":
+        elif c in "()":
             parts.append("".join(buf))
             buf = []
-            parts.append("(")
-        elif c == ")":
+            parts.append(c)
+        elif c == "`":                           # a backtick substitution is a subshell scope too
             parts.append("".join(buf))
             buf = []
-            parts.append(")")
-        elif c in ";|&`\n":
+            parts.append(")" if backtick else "(")
+            backtick = not backtick
+        elif c in ";|&\n":
             parts.append("".join(buf))
             buf = []
         else:
@@ -4510,12 +4866,15 @@ def split_shell(command):
 
 def segments_scoped(command):
     """segments() for quote-neutralised text, but subshell parens are emitted as '(' / ')' markers so a cd
-    inside ( ... ) or $( ... ) is scoped to the subshell and cannot leak to the parent shell's commands."""
-    out, last = [], 0
+    inside ( ... ), $( ... ) or backticks is scoped to the subshell and cannot leak to the parent shell's commands."""
+    out, last, backtick = [], 0, False
     for m in re.finditer(r"\|\||&&|[;|&`\n]|\$\(|[()]", command):
         out.append(command[last:m.start()])
         sep = m.group(0)
-        if sep in ("(", "$("):
+        if sep == "`":
+            out.append(")" if backtick else "(")
+            backtick = not backtick
+        elif sep in ("(", "$("):
             out.append("(")
         elif sep == ")":
             out.append(")")
@@ -4525,6 +4884,7 @@ def segments_scoped(command):
 
 
 def words_of(segment):
+    segment = here_strings(segment)[0]      # `<<< text` is what the command reads, not an argument of it
     try:
         words = shlex.split(segment, posix=True)
     except ValueError:
@@ -4642,11 +5002,10 @@ def writes_worktree(words, segment):
         return inline_code(words)
     if cmd == "git":
         return git_subcommand(args) in GIT_WORKTREE_WRITING
-    if cmd == "find":
-        if "-delete" in args:
+    if cmd == "find":                      # it writes when it deletes, prints to a file or runs a command that writes
+        if any(a in ("-delete", "-fprint", "-fprint0", "-fls", "-fprintf") for a in args):
             return True
-        return any(a in ("-exec", "-execdir", "-ok") and i + 1 < len(args) and os.path.basename(args[i + 1])
-                   in MUTATING_COMMANDS for i, a in enumerate(args))
+        return any(writes_worktree(words_of(code), code) for code in inline_code_strings(cmd, args))
     return False
 
 
@@ -4692,12 +5051,75 @@ def git_subcommand(args):
     return args[index] if index >= 0 else ""
 
 
+def sed_files(args):
+    """The file operands of sed. Its script - the first operand, unless -e or -f gives it - is not a path,
+    although `s/a/b/` looks like one."""
+    files, script, i = [], False, 0
+    while i < len(args):
+        a = args[i]
+        if a.startswith("--"):
+            script = script or a.split("=", 1)[0] in ("--expression", "--file")
+            i += 1 if "=" in a or a.split("=", 1)[0] not in ("--expression", "--file") else 2
+        elif a.startswith("-") and len(a) > 1:
+            flags = a[1:]
+            if not flags.startswith("i") and ("e" in flags or "f" in flags):   # -i.bak is a suffix, not flags
+                script = True
+                i += 1 if flags[-1] not in "ef" else 2      # -e SCRIPT / -ne SCRIPT: the script is the next word
+            else:
+                i += 1
+        elif not script:
+            script = True
+            i += 1
+        else:
+            files.append(a)
+            i += 1
+    return files
+
+
+def awk_files(args):
+    """The file operands of awk: the program (the first operand, unless -f gives it) is not a path."""
+    files, program, i = [], False, 0
+    while i < len(args):
+        a = args[i]
+        if a in ("-f", "--file", "-v", "--assign", "-F", "--field-separator", "-i", "--include"):
+            program = program or a in ("-f", "--file")
+            i += 2
+        elif a.startswith("-") and len(a) > 1:
+            program = program or a.startswith(("-f", "--file="))
+            i += 1
+        elif not program:
+            program = True
+            i += 1
+        else:
+            files.append(a)
+            i += 1
+    return files
+
+
+def find_roots(args):
+    """Where find searches (`.` when nothing is named) and the files its -fprint actions write. The tests of
+    its expression (`-name '*.java'`) are not paths, and the command of -exec is judged as a command."""
+    roots, i = [], 0
+    while i < len(args) and args[i] in ("-H", "-L", "-P"):
+        i += 1
+    while i < len(args) and not args[i].startswith("-") and args[i] not in ("(", ")", "!", ","):
+        roots.append(args[i])
+        i += 1
+    written = [args[k + 1] for k in range(i, len(args) - 1) if args[k] in ("-fprint", "-fprint0", "-fls", "-fprintf")]
+    return (roots or ["."]) + written
+
+
+OPERANDS = {"sed": sed_files, "awk": awk_files, "gawk": awk_files, "find": find_roots}
+
+
 def path_tokens(words, cwd, project):
     """Path-like arguments of a command, with `git -C dir` honoured and globs expanded."""
     if not words:
         return []
     cmd, args = os.path.basename(words[0]), words[1:]
     base = cwd
+    if cmd in OPERANDS:
+        args = OPERANDS[cmd](args)          # a sed script, an awk program and a find test are not paths
     if cmd == "git" and "-C" in args and args.index("-C") + 1 < len(args):
         target = args[args.index("-C") + 1]
         base = os.path.realpath(target if os.path.isabs(target) else os.path.join(cwd, target))
@@ -5148,6 +5570,19 @@ def guard_tests(repo):
     expect_deny(repo, "cd main worktree push no refspec", "main", "Bash", command=f"cd {wt_main} && git push")
     expect_allow(repo, "pushd feature worktree push HEAD", "main", "Bash", command=f"pushd {wt_feat} && git push origin HEAD")
     expect_allow(repo, "cd relative feature worktree push HEAD", "main", "Bash", command="cd ../wt-feat && git push origin HEAD")
+    # --- the `)` of a case pattern does not end the subshell: the push still happens in the worktree on main
+    expect_deny(repo, "case pattern inside a subshell keeps its directory", "main", "Bash",
+                command=f"( cd {wt_main} ; case x in x) git push -u origin HEAD ;; esac )")
+    # --- another worktree of the repository holds the same human-owned files: its gauntlet/ is protected too
+    expect_deny(repo, "worktree: rm the gauntlet of another worktree", "main", "Bash", command=f"rm -rf {wt_feat}/gauntlet/hooks")
+    expect_deny(repo, "worktree: cd there and append to its thresholds", "main", "Bash",
+                command=f"cd {wt_feat} && echo x >> gauntlet/config/gauntlet.properties")
+    expect_deny(repo, "worktree: edit its thresholds", "main", "Edit",
+                file_path=os.path.join(wt_feat, "gauntlet/config/gauntlet.properties"), old_string="a", new_string="b")
+    expect_deny(repo, "worktree: reviewer writes there", "reviewer", "Bash", command=f"cd {wt_feat} && echo x > notes.txt")
+    expect_allow(repo, "worktree: ordinary file there", "main", "Bash", command=f"cd {wt_feat} && echo x > notes.txt")
+    expect_allow(repo, "worktree: its build directory", "main", "Bash", command=f"rm -rf {wt_feat}/build")
+    expect_allow(repo, "worktree: a directory that is no worktree", "main", "Bash", command="echo x > ../elsewhere-gauntlet-notes.txt")
     # --- F10: a `cd` INSIDE a subshell ( ) or command-substitution $( ) must not leak to the parent shell,
     #          so a parent push of the session's own feature branch is judged against the project, not mainwt.
     expect_allow(repo, "F10 subshell cd to main does not leak", "main", "Bash",
@@ -5375,6 +5810,217 @@ def guard_tests(repo):
             ('a quoted pipe character', "echo 'a|b' | tr '|' ' '"),
             ('grep for the words', "cat notes.txt | grep 'git push --force'")):
         expect_allow(repo, "carrier control: " + name, "main", "Bash", command=command)
+    # --- inline programs: every interpreter has its own code flags and they cluster (python3 -Bc, perl -we,
+    #     node -pe); ruby and node take several -e; an argv list reaches an exec-style call in many spellings
+    for name, command in (
+            ('bash -e -c', "bash -e -c 'git push --force origin HEAD'"),
+            ('ruby with two -e', 'ruby -e \'x = 1\' -e \'system("git push --force origin HEAD")\''),
+            ('node with two -e', 'node -e \'console.log(1)\' -e \'require("child_process").execSync("git push --force origin HEAD")\''),
+            ('perl -we', 'perl -we \'system("git push --force origin HEAD")\''),
+            ('perl -lE', 'perl -lE \'system("git push --force origin HEAD")\''),
+            ('node -p', 'node -p "require(\'child_process\').execSync(\'git push --force origin HEAD\')"'),
+            ('node -pe', 'node -pe "require(\'child_process\').execSync(\'git push --force origin HEAD\')"'),
+            ('python3 -Bc', 'python3 -Bc "import os; os.system(\'git push --force origin HEAD\')"'),
+            ('from subprocess import run', 'python3 -c "from subprocess import run; run([\'git\',\'push\',\'--force\',\'origin\',\'HEAD\'])"'),
+            ('os.execvp with the program first', 'python3 -c "import os; os.execvp(\'git\', [\'git\',\'push\',\'--force\',\'origin\',\'HEAD\'])"'),
+            ('node spawnSync', 'node -e "require(\'child_process\').spawnSync(\'git\', [\'push\',\'--force\',\'origin\',\'HEAD\'])"'),
+            ('node execFileSync', 'node -e "require(\'child_process\').execFileSync(\'git\', [\'push\',\'--force\',\'origin\',\'HEAD\'])"')):
+        expect_deny(repo, "inline program: " + name, "main", "Bash", command=command)
+    for name, command in (
+            ('argv after python -c', "python3 -c 'import sys; print(sys.argv[1:])' -e 'git rebase'"),
+            ('python -W with a value before -c', 'python3 -Werror::DeprecationWarning -c "print(1)"'),
+            ('ruby -rjson -e', "ruby -rjson -e 'puts 1'"),
+            ('perl -i.bak -pe on a build file', "perl -i.bak -pe 's/a/b/' build/x.txt"),
+            ('perl -ne print', "perl -ne 'print if /push/' notes.txt"),
+            ('a list that is only printed (node)', 'node -e "console.log([\'git\',\'push\',\'--force\'])"'),
+            ('a list that is only printed (python)', 'python3 -c "print([\'git\',\'push\',\'--force\'])"'),
+            ('subprocess git status', 'python3 -c "import subprocess; subprocess.run([\'git\',\'status\'])"'),
+            ('a case statement', 'case "$x" in a) echo one ;; b) echo two ;; esac'),
+            ('a backtick assignment before a push', 'x=`git rev-parse HEAD`; git push -u origin HEAD'),
+            ('a case inside a loop', 'for f in a b; do case "$f" in a) echo "$f" ;; esac; done')):
+        expect_allow(repo, "inline program control: " + name, "main", "Bash", command=command)
+    # --- reading the command line: the guard judges what the shell runs. A comment and a heredoc body are not
+    #     commands (and an apostrophe in them opens no quote), a line ending in a backslash continues, a
+    #     heredoc or here-string fed to a shell or an interpreter is its program, `<<` in a string or in
+    #     arithmetic is no heredoc, and the `)` of a case pattern ends no subshell. The script of sed, the
+    #     program of awk and the tests of find are not paths, and find writes when the command it runs does
+    for agent, name, command in (
+            ('main', 'a comment with an apostrophe before a force push',
+             "# don't forget\ngit push --force origin HEAD"),
+            ('main', 'a trailing comment with an apostrophe before an amend',
+             "ls # it's here\ngit commit --amend -m x; echo 'ok'"),
+            ('main', 'a comment with an apostrophe before rm of the kit',
+             "# don't forget\nrm -rf gauntlet; echo 'done'"),
+            ('main', 'a comment with an apostrophe before a redirect into the kit',
+             "# it's\necho x > gauntlet/config/gauntlet.properties; echo 'ok'"),
+            ('main', 'a heredoc body with an apostrophe before a force push',
+             "cat > notes.txt <<EOF\ndon't\nEOF\ngit push --force origin HEAD"),
+            ('main', 'a heredoc is the program of bash',
+             "bash <<'EOF'\nrm -rf gauntlet\nEOF"),
+            ('main', 'a heredoc is the program of bash (human-only)',
+             'bash <<EOF\ngit push --force origin HEAD\nEOF'),
+            ('main', 'a heredoc is the program of sh -s',
+             "sh -s <<'EOF'\necho x > .claude/settings.json\nEOF"),
+            ('main', 'a heredoc switches the hook off inside bash',
+             "bash <<'EOF'\nexport GAUNTLET_GUARD=off\nEOF"),
+            ('main', 'a heredoc is the program of python3 -',
+             "python3 - <<'EOF'\nimport shutil; shutil.rmtree('gauntlet')\nEOF"),
+            ('main', 'a heredoc is the program of bare python3',
+             "python3 <<'EOF'\nopen('gauntlet/config/gauntlet.properties','w').write('x')\nEOF"),
+            ('main', 'a python heredoc runs git through an argv list',
+             "python3 - <<'EOF'\nimport subprocess\nsubprocess.run(['git','push','--force','origin','HEAD'])\nEOF"),
+            ('main', 'a heredoc is the program of node',
+             "node <<'EOF'\nrequire('child_process').execSync('git push --force origin HEAD')\nEOF"),
+            ('main', 'a heredoc is the program of perl',
+             'perl <<\'EOF\'\nsystem("git push --force origin HEAD");\nEOF'),
+            ('main', 'a heredoc piped through cat into bash',
+             "cat <<'EOF' | bash\nrm -rf gauntlet\nEOF"),
+            ('main', 'the pipeline continues after the heredoc body',
+             "cat <<'EOF' |\nrm -rf gauntlet\nEOF\nbash"),
+            ('main', 'a substitution inside an unquoted heredoc body',
+             'cat <<EOF\n$(rm -rf gauntlet)\nEOF'),
+            ('main', 'a backtick substitution inside an unquoted heredoc body',
+             'cat <<EOF\n`git push --force origin HEAD`\nEOF'),
+            ('main', 'a quoted << is no heredoc',
+             'echo "x << y"\nrm -rf gauntlet'),
+            ('main', 'a commit message with << is no heredoc',
+             'git commit -m "fix: 1 << shift"\ngit push --force origin HEAD'),
+            ('main', 'a shift in arithmetic is no heredoc',
+             'echo $((1<<2))\nrm -rf gauntlet'),
+            ('main', 'a here-string is the program of bash',
+             "bash <<< 'rm -rf gauntlet'"),
+            ('main', 'a here-string is the program of bash (human-only)',
+             "bash <<< 'git push --force origin HEAD'"),
+            ('main', 'a here-string is the program of python3',
+             'python3 <<< "import shutil; shutil.rmtree(\'gauntlet\')"'),
+            ('main', 'python code piped into python3 (human-only)',
+             'echo "import os; os.system(\'git push --force origin HEAD\')" | python3'),
+            ('main', 'python code piped into python3 (the kit)',
+             'echo "import shutil; shutil.rmtree(\'gauntlet\')" | python3'),
+            ('main', 'node code piped into node',
+             'echo "require(\'fs\').rmSync(\'gauntlet\',{recursive:true})" | node'),
+            ('main', 'cp continued on the next line into the kit',
+             'cp {M}src/main/java/A.java \\\n  gauntlet/config/A.java'),
+            ('main', 'rm continued on the next line',
+             'rm -rf build/tmp \\\n  gauntlet'),
+            ('main', 'a redirect target on the next line',
+             'echo x > \\\ngauntlet/config/gauntlet.properties'),
+            ('main', 'sed -i continued on the next line',
+             'sed -i s/a/b/ build/x.txt \\\n  .claude/settings.json'),
+            ('main', 'a word continued on the next line',
+             'git pu\\\nsh --force origin HEAD'),
+            ('main', 'an option on a continuation line',
+             'git commit -m x \\\n  --no-verify'),
+            ('main', 'a subshell inside a case branch keeps its cd to itself',
+             'case x in a) (cd /tmp && true) ;; esac; rm -rf gauntlet/hooks'),
+            ('main', 'a case inside a function',
+             'f() { case $1 in a) rm -rf gauntlet/hooks ;; esac; }; f a'),
+            ('main', 'a comment hides the closing parenthesis of a substitution',
+             'echo $(true # )\nrm -rf gauntlet/hooks)'),
+            ('reviewer', 'a heredoc program of python3 is a program',
+             "python3 - <<'EOF'\nprint(1)\nEOF"),
+            ('reviewer', 'a heredoc program of bash that writes',
+             "bash <<'EOF'\necho x > notes.txt\nEOF"),
+            ('hardener', 'a heredoc program of bash outside the scope',
+             "bash <<'EOF'\nsed -i s/a/b/ {M}src/main/java/A.java\nEOF"),
+            ('hardener', 'cp continued on the next line outside the scope',
+             'cp {M}src/test/java/ATest.java \\\n  {M}src/main/java/A.java'),
+            ('main', 'find runs sed -i over the kit',
+             "find gauntlet -type f -exec sed -i 's/a/b/' {} \\;"),
+            ('main', 'find from the root runs sed -i on the thresholds',
+             'find . -name gauntlet.properties -exec sed -i s/8/80/ {} +'),
+            ('main', 'find runs perl -i over the kit',
+             "find gauntlet -type f -exec perl -i -pe 's/a/b/' {} +"),
+            ('main', 'find prints into the kit',
+             'find {M}src/main/java -type f -fprint gauntlet/config/list.txt'),
+            ('main', 'find copies into the kit',
+             "find {M}src -name '*.orig' -exec cp {} gauntlet/config/ \\;"),
+            ('hardener', 'find runs sed -i outside the scope',
+             "find {M}src/main -name '*.java' -exec sed -i 's/a/b/' {} +"),
+            ('hardener', 'sed -i outside the scope',
+             "sed -i 's/a/b/' {M}src/main/java/A.java"),
+            ('hardener', 'sed -i -f outside the scope',
+             'sed -i -f fix.sed {M}src/main/java/A.java'),
+            ('hardener', 'awk -i inplace outside the scope',
+             "awk -i inplace '/x/ {print}' {M}src/main/java/A.java"),
+            ('reviewer', 'find runs sed -i',
+             "find . -name '*.java' -exec sed -i s/a/b/ {} +")):
+        expect_deny(repo, "reading: " + name, agent, "Bash", command=command.replace("{M}", M).replace("{F}", FEATURES))
+    for agent, name, command in (
+            ('main', 'a comment with an apostrophe before ls',
+             "# don't forget\nls -la"),
+            ('main', 'a trailing comment with an apostrophe before git status',
+             "echo hi # don't\ngit status"),
+            ('main', 'a comment that only mentions the switch and the kit',
+             "# GAUNTLET_GUARD=off and rm -rf gauntlet are the human's\nls"),
+            ('main', 'a # inside a word, a string or a parameter',
+             'echo a#b "c # d" $# ${#HOME}; ls'),
+            ('main', 'a heredoc that is data',
+             'cat > notes.txt <<EOF\nrm -rf gauntlet is forbidden, and so is\ngit push --force\nEOF'),
+            ('main', 'a heredoc with quotes, # and << in it',
+             'cat <<EOF > {M}src/main/java/B.java\nclass B { String s = "it\'s # 1 << 2"; }\nEOF\nls'),
+            ('main', 'a commit message heredoc that names a human-only command',
+             'git commit -m "$(cat <<\'EOF\'\ngit push --force is forbidden\nEOF\n)"'),
+            ('main', 'a commit message heredoc with an apostrophe and a trailer',
+             'git commit -m "$(cat <<\'EOF\'\nDon\'t stop\n\nCo-Authored-By: X <x@example.com>\nEOF\n)"'),
+            ('main', 'a commit message heredoc with a lone double quote',
+             'git commit -m "$(cat <<\'EOF\'\nFix the 5" display\nEOF\n)" && git push -u origin HEAD'),
+            ('main', 'a quoted heredoc keeps $( ) as text',
+             "cat <<'EOF'\n$(rm -rf gauntlet) is just text here\nEOF"),
+            ('main', 'an unquoted heredoc with a harmless substitution',
+             'cat <<EOF\n$(date)\nEOF'),
+            ('main', 'a heredoc program of python3 that touches nothing',
+             "python3 - <<'EOF'\nprint('hello')\nEOF"),
+            ('main', 'a heredoc program of bash that touches nothing',
+             "bash <<'EOF'\nls -la\nEOF"),
+            ('main', 'a heredoc read as data by a script',
+             "python3 tools/report.py <<'EOF'\ngauntlet/config/gauntlet.properties\nEOF"),
+            ('main', 'tee with a heredoc that names the kit',
+             "tee notes.md <<'EOF'\nsee gauntlet/README.md\nEOF"),
+            ('main', 'a here-string that is data',
+             'wc -l <<< "rm -rf gauntlet"'),
+            ('main', 'a here-string with a substitution',
+             'grep -c gauntlet <<< "$(git status)"'),
+            ('main', 'a shift in arithmetic before ls',
+             'echo $((1<<2))\nls'),
+            ('main', 'cp continued on the next line',
+             'cp {M}src/main/java/A.java \\\n  {M}src/main/java/B.java'),
+            ('main', 'git commit continued on the next line',
+             'git commit \\\n  -m x'),
+            ('main', 'gradle continued on the next line',
+             './gradlew gauntletFast \\\n  --console=plain'),
+            ('main', 'python code piped into python3 that touches nothing',
+             'echo "print(1)" | python3'),
+            ('main', 'a case with a subshell and a later command',
+             'case x in a) (cd /tmp && ls) ;; *) echo other ;; esac; ls gauntlet'),
+            ('main', 'the word case as an argument',
+             'echo in case of fire; (cd /tmp && ls)'),
+            ('reviewer', 'a heredoc program of bash that only reads',
+             "bash <<'EOF'\ngit log --oneline | head -5\nEOF"),
+            ('reviewer', 'a heredoc that is data',
+             'cat <<EOF\nrm -rf gauntlet\nEOF'),
+            ('hardener', 'a heredoc program of bash inside the scope',
+             "bash <<'EOF'\nsed -i s/a/b/ {M}src/test/java/ATest.java\nEOF"),
+            ('hardener', 'sed -i inside the scope: the script is no path',
+             "sed -i 's/a/b/' {M}src/test/java/ATest.java"),
+            ('hardener', 'sed -i -e inside the scope',
+             "sed -i -e 's/a/b/' {M}src/test/java/ATest.java"),
+            ('hardener', 'sed -i.bak --expression= inside the scope',
+             'sed -i.bak --expression=s/a/b/ {M}src/test/java/ATest.java'),
+            ('hardener', 'awk -i inplace inside the scope: the program is no path',
+             "awk -i inplace '/x/ {print}' {M}src/test/java/ATest.java"),
+            ('hardener', 'find runs sed -i inside the scope',
+             "find {M}src/test -name '*.java' -exec sed -i 's/a/b/' {} +"),
+            ('specifier', 'sed -i on a draft feature',
+             "sed -i 's/a/b/' {F}/order.feature"),
+            ('reviewer', 'find runs grep',
+             "find . -name '*.java' -exec grep -l TODO {} +"),
+            ('main', 'find runs grep over the kit',
+             "find gauntlet -name '*.py' -exec grep -n guard {} +"),
+            ('main', 'find runs sed -i over the main code',
+             "find {M}src/main/java -name '*.java' -exec sed -i s/a/b/ {} +")):
+        expect_allow(repo, "reading control: " + name, agent, "Bash",
+                     command=command.replace("{M}", M).replace("{F}", FEATURES))
     # --- hardening: a global option that takes its value as the next argument does not hide the subcommand
     for name, command in (
             ("--namespace commit --amend", "git --namespace x commit --amend -m x"),

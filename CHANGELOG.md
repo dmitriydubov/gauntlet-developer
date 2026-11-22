@@ -476,6 +476,27 @@
       отклоняется за одно упоминание пути. Конвейер: нагрузка ищется во всём тексте слева от pipe (команда перед
       `echo`, фильтр между, `|&`, `if … fi`); подстановка: свой контекст кавычек на каждом уровне вложенности,
       шаблон `case`, строки `$'…'`, вложенные обратные кавычки. Самопроверка: 1429 → 1708 (+93 на раскладку).
+    - **guard: чтение командной строки (сверка с настоящим bash).** Хук читал команду не так, как оболочка, и
+      это открывало обходы самыми обычными формами — на `166287c` и во всех предыдущих коммитах ветки. Апостроф
+      в комментарии или в теле heredoc открывал «кавычку» до конца команды: `# don't forget` и следующей строкой
+      `git push --force origin main` проходил, как и `rm -rf gauntlet; echo 'done'` после такого комментария.
+      Перенос строки через `\` рвал команду: `cp src/main/java/A.java \` + `gauntlet/config/A.java` и
+      `sed -i … \` + `.claude/settings.json` проходили. `<<` в строке или в арифметике
+      (`git commit -m "fix: 1 << shift"`, `$((1<<2))`) принимался за heredoc и прятал все строки после себя.
+      Программа, поданная оболочке или интерпретатору через heredoc, here-string или pipe (`bash <<'EOF'`,
+      `python3 - <<'EOF'`, `bash <<< '…'`, `echo '…' | python3`), не судилась вовсе, как и подстановка в теле
+      heredoc с некавыченным разделителем. Обратная сторона: сообщение коммита из heredoc со строкой
+      `git push --force is forbidden` отклонялось. Теперь команда сначала читается одним проходом (`shell_code`):
+      комментарии убираются, строки с `\` склеиваются, тело heredoc выносится из командной строки и судится как
+      программа того, кто его читает (для `cat` и `tee` это данные), `<<<` — тоже stdin, а не аргумент, шаблон
+      `case` получает парную скобку и не закрывает подоболочку. Чтение сверено с настоящим bash на 119 командах
+      с маркерами «исполнится» и «данные»: на `166287c` расходились 35, осталась одна — функция-обёртка,
+      определённая в той же команде. Попутно: скрипт `sed`, программа `awk` и условия `find` — не пути (specifier
+      и hardener не могли править свои файлы через `sed -i 's/a/b/'`); `find … -exec sed -i`, `-exec perl -i` и
+      `-fprint` считаются записью (`find gauntlet -type f -exec sed -i … {} +` проходил); путь в соседнем worktree
+      того же репозитория защищён как свой; кластеры флагов интерпретаторов (`python3 -Bc`, `perl -we`,
+      `node -pe`, несколько `-e`) и argv-вызовы `run([...])`, `execvp('git', [...])`, `spawnSync('git', [...])`
+      разбираются. Самопроверка: 1708 → 2059 (+117 на раскладку).
     - **Роли и процесс.** `specifier`: сценарий обязан исполняться сам по себе; `hardener` и `gauntlet/CLAUDE.md`:
       красный контроль — это зависимость сценария от соседнего или от стенда, а не слабое step-определение.
     - **Регрессионный набор в репозитории.** Третий раунд ревью советовал «сохранить небольшой Gradle-проект в
@@ -491,6 +512,8 @@ guard — растяжка, а не сейф (это заявлено в наб�
 - подстановку команды, порождающую имя бинарника: `$(which git) push --force`;
 - разворачивание переменной: `G=git; $G push --force`;
 - закодированные payload'ы (base64 и т. п.);
+- функцию оболочки, определённую в той же команде (`f() { "$@"; }; f bash <<EOF …`), и код из файла — скрипт,
+  который запускает интерпретатор;
 - конфигурацию git через переменные окружения (`GIT_CONFIG_KEY_n`, `GIT_CONFIG_PARAMETERS`, `GIT_CONFIG_GLOBAL`)
   и алиасы, уже лежащие в глобальном конфиге пользователя;
 - `push.default=upstream` с push без refspec на ветке, чей upstream — базовая;
@@ -513,7 +536,7 @@ guard — растяжка, а не сейф (это заявлено в наб�
 - `.claude/agents/{specifier,hardener,reviewer}.md`, `.github/workflows/gauntlet.yml`, `gauntlet/CLAUDE.md`,
   `INSTALL.md`, `config/gauntlet.properties` (обнаруженные версии проекта и отдельная JVM гейта);
 - `gauntlet/tools/IntegrityCheck.java`, `CrapGate.java`, `GherkinMutator.java`, `PitSummary.java`;
-- `gauntlet/hooks/guard.py`, `stop_gate.py`, `selftest.py` (1708 проверок в трёх раскладках);
+- `gauntlet/hooks/guard.py`, `stop_gate.py`, `selftest.py` (2059 проверок в трёх раскладках);
 - `gauntlet/install.sh` (обновление gauntlet-хуков при слиянии, бюджет таймаута по модулям);
 - `gauntlet/gauntlet.gradle` (входы `acceptanceTest`, `mutationGate` source → compiled types);
 - `gauntlet/config/crap-allowlist.txt` (пример записи с сигнатурой перегрузки);
@@ -538,12 +561,12 @@ guard — растяжка, а не сейф (это заявлено в наб�
 | `.github/workflows/gauntlet.yml` | 1978 | 5615 |
 | `gauntlet/CLAUDE.md` | 63625 | 65106 |
 | `gauntlet/INSTALL.md` | 11426 | 14544 |
-| `gauntlet/README.md` | 29851 | 60167 |
+| `gauntlet/README.md` | 29851 | 62731 |
 | `gauntlet/config/crap-allowlist.txt` | 448 | 924 |
 | `gauntlet/config/gauntlet.properties` | 5921 | 6568 |
 | `gauntlet/gauntlet.gradle` | 32451 | 43456 |
-| `gauntlet/hooks/guard.py` | 26740 | 61817 |
-| `gauntlet/hooks/selftest.py` | 41192 | 93009 |
+| `gauntlet/hooks/guard.py` | 26740 | 79280 |
+| `gauntlet/hooks/selftest.py` | 41192 | 109465 |
 | `gauntlet/hooks/stop_gate.py` | 16669 | 20978 |
 | `gauntlet/install.sh` | 4933 | 11572 |
 | `gauntlet/templates/acceptanceTest/resources/features/example_discount.feature` | 928 | 1258 |
@@ -561,7 +584,7 @@ guard — растяжка, а не сейф (это заявлено в наб�
 
 ### Проверено
 
-- `python3 gauntlet/hooks/selftest.py` — 1708 проверок, 0 падений, три раскладки (корень; `core/`;
+- `python3 gauntlet/hooks/selftest.py` — 2059 проверок, 0 падений, три раскладки (корень; `core/`;
   `core/` + `adapter/`); в том числе из распакованной копии пересобранного бандла.
 - `python3 tests/run.py --gradle` — регрессионный набор дистрибутива по бандлу, распакованному скриптом из его
   шапки: манифест и побайтная пересборка сборщиком из раздела 8.4, единство ревизии и таблицы размеров, хуки,

@@ -141,6 +141,35 @@ public class OrderSteps {
     }
 }
 """
+STATUS_TYPES = """package com.example.service.acceptance;
+
+import io.cucumber.java.ParameterType;
+
+public class StatusTypes {
+    @ParameterType(".*")
+    public Status status(String name) {
+        return Status.valueOf(name);
+    }
+}
+"""
+VIEW_STEPS = """package com.example.service.acceptance;
+
+import io.cucumber.java.en.Given;
+import io.cucumber.java.en.Then;
+
+public class ViewSteps {
+    private Status status;
+
+    @Given("an order in status {status}")
+    public void order(Status initial) {
+        status = initial;
+    }
+
+    @Then("the order can be viewed")
+    public void viewed() {
+    }
+}
+"""
 ARGUMENT_PROVIDER = """abstract class GenerateSchemas extends DefaultTask {
     @OutputDirectory abstract DirectoryProperty getOutputDir()
 
@@ -166,11 +195,98 @@ tasks.named('compileJava') {
     options.compilerArgumentProviders.add(args)
 }"""
 FEATURES = "src/acceptanceTest/resources/features/"
+LEDGER_STEPS = """package com.example.service.acceptance;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+import io.cucumber.java.Before;
+import io.cucumber.java.Scenario;
+import io.cucumber.java.en.Given;
+import io.cucumber.java.en.Then;
+import io.cucumber.java.en.When;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
+public class LedgerSteps {
+    private String scenario;
+    private int balance;
+
+    @Before
+    public void name(Scenario s) {
+        scenario = s.getName();
+    }
+
+    @Given("the ledger is open")
+    public void open() throws IOException {
+        // a mark per scenario in the build directory tells a retry from the first attempt
+        Path mark = Path.of("build", "attempts", scenario.replaceAll("\\\\W+", "_"));
+        boolean retry = Files.exists(mark);
+        Files.createDirectories(mark.getParent());
+        Files.writeString(mark, "ran");
+        if (!retry && scenario.startsWith(System.getProperty("ledger.first", "-"))) {
+            throw new AssertionError("the ledger is not open yet");
+        }
+        if (retry && scenario.startsWith(System.getProperty("ledger.again", "-"))) {
+            throw new AssertionError("the ledger is left over from the previous attempt");
+        }
+    }
+
+    @When("{int} is deposited")
+    public void deposit(int amount) {
+        balance += amount;
+    }
+
+    @Then("the balance is {int}")
+    public void balance(int expected) {
+        assertEquals(expected, balance);
+    }
+}
+"""
+LEDGER = ("Feature: Deposits\n\n  Scenario Outline: A deposit increases the balance\n    Given the ledger is open\n"
+          "    When <amount> is deposited\n    Then the balance is <balance>\n\n"
+          "    Examples:\n      | amount | balance |\n      | 100    | 100     |\n")
+RETRY = """tasks.withType(Test).configureEach {
+    retry { maxRetries = 1 }
+    reports.junitXml.mergeReruns = providers.gradleProperty('mergeReruns').map { it.toBoolean() }.orElse(false)
+%s
+}"""
+BALANCE = """    public int balance(int[] amounts, int limit) {
+        int total = 0;
+        int count = 0;
+        for (int amount : amounts) {
+            if (amount > limit) {
+                total += limit;
+                count++;
+            } else if (amount < 0) {
+                total -= amount;
+                count--;
+            } else {
+                total += amount;
+                count += amount % 2;
+            }
+        }
+        return count > 0 ? total / count : total;
+    }
+"""
+LEDGER_JAVA = "package com.example.service.domain;\n\npublic class Ledger {\n" + BALANCE + "}\n"
+# the same method once more (CPD: 82 tokens), untested (CRAP 30), and an empty catch block (PMD)
+LEDGER_COPY = ("package com.example.service.domain;\n\nclass LedgerCopy {\n" + BALANCE + "\n    int parsed(String text) {\n"
+               "        try {\n            return Integer.parseInt(text);\n        } catch (NumberFormatException e) {\n"
+               "        }\n        return 0;\n    }\n}\n")
 
 
 LATE_READER = """allprojects {
     afterEvaluate { p ->
         // what an IDE's model builder or a plugin in an init script does: read the launcher of every JVM task
+        p.tasks.withType(JavaExec).each { it.javaLauncher.getOrNull() }
+        p.tasks.withType(Test).each { it.javaLauncher.getOrNull() }
+    }
+}
+"""
+EVALUATED_READER = """gradle.projectsEvaluated { g ->
+    // the same once every project is evaluated: Gradle calls an init script's listener before the build's own
+    g.rootProject.allprojects { p ->
         p.tasks.withType(JavaExec).each { it.javaLauncher.getOrNull() }
         p.tasks.withType(Test).each { it.javaLauncher.getOrNull() }
     }
@@ -203,6 +319,13 @@ def java_major(java):
     release = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(java))), "release")
     m = re.search(r'JAVA_VERSION="(?:1\.)?(\d+)', kit.read(release)) if os.path.isfile(release) else None
     return int(m.group(1)) if m else None
+
+
+def class_java(path):
+    """The Java version a class file is compiled for (JVMS 4.1: major_version - 44)."""
+    with open(path, "rb") as f:
+        head = f.read(8)
+    return int.from_bytes(head[6:8], "big") - 44
 
 
 @unittest.skipUnless(os.environ.get("GAUNTLET_E2E"), "real-Gradle scenarios run only with --gradle")
@@ -399,6 +522,60 @@ public class RateSteps {
         self.assertRegex(r.out, r"MUTANT ERROR +c1 control \(unmutated scenario\) failed in a step")
 
 
+class GherkinRetry(GradleCase):
+    """The test-retry plugin runs a failed scenario again - every scenario of the run, in fact: Cucumber reports one
+    class, its engine. Gradle writes the attempts as a <testcase> each or, with reports.junitXml.mergeReruns, those
+    of a test that failed in one <testcase> (<flakyFailure>; <failure> + <rerunFailure>). Every attempt is judged:
+    the same verdict on every attempt is that verdict, different verdicts are no kill and a broken control."""
+
+    def ledger(self, **fails):
+        # first=<title prefix>: that scenario fails on its first attempt only; again=<title prefix>: on every later one
+        self.project(example=False, build_extra=RETRY % "\n".join(f"    systemProperty 'ledger.{key}', '{prefix}'"
+                                                                  for key, prefix in fails.items()))
+        build = os.path.join(self.lab, "build.gradle")
+        plugin = "    id 'org.gradle.test-retry' version '1.6.2'\n"
+        kit.write(build, kit.read(build).replace("    id 'java'\n", "    id 'java'\n" + plugin))
+        self.file(GLUE + "LedgerSteps.java", LEDGER_STEPS)
+        self.file(FEATURES + "deposits.feature", LEDGER)
+        self.commit("a ledger")
+
+    def mutation(self, merge):
+        shutil.rmtree(os.path.join(self.lab, "build", "attempts"), ignore_errors=True)
+        return self.gradle("gherkinMutation", "-Pgauntlet.scope=all", f"-PmergeReruns={merge}")
+
+    def results(self):
+        """The JUnit XML of the mutant run: the scenario must have produced the shape it is about."""
+        return "".join(kit.read(p) for p in glob.glob(os.path.join(self.lab, "build/gherkin-mutation/results/*.xml")))
+
+    def test_a_control_that_passed_only_on_a_retry_is_broken(self):
+        # merged, the control's failed attempt is a <flakyFailure> and no <failure>: it counted as passed and the
+        # gate passed (review of 2c1cd0b)
+        self.ledger(first="CONTROL c1 |")
+        for merge in ("true", "false"):
+            with self.subTest(mergeReruns=merge):
+                r = self.mutation(merge)
+                self.assertEqual(merge == "true", "<flakyFailure " in self.results())
+                self.assert_build(r, False)
+                # both mutants failed on both attempts - a retried kill stays a kill -, z1 passed on both
+                self.assertIn("Gherkin mutation: 2 mutant(s) - 2 killed, 0 survived, 0 error(s); 2 control(s) - 1"
+                              " passed", r.out)
+                self.assertRegex(r.out, r"MUTANT ERROR +c1 control \(unmutated scenario\) ran more than once with "
+                                        r"different results")
+
+    def test_a_mutant_that_failed_before_the_value_on_a_retry_is_no_kill(self):
+        # m1 fails in its Then step (line 6, after <amount> on line 5) and, on the retry, in its Given step (line 4):
+        # the first failure was kept, a kill (review of 2c1cd0b)
+        self.ledger(again="MUTANT m1 |")
+        for merge in ("true", "false"):
+            with self.subTest(mergeReruns=merge):
+                r = self.mutation(merge)
+                self.assertEqual(merge == "true", "<rerunFailure " in self.results())
+                self.assert_build(r, False)
+                self.assertIn("Gherkin mutation: 2 mutant(s) - 1 killed, 0 survived, 1 error(s); 2 control(s) - 2"
+                              " passed", r.out)
+                self.assertRegex(r.out, r"MUTANT ERROR +m1 ran more than once with different results")
+
+
 class GherkinScope(GradleCase):
 
     def test_a_deleted_glue_file_mutates_every_feature(self):
@@ -415,6 +592,76 @@ class GherkinScope(GradleCase):
         self.assert_build(r, True)
         self.assertIn("acceptance glue file(s) changed (" + GLUE + "AuditHooks.java) - every feature is mutated", r.out)
         self.assertIn("Gherkin mutation: 9 mutant(s) - 9 killed, 0 survived, 0 error(s)", r.out)
+
+    def changed_feature_under(self, features_setting):
+        # the features directory as a human may write it: Gradle reads it as the same directory, and so must the
+        # changed scope - as a text prefix "features/" or "./features" named no changed path, and scope=changed
+        # mutated nothing (review of the merged fixes for 2c1cd0b)
+        self.project()
+        kit.set_property(self.lab, "acceptance.features", features_setting)
+        self.git("mv", FEATURES + "example_discount.feature", FEATURES + "discount.feature")
+        self.commit("the feature renamed")
+        r = self.gradle("gherkinMutation")
+        self.assert_build(r, True)
+        self.assertIn("Gherkin mutation: 9 mutant(s) - 9 killed, 0 survived, 0 error(s)", r.out)
+
+    def test_a_trailing_slash_in_the_features_setting(self):
+        self.changed_feature_under("src/acceptanceTest/resources/features/")
+
+    def test_a_leading_dot_in_the_features_setting(self):
+        self.changed_feature_under("./src/acceptanceTest/resources/features")
+
+
+class PathLists(GradleCase):
+    """A name that holds a separator reaches every tool whole (review of 2c1cd0b)."""
+
+    def test_a_changed_feature_named_with_a_comma_or_a_double_quote_is_mutated(self):
+        # gauntlet.gradle joined the changed features with commas for GherkinMutator, and git quotes a name with a
+        # double quote: either way scope=changed mutated nothing and gherkinMutation passed
+        self.project()
+        current = "example_discount.feature"
+        for name in ("Скидка, рубли.feature", 'Скидка "VIP".feature'):
+            with self.subTest(name):
+                self.git("mv", FEATURES + current, FEATURES + name)
+                self.commit("the example feature renamed")
+                current = name
+                r = self.gradle("gherkinMutation")
+                self.assert_build(r, True)
+                self.assertIn("Gherkin mutation: 9 mutant(s) - 9 killed, 0 survived, 0 error(s); 6 control(s) - 6 passed",
+                              r.out)
+
+    def test_a_changed_source_named_with_a_comma_is_judged_by_every_gate(self):
+        # PMD split its --dir at the comma and judged no file ("PMD: OK"), CrapGate could not read either half
+        # (exit 2), DryGate matched the duplication to neither half ("DRY gate: OK")
+        self.project()
+        self.git("checkout", "-q", "main")
+        self.file(DOMAIN + "Ledger.java", LEDGER_JAVA)
+        self.commit("a ledger")
+        self.git("push", "-q", "origin", "main")
+        self.git("checkout", "-q", "-B", "feature", "main")
+        self.file(DOMAIN + "Ledger,Copy.java", LEDGER_COPY)
+        self.commit("a copy of the ledger in a file named with a comma")
+        r = self.gradle("pmdGate", "crapGate", "dryGate", "--continue")
+        self.assert_build(r, False)
+        self.assertRegex(r.out, r"Ledger,Copy\.java:25: Avoid empty catch blocks \[EmptyCatchBlock\]")
+        self.assertRegex(r.out, r"CRAP FAIL .*LedgerCopy#balance \(Ledger,Copy\.java:5\)")
+        self.assertIn("DRY gate: 1 duplication(s) found by CPD, 1 in scope (1 changed file(s))", r.out)
+
+    def test_a_project_in_a_directory_named_with_a_comma(self):
+        # PMD, CPD and Cucumber split their path options at commas, PIT its class paths: PMD loaded no rules, CPD and
+        # Cucumber found nothing to read, and PIT nothing to mutate - mutationGate passed
+        self.lab = os.path.join(self.tmp, "acme, inc", "lab")
+        self.project()
+        self.file(DOMAIN + "Ledger.java", LEDGER_JAVA)
+        self.file(DOMAIN + "LedgerCopy.java", LEDGER_COPY)
+        self.commit("a ledger and its copy")
+        r = self.gradle("pmdGate", "dryGate", "gherkinMutation", "mutationGate", "-Pgauntlet.scope=all", "--continue")
+        self.assert_build(r, False)
+        self.assertRegex(r.out, r"LedgerCopy\.java:25: Avoid empty catch blocks \[EmptyCatchBlock\]")
+        self.assertIn("DRY gate: 1 duplication(s) found by CPD, 1 in scope (all sources)", r.out)
+        self.assertIn("Acceptance: 3 scenario(s), none skipped - OK", r.out)
+        self.assertIn("Gherkin mutation: 9 mutant(s) - 9 killed, 0 survived, 0 error(s); 6 control(s) - 6 passed", r.out)
+        self.assertIn("Build from a directory without a comma in its path", r.out)       # PIT: refused, not green
 
 
 class GherkinHarness(GradleCase):
@@ -449,6 +696,56 @@ class GherkinHarness(GradleCase):
         self.assert_build(r, False)
         self.assertIn("0 killed, 0 survived, 2 error(s)", r.out)
         self.assertIn("the value never reached a step definition", r.out)
+
+
+class GherkinTransformers(GradleCase):
+    """A transformer (@ParameterType, ...) is known as Cucumber knows it: by the class and the name of its compiled
+    method, whatever the source encoding of the glue, its debug information or a namesake elsewhere."""
+
+    def view_project(self, compile_options, encoding="utf-8"):
+        # the Then step is hollow: a value the transformer rejected must be an error, never a kill
+        self.project(example=False, build_extra="tasks.withType(JavaCompile).configureEach {\n"
+                     f"    if (name == 'compileAcceptanceTestJava') {{\n        {compile_options}\n    }}\n}}")
+        self.file(GLUE + "Status.java", "package com.example.service.acceptance;\n\npublic enum Status { NEW, PAID, SHIPPED }\n",
+                  encoding)
+        self.file(GLUE + "StatusTypes.java", STATUS_TYPES, encoding)
+        self.file(GLUE + "ViewSteps.java", VIEW_STEPS, encoding)
+        self.file(FEATURES + "view.feature", "Feature: Order view\n\n  Scenario Outline: An order in any status can be viewed\n"
+                  "    Given an order in status <status>\n    Then the order can be viewed\n\n"
+                  "    Examples:\n      | status |\n      | PAID   |\n")
+        self.commit("order view")
+        r = self.gradle("gherkinMutation", "-Pgauntlet.scope=all")
+        self.assert_build(r, False)
+        self.assertIn("1 mutant(s) - 0 killed, 0 survived, 1 error(s); 2 control(s) - 2 passed", r.out)
+        self.assertIn("the value never reached a step definition (java.lang.IllegalArgumentException", r.out)
+
+    def test_a_transformer_rejects_the_value_whatever_the_encoding_of_the_glue_sources(self):
+        # read as UTF-8, a UTF-16LE source named no transformer: the rejected value was a kill (review of 2c1cd0b)
+        self.view_project("options.encoding = 'UTF-16LE'", "utf-16-le")
+
+    def test_a_transformer_compiled_without_debug_information_rejects_the_value(self):
+        # without debug information the frame names no source file - "StatusTypes.status(Unknown Source)"
+        self.view_project("options.debug = false")
+
+    def test_a_namesake_transformer_in_another_package_takes_no_kill(self):
+        # a @ParameterType `result` in another package's DiscountSteps.java turned the 9 kills of the step
+        # definition DiscountSteps.result into 9 errors (review of 2c1cd0b)
+        self.project()
+        self.file(GLUE + "reporting/DiscountSteps.java", """package com.example.service.acceptance.reporting;
+
+import io.cucumber.java.ParameterType;
+
+public class DiscountSteps {
+    @ParameterType("сводка|отчёт")
+    public String result(String value) {
+        return value;
+    }
+}
+""")
+        self.commit("a report parameter type")
+        r = self.gradle("gherkinMutation", "-Pgauntlet.scope=all")
+        self.assert_build(r, True)
+        self.assertIn("Gherkin mutation: 9 mutant(s) - 9 killed, 0 survived, 0 error(s); 6 control(s) - 6 passed", r.out)
 
 
 class ChangedScope(GradleCase):
@@ -563,10 +860,7 @@ class ChangedScope(GradleCase):
 class GateJvm(GradleCase):
 
     def test_gate_jvm_by_version_next_to_a_pinned_test_executable(self):
-        homes = jdk_homes()
-        if len(homes) < 2:
-            self.skipTest("needs two installed JDKs")
-        project, gate = sorted(homes)[-2:]            # the two newest: a runner also carries JDK 8, 11, 17
+        homes, project, gate = self.two_jdks()
         self.project(build_extra=f"tasks.withType(Test).configureEach {{ executable = '{homes[project]}/bin/java' }}")
         kit.set_property(self.lab, "gate.java.version", str(gate))
         r = self.gradle("archTest", "gauntletInfo", env={"JAVA_HOME": homes[project]})
@@ -576,10 +870,7 @@ class GateJvm(GradleCase):
 
     def test_gate_jvm_by_version_next_to_a_launcher_pinned_after_the_kit(self):
         # a convention plugin pins the launcher in afterEvaluate - after the kit configured its gate tasks
-        homes = jdk_homes()
-        if len(homes) < 2:
-            self.skipTest("needs two installed JDKs")
-        project, gate = sorted(homes)[-2:]            # the two newest: a runner also carries JDK 8, 11, 17
+        homes, project, gate = self.two_jdks()
         self.project(build_extra="afterEvaluate {\n    tasks.withType(Test).configureEach {\n        javaLauncher = "
                                  f"javaToolchains.launcherFor {{ languageVersion = JavaLanguageVersion.of({project}) }}\n    }}\n}}")
         kit.set_property(self.lab, "gate.java.version", str(gate))
@@ -593,11 +884,29 @@ class GateJvm(GradleCase):
         r = self.gradle("classes", "-Porg.gradle.java.installations.auto-download=false")
         self.assert_build(r, True)
 
+    def test_a_build_whose_checks_compile_every_source_set_does_not_need_the_gate_jdk(self):
+        # Gradle's checkstyle and pmd plugins (and SpotBugs) give the task of every source set its compiled classes, so
+        # `gradle build` compiles the kit's test - with the gate compiler, which failed where no gate JDK is installed
+        # (review of the merged fixes for 2c1cd0b)
+        self.project(build_extra="apply plugin: 'checkstyle'")
+        self.file("config/checkstyle/checkstyle.xml", '<?xml version="1.0"?>\n<!DOCTYPE module PUBLIC '
+                  '"-//Checkstyle//DTD Checkstyle Configuration 1.3//EN" "https://checkstyle.org/dtds/configuration_1_3.dtd">\n'
+                  '<module name="Checker"/>\n')
+        kit.set_property(self.lab, "gate.java.version", "99")
+        r = self.gradle("build", "-Porg.gradle.java.installations.auto-download=false")
+        self.assert_build(r, True)
+        self.assertIn("Task :checkstyleArchTest", r.out)
+
     def two_jdks(self):
+        """The project's JDK and the gate's: the two newest (a runner also carries JDK 8, 11, 17). The project's may
+        be any Java - its compiler builds the kit's ArchUnit test, Java 8 code - but the gate runs the kit's tools,
+        Java 16 code (records): with no JDK 17+ there is no gate to run them on."""
         homes = jdk_homes()
         if len(homes) < 2:
             self.skipTest("needs two installed JDKs")
-        project, gate = sorted(homes)[-2:]            # the two newest: a runner also carries JDK 8, 11, 17
+        project, gate = sorted(homes)[-2:]
+        if gate < 17:
+            self.skipTest(f"the gate runs the kit's tools (Java 16 code): needs a JDK 17+, the newest is {gate}")
         return homes, project, gate
 
     def assert_jvm(self, result, label, where):
@@ -631,6 +940,11 @@ class GateJvm(GradleCase):
         r = self.gradle("archTest", env={"JAVA_HOME": homes[project]})
         self.assert_build(r, False)
         self.assertIn("gate.java.version 'latest' names no Java version", r.out)
+        # a gate older than the kit's own code: named, not javac's "invalid flag" or a class version error
+        kit.set_property(self.lab, "gate.java.version", "1.8")
+        r = self.gradle("archTest", env={"JAVA_HOME": homes[project]})
+        self.assert_build(r, False)
+        self.assertIn("gate.java.version '1.8' is Java 8: the gate JVM runs the gauntlet's own tools", r.out)
 
     def test_gate_jvm_by_home_runs_the_jvm_gate_tasks_there(self):
         # GAUNTLET_GATE_JAVA_HOME (the kit's CI workflow sets it) names the JVM itself; no toolchain is looked up,
@@ -662,6 +976,26 @@ class GateJvm(GradleCase):
         self.assert_build(r, True)
         self.assert_ran_on(r, homes[gate], "checkstyleGate", "archTest")
 
+    def test_a_launcher_pinned_in_after_evaluate_and_read_once_the_projects_are_evaluated(self):
+        # a convention plugin pins the launcher in afterEvaluate - applied before the kit or after it - and an init
+        # script reads every launcher once the projects are evaluated, before the kit's own projectsEvaluated: the
+        # project's launcher was fixed and the gate tasks stopped on it (review of 2c1cd0b, Kimi P1 - a reader in
+        # the user's ~/.gradle/init.d, not the pair of JDKs)
+        homes, project, gate = self.two_jdks()
+        init = kit.write(os.path.join(self.tmp, "evaluated-reader.gradle"), EVALUATED_READER)
+        pin = ("\nafterEvaluate {\n    tasks.withType(Test).configureEach {\n        javaLauncher = "
+               f"javaToolchains.launcherFor {{ languageVersion = JavaLanguageVersion.of({project}) }}\n    }}\n}}\n")
+        self.project()
+        kit.set_property(self.lab, "gate.java.version", str(gate))
+        for place, build in (("before the kit", BUILD.format(junit=JUNIT, extra=REPORT_JVM + pin)),
+                             ("after the kit", BUILD.format(junit=JUNIT, extra=REPORT_JVM) + pin)):
+            with self.subTest(pinned=place):
+                self.file("build.gradle", build)
+                r = self.gradle("archTest", "acceptanceTest", "test", "-I", init, env={"JAVA_HOME": homes[project]})
+                self.assert_build(r, True)
+                self.assert_ran_on(r, gate, "archTest", "acceptanceTest")
+                self.assert_ran_on(r, homes[project], "test")
+
     def test_a_launcher_fixed_before_the_kit_could_set_it_is_named(self):
         # a launcher read before the kit set it (here: by the build script itself) cannot be changed any more; the
         # gate task says so instead of running on the project's JVM
@@ -674,6 +1008,115 @@ class GateJvm(GradleCase):
         self.assert_build(r, False)
         self.assertIn(":archTest would run on", r.out)
         self.assertIn(f"not on the gate JVM (Java {gate})", r.out)
+
+    def test_a_result_of_another_gate_jvm_is_not_reused(self):
+        # the same fixed launcher passes the check while the gate asks for the project's own version; asked for
+        # another one, the gate tasks were UP-TO-DATE or came from the build cache, and the check in doFirst never
+        # ran: a green build on the old result (review of 2c1cd0b, Codex 3)
+        homes, project, gate = self.two_jdks()
+        if project < 17:
+            self.skipTest(f"the gate first asks for the project's Java {project}; a gate runs the kit's tools: 17+")
+        self.project(build_extra="tasks.withType(Test).configureEach { it.javaLauncher.getOrNull() }\n"
+                                 "tasks.withType(JavaExec).configureEach { it.javaLauncher.getOrNull() }")
+        cache = os.path.join(self.tmp, "build-cache")             # this build's own: nothing from other builds
+        self.file("settings.gradle", f"rootProject.name = 'lab'\nbuildCache {{ local {{ directory = '{cache}' }} }}\n")
+        env = {"JAVA_HOME": homes[project]}
+        kit.set_property(self.lab, "gate.java.version", str(project))
+        r = self.gradle("archTest", "cpdReport", "--build-cache", env=env)
+        self.assert_build(r, True)
+        kit.set_property(self.lab, "gate.java.version", str(gate))
+        with self.subTest("outputs in place"):
+            r = self.gradle("archTest", "cpdReport", "--continue", env=env)
+            self.assert_build(r, False)
+            self.assertIn(":archTest would run on", r.out)
+            self.assertIn(":cpdReport would run on", r.out)
+            self.assertIn(f"not on the gate JVM (Java {gate})", r.out)
+        with self.subTest("build cache"):
+            self.assert_build(self.gradle("clean", env=env), True)
+            r = self.gradle("archTest", "--build-cache", env=env)
+            self.assert_build(r, False)
+            self.assertIn(":archTest would run on", r.out)
+
+    ARCH_CLASS = "build/classes/java/archTest/gauntlet/architecture/ArchitectureTest.class"
+
+    def test_the_kit_s_architecture_test_compiles_for_the_project_s_java(self):
+        # gauntlet/archtest was Java 16 code (Path.of, String.isBlank, Stream.toList) and the project's compiler
+        # builds it: a project that compiles for Java 8 or 11 - on that JDK, with that toolchain or with
+        # options.release - failed in compileArchTestJava (review of 2c1cd0b). It is Java 8 code now, built at the
+        # project's level and run on the gate JVM. A JDK older than 11 compiles for its own Java; a newer one is
+        # asked for Java 11, as such a build does.
+        homes, project, gate = self.two_jdks()
+        old = "tasks.withType(JavaCompile).configureEach { options.release = 11 }\n" if project >= 11 else ""
+        self.project(build_extra=old + REPORT_JVM)
+        kit.set_property(self.lab, "gate.java.version", str(gate))
+        for where, env in ((gate, {}), (homes[gate], {"GAUNTLET_GATE_JAVA_HOME": homes[gate]})):
+            with self.subTest(gate=where):
+                r = self.gradle("archTest", env={"JAVA_HOME": homes[project], **env})
+                self.assert_build(r, True)
+                self.assert_ran_on(r, where, "archTest")
+                # the project's compiler, as for the project's own classes: Java 8 code since this round
+                self.assertEqual(class_java(os.path.join(self.lab, self.ARCH_CLASS)), min(project, 11))
+        # the project's own classes stay as the project compiles them
+        orders = os.path.join(self.lab, "build/classes/java/main/com/example/service/domain/Orders.class")
+        self.assertEqual(class_java(orders), min(project, 11))
+        # no gate JDK to compile with: the gate's own message, not javac's errors about the kit's code
+        kit.set_property(self.lab, "gate.java.version", "latest")
+        r = self.gradle("archTest", env={"JAVA_HOME": homes[project]})
+        self.assert_build(r, False)
+        self.assertIn("gate.java.version 'latest' names no Java version", r.out)
+        self.assertNotIn("cannot find symbol", r.out)
+
+    def test_the_project_s_compiler_settings_stay_with_the_project(self):
+        # compilerArgs and forkOptions made for the project's JDK: Gradle and javac refused them next to the gate
+        # compiler's --release, and the kit's test (a source set of the project, read by SpotBugs & co. in `check`)
+        # came out at the gate's class version - both worked on 2c1cd0b (review of the merged fixes for 2c1cd0b)
+        homes, project, gate = self.two_jdks()
+        if project < 9:
+            self.skipTest(f"javac {project} has no --release, which this scenario hands the project's compiler")
+        self.project(build_extra=REPORT_JVM + "\ntasks.withType(JavaCompile).configureEach {\n"
+                     f"    options.compilerArgs.addAll(['--release', '{project}'])\n"
+                     f"    options.fork = true\n    options.forkOptions.javaHome = file('{homes[project]}')\n}}\n")
+        kit.set_property(self.lab, "gate.java.version", str(gate))
+        for where, env in ((gate, {}), (homes[gate], {"GAUNTLET_GATE_JAVA_HOME": homes[gate]})):
+            with self.subTest(gate=where):
+                r = self.gradle("archTest", env={"JAVA_HOME": homes[project], **env})
+                self.assert_build(r, True)
+                self.assert_ran_on(r, where, "archTest")
+                self.assertEqual(class_java(os.path.join(self.lab, self.ARCH_CLASS)), project)   # the project's --release
+
+    def test_a_build_on_a_jdk_older_than_the_kit_s_code(self):
+        # the kit's CI runs ./gradlew on the project's JDK - `1.8` is read as 8 - and a runner carries JDK 8 and 11
+        homes = jdk_homes()
+        old = min(homes, default=None)
+        gate = max(homes, default=None)
+        if old is None or old >= 16 or gate < 17:
+            self.skipTest("needs a JDK older than 16 and a JDK 17+")
+        self.project(build_extra=REPORT_JVM)
+        kit.set_property(self.lab, "gate.java.version", str(gate))
+        r = self.gradle("archTest", "test", env={"JAVA_HOME": homes[old]})
+        self.assert_build(r, True)
+        self.assert_ran_on(r, gate, "archTest")
+        self.assert_ran_on(r, homes[old], "test")
+
+
+class ArchPolicy(GradleCase):
+
+    def test_a_stricter_architecture_policy_is_judged(self):
+        # archTest got the policy file only as a path: a stricter policy left it UP-TO-DATE, and after clean it came
+        # FROM-CACHE - green on the old policy's result
+        self.project()
+        cache = os.path.join(self.tmp, "build-cache")
+        self.file("settings.gradle", f"rootProject.name = 'lab'\nbuildCache {{ local {{ directory = '{cache}' }} }}\n")
+        self.assert_build(self.gradle("archTest", "--build-cache"), True)
+        arch = os.path.join(self.lab, "gauntlet/config/architecture.properties")
+        kit.write(arch, re.sub(r"(?m)^forbidden\.domain=.*$", "forbidden.domain=java.lang..", kit.read(arch)))
+        with self.subTest("outputs in place"):
+            self.assert_build(self.gradle("archTest", "--build-cache"), False)
+        with self.subTest("build cache"):
+            self.assert_build(self.gradle("clean"), True)
+            r = self.gradle("archTest", "--build-cache")
+            self.assert_build(r, False)
+            self.assertIn("forbids domain -> [java.lang..]", r.out)
 
 
 class CiPlan(GradleCase):

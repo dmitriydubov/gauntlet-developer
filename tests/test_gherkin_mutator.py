@@ -4,6 +4,8 @@ Every fixture is built in a temporary directory. The JUnit XML is synthetic but 
 writes for the Cucumber JUnit Platform engine with cucumber.junit-platform.naming-strategy=long (taken from
 real runs on Cucumber 7.23.0 and 8.0.1): a failed scenario is a <failure type="..."> whose text is the stack
 trace, and an exception thrown by a step definition carries Cucumber's own frame "at ✽.<step text>(feature:line)".
+A retried scenario (the test-retry plugin 1.6.2) is a <testcase> per attempt, or - with reports.junitXml.mergeReruns -
+one <testcase> holding <flakyFailure> or <failure> + <rerunFailure>, with the trace in a <stackTrace> child.
 """
 import os
 import re
@@ -11,6 +13,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+import zipfile
 from xml.sax.saxutils import escape, quoteattr
 
 import kit
@@ -79,6 +82,65 @@ def outside_step(exc_type, message="Database fixture unavailable", tag="failure"
 
 SKIPPED = "    <skipped/>\n"
 PASSED = ""
+
+# Cucumber's annotations as the glue is compiled against them: same names, runtime retention - the class files
+# name them exactly as with cucumber-java on the classpath
+CUCUMBER_STUBS = {
+    "io/cucumber/java/ParameterType.java": "package io.cucumber.java;\n\nimport java.lang.annotation.*;\n\n"
+    "@Retention(RetentionPolicy.RUNTIME)\n@Target(ElementType.METHOD)\npublic @interface ParameterType {\n"
+    "    String value();\n\n    String name() default \"\";\n}\n",
+    "io/cucumber/java/en/Then.java": "package io.cucumber.java.en;\n\nimport java.lang.annotation.*;\n\n"
+    "@Retention(RetentionPolicy.RUNTIME)\n@Target(ElementType.METHOD)\npublic @interface Then {\n    String value();\n}\n",
+}
+STATUS = "package com.example;\n\npublic enum Status { NEW, PAID, SHIPPED }\n"
+TYPES = ("package com.example;\n\nimport io.cucumber.java.ParameterType;\n\npublic class Types {\n"
+         "    @ParameterType(\".*\")\n    public Status status(String value) {\n        return Status.valueOf(value);\n    }\n}\n")
+DOUBLING_STEPS = ("package com.example.service.acceptance;\n\nimport io.cucumber.java.en.Then;\n\npublic class DoublingSteps {\n"
+                  "    @Then(\"the result table is:\")\n    public void resultTable(Object table) {\n"
+                  "        throw new IllegalArgumentException(\"No enum constant\");\n    }\n}\n")
+
+
+def enum_rejected(*glue_frames):
+    """Enum.valueOf failing in the glue method Cucumber called: the stack is cut right behind its frame."""
+    return thrown("java.lang.IllegalArgumentException", "No enum constant com.example.Status.STIPPED",
+                  frames=("java.base/java.lang.Enum.valueOf(Enum.java:293)",) + glue_frames + (STEP_FRAME,))
+
+
+def step_frame(line):
+    """The step frame of a step on another line of the generated feature."""
+    return STEP_FRAME.replace(".feature:5)", f".feature:{line})")
+
+
+def merged(exc_type=ASSERTION, message="expected: <10> but was: <18>", frames=(GLUE_FRAME, STEP_FRAME),
+           tag="flakyFailure"):
+    """A failed attempt inside a merged <testcase> (reports.junitXml.mergeReruns, Surefire's shape): <flakyFailure> when
+    the scenario passed in the end, <rerunFailure> for a later attempt of one that failed every time. Gradle 8.14
+    writes the stack trace into a <stackTrace> child, not as the element's text."""
+    text = f"{exc_type}: {message}\n" + "".join(f"\tat {frame}\n" for frame in frames)
+    return (f"    <{tag} message={quoteattr(exc_type + ': ' + message)} type={quoteattr(exc_type)}>\n"
+            f"      <stackTrace>{escape(text)}</stackTrace>\n    </{tag}>\n")
+
+
+def attempts(name, runs, merge):
+    """[(testcase name, body)] for the attempts of one scenario - each a failure (exc_type, message, frames), PASSED or
+    SKIPPED - as Gradle 8.14 writes them: a <testcase> per attempt; with reports.junitXml.mergeReruns, failed attempts
+    and the attempt that ends them share one <testcase>: <flakyFailure> per failure when the last one passed (no
+    element) or was skipped (<skipped>), else <failure> for the first and <rerunFailure> for each later one."""
+    if not merge:
+        return [(name, thrown(*a) if isinstance(a, tuple) else a) for a in runs]
+    cases, group = [], []
+    for i, a in enumerate(runs):
+        group.append(a)
+        if isinstance(a, tuple) and i + 1 < len(runs):
+            continue                                            # a failure: the next attempt joins its <testcase>
+        failures = [g for g in group if isinstance(g, tuple)]
+        if isinstance(a, tuple):                                # failed on every attempt
+            body = thrown(*failures[0]) + "".join(merged(*f, tag="rerunFailure") for f in failures[1:])
+        else:
+            body = "".join(merged(*f, tag="flakyFailure") for f in failures) + a
+        cases.append((name, body))
+        group = []
+    return cases
 
 
 def write_results(directory, cases):
@@ -316,6 +378,27 @@ class WhereItFailed(Sandbox):
     def run_verdict(self, *extra):
         return tool("verdict", "--mutants", "mutants", "--results", "results", *extra, cwd=self.dir)
 
+    def compile_glue(self, sources, encoding="utf-8", options=(), glue="glue"):
+        """Writes the glue sources under `glue` and compiles them there, as `javac -d glue` leaves them: the verdict
+        reads the class files (--glue is the classpath of the mutant run), the sources only lie next to them."""
+        stubs = self.path("cucumber-stubs")
+        if not os.path.isdir(stubs):
+            for rel, text in CUCUMBER_STUBS.items():
+                write(self.path("cucumber-stubs-src", rel), text)
+            self.javac("-d", stubs, *[self.path("cucumber-stubs-src", rel) for rel in CUCUMBER_STUBS])
+        for rel, text in sources.items():
+            os.makedirs(os.path.dirname(self.path(glue, rel)), exist_ok=True)
+            with open(self.path(glue, rel), "wb") as f:
+                f.write(text.encode(encoding))
+        self.javac("-encoding", {"utf-8": "UTF-8", "utf-16-le": "UTF-16LE"}[encoding], "-cp", stubs, *options,
+                   "-d", self.path(glue), *[self.path(glue, rel) for rel in sources])
+        return self.path(glue)
+
+    def javac(self, *args):
+        r = subprocess.run(["javac", *args], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding="utf-8",
+                           env=kit.java_env())
+        self.assertEqual(0, r.returncode, r.stdout)
+
     def test_a_step_that_fails_before_the_value_is_used_kills_nothing(self):
         # the shared-state harness: the row's first step ("a new account ACC-1") fails on every repetition
         self.manifest_with_uses(7)
@@ -367,12 +450,10 @@ class WhereItFailed(Sandbox):
 
     def test_a_transformer_that_rejects_the_value_kills_nothing(self):
         # Cucumber cuts a transformer's stack at the transformer and appends the step frame - like a step's
-        write(self.path("glue/com/example/Types.java"), "package com.example;\n\nclass Types {\n"
-              "    @ParameterType(\".*\")\n    public Status status(String value) {\n        return Status.valueOf(value);\n    }\n}\n")
-        enum = ("java.lang.IllegalArgumentException", "No enum constant com.example.Status.STIPPED")
-        transformer = thrown(*enum, frames=("java.base/java.lang.Enum.valueOf(Enum.java:293)",
-                                            "app//com.example.Types.status(Types.java:6)", STEP_FRAME))
-        step_body = thrown(*enum, frames=("java.base/java.lang.Enum.valueOf(Enum.java:293)", GLUE_FRAME, STEP_FRAME))
+        self.compile_glue({"com/example/Types.java": TYPES, "com/example/Status.java": STATUS,
+                           "com/example/service/acceptance/DoublingSteps.java": DOUBLING_STEPS})
+        transformer = enum_rejected("app//com.example.Types.status(Types.java:8)")
+        step_body = enum_rejected(GLUE_FRAME)
         self.manifest_with_uses(5)
         write_results(self.results, [(control_name(1), PASSED), (mutant_name(1), transformer)])
         code, out = self.run_verdict("--glue", "glue")
@@ -383,20 +464,168 @@ class WhereItFailed(Sandbox):
         self.assertEqual(0, code, out)          # the same exception from the step's own code is a kill
         self.assertIn("1 killed (1 by a non-assertion exception thrown in a step), 0 survived", self.summary(out))
 
-    def test_a_transformer_named_in_any_alphabet_is_found(self):
-        # a Java or Kotlin name is any letter, not only ASCII (review of 65c03da)
-        write(self.path("glue/com/example/Types.java"), "package com.example;\n\nclass Types {\n"
-              "    @ParameterType(\".*\")\n    public Статус статус(String value) {\n        return Статус.valueOf(value);\n"
-              "    }\n}\n")
-        transformer = thrown("java.lang.IllegalArgumentException", "No enum constant com.example.Статус.ОТГРУЖЕНЕ",
-                             frames=("java.base/java.lang.Enum.valueOf(Enum.java:293)",
-                                     "app//com.example.Types.статус(Types.java:6)", STEP_FRAME))
+    def test_every_glue_directory_is_read_whole(self):
+        # --glue went joined with commas: a root under "acme, inc" came apart, its transformers were never read and
+        # the rejected value counted as a kill (review of 2c1cd0b); one entry per --glue is never split
+        self.compile_glue({"com/example/Types.java": TYPES, "com/example/Status.java": STATUS}, glue="acme, inc/glue")
         self.manifest_with_uses(5)
-        write_results(self.results, [(control_name(1), PASSED), (mutant_name(1), transformer)])
+        write_results(self.results, [(control_name(1), PASSED),
+                                     (mutant_name(1), enum_rejected("app//com.example.Types.status(Types.java:7)"))])
+        for glue in (["--glue", "acme, inc/glue"], ["--glue", "acme, inc/glue", "--glue", "src/acceptanceTest/kotlin"],
+                     ["--glue", "src/acceptanceTest/kotlin", "--glue", "acme, inc/glue"]):
+            with self.subTest(glue=glue):
+                code, out = self.run_verdict(*glue)
+                self.assertEqual(1, code, out)
+                self.assertIn("MUTANT ERROR    m1 the value never reached a step definition", out)
+
+    def test_a_transformer_named_in_any_alphabet_is_found(self):
+        # a Java or Kotlin name is any letter, not only ASCII (review of 65c03da): the method's and the class's
+        status = "package com.example;\n\npublic enum Статус { НОВЫЙ, ОТГРУЖЕН }\n"
+        for cls in ("Types", "Типы"):
+            with self.subTest(cls):
+                self.compile_glue({"com/example/Статус.java": status, f"com/example/{cls}.java":
+                                   f"package com.example;\n\nimport io.cucumber.java.ParameterType;\n\npublic class {cls} {{\n"
+                                   "    @ParameterType(\".*\")\n    public Статус статус(String value) {\n"
+                                   "        return Статус.valueOf(value);\n    }\n}\n"})
+                transformer = thrown("java.lang.IllegalArgumentException", "No enum constant com.example.Статус.ОТГРУЖЕНЕ",
+                                     frames=("java.base/java.lang.Enum.valueOf(Enum.java:293)",
+                                             f"app//com.example.{cls}.статус({cls}.java:8)", STEP_FRAME))
+                self.manifest_with_uses(5)
+                write_results(self.results, [(control_name(1), PASSED), (mutant_name(1), transformer)])
+                code, out = self.run_verdict("--glue", "glue")
+                self.assertEqual(1, code, out)
+                self.assertIn("0 killed, 0 survived, 1 error(s)", self.summary(out))
+                self.assertIn("MUTANT ERROR    m1 the value never reached a step definition (java.lang.IllegalArgumentException",
+                              out)
+
+    def test_a_transformer_is_found_whatever_the_encoding_of_its_source(self):
+        # glue sources in UTF-16LE (JavaCompile.options.encoding = 'UTF-16LE'): read as UTF-8 they named no
+        # transformer, and a value the transformer rejected counted as a kill (review of 2c1cd0b)
+        self.compile_glue({"com/example/Types.java": TYPES, "com/example/Status.java": STATUS}, encoding="utf-16-le")
+        self.manifest_with_uses(5)
+        write_results(self.results, [(control_name(1), PASSED),
+                                     (mutant_name(1), enum_rejected("app//com.example.Types.status(Types.java:8)"))])
         code, out = self.run_verdict("--glue", "glue")
         self.assertEqual(1, code, out)
         self.assertIn("0 killed, 0 survived, 1 error(s)", self.summary(out))
         self.assertIn("MUTANT ERROR    m1 the value never reached a step definition (java.lang.IllegalArgumentException", out)
+
+    def test_a_namesake_transformer_in_another_class_takes_no_kill(self):
+        # Cucumber knows a glue method by its class and its name: a @ParameterType `result` in another package's
+        # DiscountSteps.java is not the step definition DiscountSteps.result that asserted (review of 2c1cd0b)
+        steps = ("package com.example.service.acceptance;\n\nimport io.cucumber.java.en.Then;\n\npublic class DiscountSteps {\n"
+                 "    @Then(\"the total is {int}\")\n    public void result(int expected) {\n"
+                 "        throw new AssertionError(\"expected: <9900> but was: <9894>\");\n    }\n}\n")
+        namesake = ("package com.example.service.reporting;\n\nimport io.cucumber.java.ParameterType;\n\n"
+                    "public class DiscountSteps {\n    @ParameterType(\"summary|report\")\n"
+                    "    public String result(String value) {\n        return value;\n    }\n}\n")
+        self.compile_glue({"com/example/service/acceptance/DiscountSteps.java": steps,
+                           "com/example/service/reporting/DiscountSteps.java": namesake})
+        kill = thrown(ASSERTION, "expected: <9900> but was: <9894>",
+                      frames=("app//com.example.service.acceptance.DiscountSteps.result(DiscountSteps.java:8)", STEP_FRAME))
+        self.manifest_with_uses(5)
+        write_results(self.results, [(control_name(1), PASSED), (mutant_name(1), kill)])
+        code, out = self.run_verdict("--glue", "glue")
+        self.assertEqual(0, code, out)
+        self.assertIn("1 killed, 0 survived, 0 error(s)", self.summary(out))
+
+    def test_a_step_definition_with_a_transformer_s_name_is_told_apart_only_by_its_line(self):
+        # one class, one name: the transformer status(String) and the step definition status(Status). A line of the
+        # step definition is the evidence of a kill; compiled without line numbers the name decides - no kill
+        steps = ("package com.example;\n\nimport io.cucumber.java.ParameterType;\nimport io.cucumber.java.en.Then;\n\n"
+                 "public class OrderSteps {\n    @ParameterType(\"[A-Z]+\")\n    public Status status(String name) {\n"
+                 "        return Status.valueOf(name);\n    }\n\n    @Then(\"the order is in status {status}\")\n"
+                 "    public void status(Status expected) {\n        throw new AssertionError(\"expected: <\" + expected + \">\");\n"
+                 "    }\n}\n")
+        for options, location, killed in (((), "OrderSteps.java:{}", True), (("-g:none",), "Unknown Source", False)):
+            with self.subTest(options=options):
+                self.compile_glue({"com/example/OrderSteps.java": steps, "com/example/Status.java": STATUS}, options=options)
+                self.manifest_with_uses(5)
+                frame = "app//com.example.OrderSteps.status(" + location + ")"
+                write_results(self.results, [(control_name(1), PASSED), (mutant_name(1), enum_rejected(frame.format(9)))])
+                code, out = self.run_verdict("--glue", "glue")
+                self.assertEqual(1, code, out)
+                self.assertIn("MUTANT ERROR    m1 the value never reached a step definition", out)
+                in_step_definition = thrown(ASSERTION, "expected: <PAID>", frames=(frame.format(14), STEP_FRAME))
+                write_results(self.results, [(control_name(1), PASSED), (mutant_name(1), in_step_definition)])
+                code, out = self.run_verdict("--glue", "glue")
+                self.assertEqual(0 if killed else 1, code, out)
+                self.assertIn("1 killed, 0 survived, 0 error(s)" if killed else "0 killed, 0 survived, 1 error(s)",
+                              self.summary(out))
+
+    def renamed(self, class_file, old, new):
+        """The class file with one method renamed to a name javac cannot write - same length, so the constant pool stays valid."""
+        with open(class_file, "rb") as f:
+            data = f.read()
+        self.assertEqual(1, data.count(old.encode()))
+        with open(class_file, "wb") as f:
+            f.write(data.replace(old.encode(), new.encode()))
+
+    def test_a_glue_method_named_with_spaces_is_still_its_frame(self):
+        # Kotlin's `order status` (backticks, allowed in test code): its frame "Types.order status(Types.kt:8)" was
+        # skipped, and the frame before it decided - Status.valueOf (no transformer: the rejected value was a kill), or
+        # java.util.Optional (not on the glue classpath: exit 2 on a kill) (review of the 2c1cd0b fixes)
+        types = TYPES.replace("public Status status(", "public Status orderXstatus(")
+        steps = ("package com.example;\n\npublic class OrderSteps {\n    public void theXorderXisXfound(String id) {\n"
+                 "        java.util.Optional.empty().orElseThrow();\n    }\n}\n")
+        glue = self.compile_glue({"com/example/Types.java": types, "com/example/Status.java": STATUS,
+                                  "com/example/OrderSteps.java": steps})
+        self.renamed(os.path.join(glue, "com/example/Types.class"), "orderXstatus", "order status")
+        self.renamed(os.path.join(glue, "com/example/OrderSteps.class"), "theXorderXisXfound", "the order is found")
+        self.manifest_with_uses(5)
+        rejected = enum_rejected("app//com.example.Status.valueOf(Status.kt)", "app//com.example.Types.order status(Types.kt:8)")
+        write_results(self.results, [(control_name(1), PASSED), (mutant_name(1), rejected)])
+        code, out = self.run_verdict("--glue", "glue")
+        self.assertEqual(1, code, out)
+        self.assertIn("MUTANT ERROR    m1 the value never reached a step definition", out)
+        kill = thrown("java.util.NoSuchElementException", "No value present",
+                      frames=("java.base/java.util.Optional.orElseThrow(Optional.java:377)",
+                              "app//com.example.OrderSteps.the order is found(OrderSteps.kt:16)", STEP_FRAME))
+        write_results(self.results, [(control_name(1), PASSED), (mutant_name(1), kill)])
+        code, out = self.run_verdict("--glue", "glue")
+        self.assertEqual(0, code, out)
+        self.assertIn("1 killed (1 by a non-assertion exception thrown in a step), 0 survived, 0 error(s)", self.summary(out))
+
+    def test_the_glue_classpath_is_read_like_a_class_loader_reads_it(self):
+        # --glue is the classpath of the mutant run: class directories and jars (shared glue) in its order, one entry
+        # per --glue or one per line of --glue-file (NUL-ended, as Gradle writes it) - a comma or a colon belongs to a
+        # directory name; a nested class is Outer$Inner
+        nested = ("package com.example;\n\nimport io.cucumber.java.ParameterType;\n\npublic class Steps {\n"
+                  "    public static class Types {\n        @ParameterType(\".*\")\n"
+                  "        public Status status(String value) {\n            return Status.valueOf(value);\n        }\n"
+                  "    }\n}\n")
+        classes = self.compile_glue({"com/example/Steps.java": nested, "com/example/Status.java": STATUS}, glue="shared")
+        jar = self.path("shared-glue.jar")
+        with zipfile.ZipFile(jar, "w") as z:
+            for root, _, files in os.walk(classes):
+                for name in files:
+                    if name.endswith(".class"):
+                        z.write(os.path.join(root, name), os.path.relpath(os.path.join(root, name), classes))
+        shutil.rmtree(classes)
+        os.makedirs(self.path("Скидка, рубли", "classes"))
+        self.manifest_with_uses(5)
+        write_results(self.results, [(control_name(1), PASSED),
+                                     (mutant_name(1), enum_rejected("app//com.example.Steps$Types.status(Steps.java:9)"))])
+        entries = [self.path("Скидка, рубли", "classes"), self.path("missing"), jar]
+        write(self.path("glue-classpath"), "".join(e + "\0" for e in entries))
+        for how, options in (("--glue", [o for e in entries for o in ("--glue", e)]),
+                             ("--glue-file", ["--glue-file", "glue-classpath"])):
+            with self.subTest(how):
+                code, out = self.run_verdict(*options)
+                self.assertEqual(1, code, out)
+                self.assertIn("0 killed, 0 survived, 1 error(s)", self.summary(out))
+                self.assertIn("MUTANT ERROR    m1 the value never reached a step definition", out)
+
+    def test_a_step_frame_whose_class_is_not_on_the_glue_classpath_is_no_guess(self):
+        # whether its method was a transformer is unknown: counting the failure as a kill could pass a rejected value
+        self.compile_glue({"com/example/Types.java": TYPES, "com/example/Status.java": STATUS})
+        self.manifest_with_uses(5)
+        write_results(self.results, [(control_name(1), PASSED), (mutant_name(1), in_step())])      # DoublingSteps
+        r = kit.tool("GherkinMutator", "verdict", "--mutants", "mutants", "--results", "results", "--glue", "glue",
+                     cwd=self.dir)
+        self.assertEqual(2, r.code, r)
+        self.assertIn("class com.example.service.acceptance.DoublingSteps of a step frame is not on the glue classpath"
+                      " (--glue)", r.out)
 
     def test_a_scenario_that_ran_twice_with_different_results_proves_nothing(self):
         # a retry plugin or a rerun reports every attempt: a failure and a pass is no stable detection (review of 65c03da)
@@ -421,6 +650,125 @@ class WhereItFailed(Sandbox):
         code, out = self.run_verdict()
         self.assertEqual(0, code, out)
         self.assertIn("1 killed, 0 survived, 0 error(s); 1 control(s) - 1 passed", self.summary(out))
+
+    def test_every_attempt_is_judged_against_the_first_step_that_uses_the_value(self):
+        # two attempts of one mutant fail in a step: on line 8, after the first use of the value (line 7) - a kill -,
+        # and on line 5, before it - no kill. Keeping one failure of the two made the verdict depend on the order of
+        # the attempts (review of 2c1cd0b)
+        line = {n: (ASSERTION, f"failed on line {n}", (GLUE_FRAME, step_frame(n))) for n in (5, 6, 8, 9)}
+        self.manifest_with_uses(7)
+        for order in ((8, 5), (5, 8)):
+            for merge in (False, True):
+                with self.subTest(lines=order, mergeReruns=merge):
+                    write_results(self.results, [(control_name(1), PASSED)]
+                                  + attempts(mutant_name(1), [line[n] for n in order], merge))
+                    code, out = self.run_verdict()
+                    self.assertEqual(1, code, out)
+                    self.assertIn("0 killed, 0 survived, 1 error(s)", self.summary(out))
+                    self.assertIn("MUTANT ERROR    m1 ran more than once with different results", out)
+        # the same verdict on every attempt is that verdict: two kills are a kill, two early failures one error
+        same = {(8, 9): "1 killed, 0 survived, 0 error(s)", (5, 6): "0 killed, 0 survived, 1 error(s)"}
+        for order, summary in same.items():
+            for merge in (False, True):
+                with self.subTest(lines=order, mergeReruns=merge):
+                    write_results(self.results, [(control_name(1), PASSED)]
+                                  + attempts(mutant_name(1), [line[n] for n in order], merge))
+                    code, out = self.run_verdict()
+                    self.assertIn(summary, self.summary(out))
+                    self.assertNotIn("ran more than once", out)
+                    if order == (5, 6):
+                        self.assertIn("MUTANT ERROR    m1 failed on line 5, before the first step that uses <price>"
+                                      " (line 7)", out)
+
+    def test_merged_and_separate_attempts_give_the_same_verdict(self):
+        # with reports.junitXml.mergeReruns Gradle merges the attempts of a test that failed into one <testcase>; a
+        # control that failed and then passed has only a <flakyFailure> there - read as passed, it let the gate pass
+        # (review of 2c1cd0b). Both shapes of the same attempts are one run and give one verdict.
+        kill = (ASSERTION, "expected: <10> but was: <18>", (GLUE_FRAME, STEP_FRAME))
+        early = (ASSERTION, "account ACC-1 already exists", (GLUE_FRAME, step_frame(4)))
+        hook = ("java.io.IOException", "Database fixture unavailable", (HOOK_FRAME,))
+        unstable = "ran more than once with different results"
+        mutants = {
+            "killed, killed": ((kill, kill), "1 killed, 0 survived, 0 error(s)", None),
+            "killed, killed, killed": ((kill, kill, kill), "1 killed, 0 survived, 0 error(s)", None),
+            "passed, passed": ((PASSED, PASSED), "0 killed, 1 survived, 0 error(s)", "MUTANT SURVIVED m1"),
+            "hook, hook": ((hook, hook), "0 killed, 0 survived, 1 error(s)", "m1 failed outside a step"),
+            "killed, passed": ((kill, PASSED), "0 killed, 0 survived, 1 error(s)", "m1 " + unstable),
+            "killed, killed, passed": ((kill, kill, PASSED), "0 killed, 0 survived, 1 error(s)", "m1 " + unstable),
+            "passed, killed": ((PASSED, kill), "0 killed, 0 survived, 1 error(s)", "m1 " + unstable),
+            "killed, skipped": ((kill, SKIPPED), "0 killed, 0 survived, 1 error(s)", "m1 " + unstable),
+            "hook, killed": ((hook, kill), "0 killed, 0 survived, 1 error(s)", "m1 " + unstable),
+            "killed, early": ((kill, early), "0 killed, 0 survived, 1 error(s)", "m1 " + unstable),
+        }
+        broken = "c1 control (unmutated scenario) "
+        controls = {
+            "passed, passed": ((PASSED, PASSED), "1 control(s) - 1 passed", None),
+            "failed, failed": ((kill, kill), "1 control(s) - 0 passed", broken + "failed in a step"),
+            "failed, passed": ((kill, PASSED), "1 control(s) - 0 passed", broken + unstable),
+            "failed, skipped": ((kill, SKIPPED), "1 control(s) - 0 passed", broken + unstable),
+            "hook, passed": ((hook, PASSED), "1 control(s) - 0 passed", broken + unstable),
+        }
+        for merge in (False, True):
+            for name, (runs, summary, message) in mutants.items():
+                with self.subTest("mutant: " + name, mergeReruns=merge):
+                    self.manifest_with_uses(5)
+                    write_results(self.results, [(control_name(1), PASSED)] + attempts(mutant_name(1), runs, merge))
+                    code, out = self.run_verdict()
+                    self.assertIn(summary + "; 1 control(s) - 1 passed", self.summary(out))
+                    self.assertEqual(0 if message is None else 1, code, out)
+                    if message:
+                        self.assertIn(message, out)
+            for name, (runs, summary, message) in controls.items():
+                with self.subTest("control: " + name, mergeReruns=merge):
+                    self.manifest_with_uses(5)
+                    write_results(self.results, attempts(control_name(1), runs, merge) + [(mutant_name(1), in_step())])
+                    code, out = self.run_verdict()
+                    self.assertIn("1 killed, 0 survived, 0 error(s); " + summary, self.summary(out))
+                    self.assertEqual(0 if message is None else 1, code, out)
+                    if message:
+                        self.assertIn("MUTANT ERROR    " + message, out)
+
+    def test_surefire_s_flaky_and_rerun_errors_are_attempts_as_well(self):
+        # Surefire-style writers merge a non-assertion exception as <flakyError> / <rerunError>
+        self.manifest_with_uses(5)
+        write_results(self.results, [(control_name(1), merged("java.lang.IllegalStateException", tag="flakyError")),
+                                     (mutant_name(1), in_step(tag="error") + merged(tag="rerunError"))])
+        code, out = self.run_verdict()
+        self.assertEqual(1, code, out)
+        self.assertIn("1 killed, 0 survived, 0 error(s); 1 control(s) - 0 passed", self.summary(out))
+        self.assertIn("MUTANT ERROR    c1 control (unmutated scenario) ran more than once with different results",
+                      out)
+
+    def test_a_rerun_attempt_is_judged_on_its_stack_trace_not_its_output(self):
+        # first attempt a kill; the rerun a hook failure whose output (<system-out>, a sibling of <stackTrace>) holds a
+        # step frame: read as the element's text, the rerun was one more kill
+        self.manifest_with_uses(5)
+        rerun = merged("java.io.IOException", "Database fixture unavailable", (HOOK_FRAME,), tag="rerunFailure")
+        rerun = rerun.replace("</stackTrace>\n", "</stackTrace>\n      <system-out>" + escape("\tat " + STEP_FRAME + "\n")
+                              + "</system-out>\n")
+        write_results(self.results, [(control_name(1), PASSED), (mutant_name(1), in_step() + rerun)])
+        code, out = self.run_verdict()
+        self.assertEqual(1, code, out)
+        self.assertIn("0 killed, 0 survived, 1 error(s)", self.summary(out))
+        self.assertIn("MUTANT ERROR    m1 ran more than once with different results", out)
+
+    def test_the_stage_of_a_merged_attempt_is_read_from_its_stack_trace(self):
+        # the trace of a flaky or rerun attempt is the <stackTrace> child: its step frame, transformer and runner
+        # frames decide exactly as in a <failure>
+        self.compile_glue({"com/example/Types.java": TYPES, "com/example/Status.java": STATUS})
+        rejected = ("java.lang.IllegalArgumentException", "No enum constant com.example.Status.STIPPED",
+                    ("java.base/java.lang.Enum.valueOf(Enum.java:293)", "app//com.example.Types.status(Types.java:7)",
+                     STEP_FRAME))
+        self.manifest_with_uses(5)
+        for merge in (False, True):
+            with self.subTest(mergeReruns=merge):
+                write_results(self.results, [(control_name(1), PASSED)]
+                              + attempts(mutant_name(1), (rejected, rejected), merge))
+                code, out = self.run_verdict("--glue", "glue")
+                self.assertEqual(1, code, out)
+                self.assertIn("0 killed, 0 survived, 1 error(s)", self.summary(out))
+                self.assertIn("MUTANT ERROR    m1 the value never reached a step definition"
+                              " (java.lang.IllegalArgumentException", out)
 
 
 # ----------------------------------------------------------------------------- generate
@@ -606,13 +954,58 @@ class GenerateTest(Sandbox):
         self.assertTrue(m1[2].startswith("Функция: MUTANT m1 | Расчёт скидки по заказу"), m1[2])
         self.assertRegex(m1[3], r"^  Структура сценария: MUTANT m1 \| Фиксированная скидка уменьшает сумму заказа \| скидка: 100 -> \d+$")
 
+    def only_file(self, *paths):
+        """--only-file with these features: each path ended by a NUL, as gauntlet.gradle writes the list."""
+        write(self.path("changed-features"), "".join(p + "\0" for p in paths))
+        return "--only-file", "changed-features"
+
     def test_only_limits_mutants_and_controls_to_the_named_features(self):
         write(self.path("features/doubling.feature"), DOUBLING)
         write(self.path("features/discount.feature"), RUSSIAN)
-        code, out = self.generate("--only", "features/discount.feature")
+        code, out = self.generate(*self.only_file("features/discount.feature"))
         self.assertEqual(0, code, out)
         self.assertIn("Gherkin mutation: 2 mutant(s) + 2 control(s) from 1 feature file(s) in scope", out)
         self.assertEqual({"features/discount.feature"}, {r[1] for r in self.manifest()})
+
+    def test_only_file_keeps_a_comma_quote_and_line_break_inside_a_name(self):
+        # gauntlet.gradle joined the changed features with commas: "Скидка, рубли.feature" came apart into two
+        # names of nothing, and gherkinMutation passed on 0 mutants (review of 2c1cd0b)
+        names = ["features/Скидка, рубли.feature", 'features/Скидка "VIP".feature', "features/Скидка\nрубли.feature"]
+        for name in names + ["features/doubling.feature"]:
+            write(self.path(name), RUSSIAN)
+        code, out = self.generate(*self.only_file(*names))
+        self.assertEqual(0, code, out)
+        self.assertIn("Gherkin mutation: 6 mutant(s) + 6 control(s) from 3 feature file(s) in scope", out)
+
+    def test_an_empty_list_puts_no_feature_in_scope(self):
+        write(self.path("features/doubling.feature"), DOUBLING)
+        code, out = self.generate(*self.only_file())
+        self.assertEqual(0, code, out)
+        self.assertIn("Gherkin mutation: 0 mutant(s) + 0 control(s) from 0 feature file(s) in scope", out)
+
+    def test_a_listed_path_that_names_no_feature_file_is_an_error(self):
+        # a list that lost its paths on the way must not mutate nothing and pass
+        write(self.path("features/Скидка, рубли.feature"), RUSSIAN)
+        code, out = self.generate(*self.only_file("features/Скидка", " рубли.feature"))
+        self.assertEqual(2, code, out)
+        self.assertIn("GHERKIN ERROR the scope names no feature file under features", out)
+
+    def test_a_line_break_in_a_feature_name_ends_no_line_of_the_output(self):
+        # the path went into the header comment and manifest.tsv as it was: the comment's second half became a
+        # line of Gherkin, and verdict cut the manifest row in two (ArrayIndexOutOfBoundsException, exit 2)
+        for brk in ("\n", "\r"):
+            with self.subTest(line_break=repr(brk)):
+                shutil.rmtree(self.path("features"), ignore_errors=True)
+                write(self.path("features/Скидка" + brk + "рубли.feature"), RUSSIAN)
+                code, out = self.generate()
+                self.assertEqual(0, code, out)
+                self.assertEqual({"features/Скидка рубли.feature"}, {r[1] for r in self.manifest()})
+                m1 = read_lines(os.path.join(self.mutants, "m1.feature"))
+                self.assertEqual("# Gherkin mutant m1 of features/Скидка рубли.feature - generated, do not edit", m1[1])
+                self.assertTrue(m1[2].startswith("Функция: MUTANT m1 | "), m1[2])
+                code, out = tool("verdict", "--mutants", "mutants", "--results", "results", cwd=self.dir)
+                self.assertEqual(1, code, out)                  # nothing ran: every mutant is "not executed"
+                self.assertIn("MUTANT ERROR    m1 not executed  features/Скидка рубли.feature:", out)
 
     def test_generated_run_judged_end_to_end(self):
         write(self.path("features/doubling.feature"), DOUBLING)
@@ -731,6 +1124,25 @@ class NoSkippedTest(Sandbox):
         code, out = self.no_skipped()
         self.assertIn("Acceptance: 2 scenario(s), none skipped - OK", out)
         self.assertEqual(0, code, out)
+
+    def test_a_retried_scenario_is_skipped_or_not_in_either_shape(self):
+        # the test-retry plugin: a scenario that failed and was skipped on the retry is a skipped scenario whether
+        # Gradle merged the attempts (reports.junitXml.mergeReruns: <flakyFailure> + <skipped>) or not; one that
+        # failed and then passed is not - the acceptance task itself judges failures
+        write(self.path("features/doubling.feature"), DOUBLING)
+        failed = (ASSERTION, "the ledger is not open yet", (GLUE_FRAME, STEP_FRAME))
+        other = ("Example #1.2", PASSED)
+        for merge in (False, True):
+            with self.subTest(mergeReruns=merge):
+                write_results(self.results, attempts("Example #1.1", (failed, SKIPPED), merge) + [other])
+                code, out = self.no_skipped()
+                self.assertIn(f"ACCEPTANCE SKIPPED {ENGINE} > Example #1.1", out)
+                self.assertIn("Acceptance: FAILED - 1 scenario(s) skipped.", out)
+                self.assertEqual(1, code, out)
+                write_results(self.results, attempts("Example #1.1", (failed, PASSED), merge) + [other])
+                code, out = self.no_skipped()
+                self.assertIn("none skipped - OK", out)
+                self.assertEqual(0, code, out)
 
 
 if __name__ == "__main__":

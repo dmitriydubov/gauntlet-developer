@@ -512,18 +512,40 @@ ArchUnit-тест, шаблоны, установку и документаци�
     - Область `changed`: удалённый или переименованный glue-файл мутирует все фичи.
     - Правила B1–B5 по-прежнему читают и строки скрипта сборки. Строкой в Groovy задают само свойство
       (`test['ignoreFailures'] = true`), поэтому это перестраховка, а не обход.
+  - Повторное ревью головы `2c1cd0b` (Codex, Kimi), 8 дефектов, и ревью сведённых исправлений, ещё 12:
+    - `tools/GherkinMutator.java`, повторные попытки (test-retry, `reports.junitXml.mergeReruns`). Каждая
+      попытка судится правилами одиночного прогона, разные вердикты — ошибка. Раньше контроль, упавший и
+      прошедший на повторе (`<flakyFailure>`), считался прошедшим, а вердикт мутанта зависел от порядка попыток.
+    - `tools/GherkinMutator.java`, transformer. Узнаётся по скомпилированному glue — классу и методу на
+      classpath прогона мутантов (`--glue-file`), как его узнаёт Cucumber. Исходник не в UTF-8, сборка без
+      debug-информации и Kotlin-имя с пробелом давали ложный kill, однофамилец — ложную ошибку.
+    - Запятая в пути. Пути берутся из `git -z`; список уходит инструментам файлом через NUL (`--only-file`); PMD
+      и CPD получают пути позиционно; `cucumber.features` идёт относительно проекта; PIT в каталоге с запятой
+      называет причину. Раньше `Скидка, рубли.feature`, `Ledger,Copy.java` и `Acme, Inc` давали пустой прогон.
+    - `gauntlet.gradle`, JVM гейтов:
+      - launcher назначается и после `afterEvaluate` проекта, на случай init-скрипта или IDE, читающих его в
+        `projectsEvaluated`;
+      - запрошенная JVM — вход задачи, иначе смена JVM оставляла задачу UP-TO-DATE;
+      - гейт ниже Java 17 назван сразу;
+      - `architecture.properties` — вход `archTest`.
+    - `archtest/…/ArchitectureTest.java` — код Java 8: проект на Java 8 или 11 его не компилировал.
+    - `hooks/guard.py`:
+      - шаблон поиска perl — данные: ``perl -ne 'print if /`/'`` читает;
+      - слитный `perl '-esystem(...)'` — отказ;
+      - `acceptance.features` с `./` или `/` на конце замораживает тот же каталог (и в `stop_gate.py`).
   - Роли: `hardener` чинит красный контроль в тестовом коде (`@Before`), правка фичи — вопрос человеку.
 - `.claude/agents/specifier.md`, `hardener.md`, `gauntlet/CLAUDE.md`: сценарий обязан исполняться сам по себе;
   красный контроль — зависимость сценария от соседнего или от стенда, а не слабое step-определение.
-- `hooks/selftest.py`: 997 → 2431 проверка (сокращения и их разрешающие контроли, конфигурация git, `gh`,
+- `hooks/selftest.py`: 997 → 2536 проверок (сокращения и их разрешающие контроли, конфигурация git, `gh`,
   оболочки/обёртки/вложенный код для human-only, путей и ролей, чтение командной строки, каталог после `cd`,
-  перенаправления, `gh api`, чтения ревьюера, `buildSrc`, вывод при таймауте, `$'…'`, код perl в кавычках). `README.md`,
+  перенаправления, `gh api`, чтения ревьюера, `buildSrc`, вывод при таймауте, `$'…'`, код perl в кавычках,
+  шаблоны perl, каталог фич с `./`). `README.md`,
   `INSTALL.md`, `config/gauntlet.properties` — описание синхронизировано.
-- Проверки: `python3 tests/run.py` в репозитории набора (распакованный бандл): самопроверка хуков 2431/2431,
+- Проверки: `python3 tests/run.py` в репозитории набора (распакованный бандл): самопроверка хуков 2536/2536,
   инструменты, установщик, shell-шаги CI, побайтная пересборка; реальные Gradle 8.14.3/JDK 21 и 25, Cucumber
-  7.23.0 и 8.0.1 — полный `gauntlet` на примере (9/9 Gherkin-мутантов, 6 контролей, PIT 2/2) и 26 сценариев находок;
+  7.23.0 и 8.0.1 — полный `gauntlet` на примере (9/9 Gherkin-мутантов, 6 контролей, PIT 2/2) и 43 сценария находок;
   регрессионный набор репозитория прошёл в GitHub Actions (`.github/workflows/kit-tests.yml`, ubuntu-24.04,
-  200 тестов); workflow самого набора (`gauntlet.yml`) там не исполняется: его шаги проверены локально как shell.
+  243 теста); workflow самого набора (`gauntlet.yml`) там не исполняется: его шаги проверены локально как shell.
 
 ## Как распаковать (Claude выполняет это на шаге 2 протокола `start`)
 
@@ -557,27 +579,27 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 - `.github/workflows/gauntlet.yml` (7658 байт)
 - `CLAUDE.md` (279 байт)
 - `gauntlet/CLAUDE.md` (65401 байт)
-- `gauntlet/INSTALL.md` (14808 байт)
-- `gauntlet/README.md` (72459 байт)
-- `gauntlet/archtest/gauntlet/architecture/ArchitectureTest.java` (7906 байт)
+- `gauntlet/INSTALL.md` (14949 байт)
+- `gauntlet/README.md` (76860 байт)
+- `gauntlet/archtest/gauntlet/architecture/ArchitectureTest.java` (7999 байт)
 - `gauntlet/config/architecture.properties` (1420 байт)
 - `gauntlet/config/checkstyle.xml` (4593 байт)
 - `gauntlet/config/crap-allowlist.txt` (924 байт)
-- `gauntlet/config/gauntlet.properties` (6639 байт)
+- `gauntlet/config/gauntlet.properties` (6709 байт)
 - `gauntlet/config/integrity-allowlist.txt` (445 байт)
 - `gauntlet/config/pit-runerror-allowlist.txt` (1485 байт)
 - `gauntlet/config/pmd-ruleset.xml` (11398 байт)
-- `gauntlet/gauntlet.gradle` (60705 байт)
-- `gauntlet/hooks/guard.py` (97749 байт)
-- `gauntlet/hooks/selftest.py` (126217 байт)
+- `gauntlet/gauntlet.gradle` (66644 байт)
+- `gauntlet/hooks/guard.py` (106588 байт)
+- `gauntlet/hooks/selftest.py` (131280 байт)
 - `gauntlet/hooks/session_start.sh` (3116 байт)
-- `gauntlet/hooks/stop_gate.py` (21211 байт)
+- `gauntlet/hooks/stop_gate.py` (21392 байт)
 - `gauntlet/install.sh` (12194 байт)
 - `gauntlet/templates/acceptanceTest/java/com/example/service/acceptance/CucumberSpringConfiguration.java` (615 байт)
 - `gauntlet/templates/acceptanceTest/resources/features/example_discount.feature` (1258 байт)
-- `gauntlet/tools/CrapGate.java` (31322 байт)
-- `gauntlet/tools/DryGate.java` (6538 байт)
-- `gauntlet/tools/GherkinMutator.java` (60347 байт)
+- `gauntlet/tools/CrapGate.java` (32267 байт)
+- `gauntlet/tools/DryGate.java` (7694 байт)
+- `gauntlet/tools/GherkinMutator.java` (76502 байт)
 - `gauntlet/tools/IntegrityCheck.java` (49923 байт)
 - `gauntlet/tools/PitSummary.java` (11633 байт)
 
@@ -1525,9 +1547,9 @@ PR открыт. Бизнес-код и существующие тесты не
 - `project.java.version`, `project.gradle.version`, `project.framework.<имя>.version`,
   `project.test.<имя>.version` — фактические версии из шага 1, не значения шаблона. CI и роли используют
   эти записи; `./gradlew gauntletInfo` показывает их вместе с версиями инструментов.
-- `gate.java.version` — major-версия JVM инструментов Gauntlet. Полную (`21.0.2`) Gradle читает как
-  её major. Локальный путь задаётся только вне
-  репозитория: `GAUNTLET_GATE_JAVA_HOME` или `-Pgauntlet.gateJavaHome`; старый tracked `gate.java.home` не
+- `gate.java.version` — major-версия JVM инструментов Gauntlet, не ниже 17: на ней работают инструменты
+  набора и его ArchUnit-тест. Полную версию (`21.0.2`) Gradle читает как её major. Локальный путь задаётся только вне
+  репозитория: `GAUNTLET_GATE_JAVA_HOME` или `-Pgauntlet.gateJavaHome` (JDK, не JRE); старый tracked `gate.java.home` не
   используется. Не меняй Java приложения или его toolchain. CI ставит все нужные JDK одним шагом `setup-java`;
   wrapper запускается с проектной `JAVA_HOME`, а gate JDK передаётся инструментам через
   `GAUNTLET_GATE_JAVA_HOME`. `setup-java` держит один JDK на major-версию: пиши каждую версию одинаково во всех
@@ -1668,7 +1690,7 @@ gauntlet/
   archtest/               ArchUnit-тест, читающий config/architecture.properties
   hooks/                  guard.py (PreToolUse), stop_gate.py (Stop; SubagentStop hardener'а — matcher в
                           .claude/settings.json), session_start.sh (SessionStart; в облаке поднимает dockerd),
-                          selftest.py (2431 проверка хуков в трёх раскладках: python3 gauntlet/hooks/selftest.py)
+                          selftest.py (2536 проверок хуков в трёх раскладках: python3 gauntlet/hooks/selftest.py)
   templates/              конфигурация Cucumber+Spring, пример фичи на русском
   claude/, ci/            только до установки: install.sh переносит их в .claude/ и .github/workflows/
 ```
@@ -1826,6 +1848,7 @@ Auto-fix (кнопка в CI status bar сессии): на упавший CI и
 | step-определение игнорирует параметр | `gherkinMutation` |
 | мутант «убит» не изменённым значением, а сломанным стендом: упала фикстура, сценарий зависит от соседнего, строку нельзя прогнать дважды на одном стенде, значение отверг сам Cucumber | `gherkinMutation`: каждая мутируемая строка «Примеров» прогоняется без изменений дважды — до мутантов (`cN`) и после них (`zN`), оба контроля обязаны пройти; kill — только падение, брошенное step-определением, на первом шаге, который использует мутированную колонку, или позже. Падение раньше этого шага, значение, которое Cucumber не смог конвертировать или которое отверг transformer (`@ParameterType` и т. п.), неудавшийся glue-объект, неоднозначный шаг, хук или фикстура — ошибка, а не kill |
 | область `changed` молча не увидела изменённый класс (кодировка исходников, второй корень main source set, необычное объявление типа) и гейт прошёл по пустому множеству | область строится по всем корням main source set, и Checkstyle, PMD, CPD получают их все; исходник читается как его читает javac (Unicode-escape, одиночный CR, `options.encoding` прежде `-encoding`); `gauntletScope` падает на изменённом исходнике, не читаемом в этой кодировке; перед PIT и CRAP каждый выведенный тип обязан существовать как класс, исходник с кодом обязан дать тип, а класс, чей атрибут `SourceFile` называет изменённый исходник, — быть среди выведенных |
+| имя с разделителем списка: изменённая `Скидка, рубли.feature` или `Ledger,Copy.java`, имя с кавычкой или переводом строки (git берёт его в кавычки), проект в каталоге `Acme, Inc` — путь распадался на имена, которых нет, и гейт проходил по пустому множеству (0 мутантов, «PMD: OK», «DRY gate: OK», PIT «No mutations found») | пути изменённых файлов читаются из `git … -z`; списки путей уходят инструментам набора файлом, где каждый путь кончается символом NUL (`--only-file`), корни исходников — по одному (`--sources`), classpath glue — тем же файлом-списком (`--glue-file`); путь из списка, который не называет файл, — ошибка, а не пустой прогон; PMD и CPD получают исходники позиционно после `--`, правила — путём от рабочего каталога; Cucumber — каталог фич относительно каталога проекта; PIT, который режет свои пути по запятой, в таком каталоге не запускается, а называет причину |
 | спрятать нарушение от `integrityCheck` за комментарием, строкой или именем параметра (`{ $/* … */ test -> /$`, вложенный комментарий Kotlin, `// tasks.named('jar') {`, `tasks.test.enabled = false` в блоке с параметром `test`), `@org.junit.jupiter.api.Disabled`, тестовое дерево в другой кодировке | `integrityCheck` читает скрипт и исходник как компилятор Groovy, Kotlin или javac: комментарии — не код, скобка в строке — не скобка, блок — тот, что действительно открыт; освобождение B1 — только когда получатель ровно параметр блока; аннотации с пакетом; каждое дерево исходников — в кодировке своей задачи компиляции, нечитаемый исходник — находка E1 |
 | выключить CI-гейт или защиту ветки через `gh` | `gh workflow disable`, не-GET `gh api` к `/protection`, `/rulesets`, `/actions/permissions`, `/actions/workflows/…/disable` и GraphQL-мутации защиты ветки запрещены; чтение разрешено |
 | слабые ассерты | `mutationGate` |
@@ -1852,7 +1875,7 @@ protection базовой ветки и то, что любая попытка �
 ## 8. Что проверено в этой версии, а что нет
 
 Проверено здесь (Gradle 8.14.3, Java 21):
-- Хуки, `hooks/selftest.py`, 2431 проверка в трёх раскладках (сборка в корне; модуль `core/`; два модуля
+- Хуки, `hooks/selftest.py`, 2536 проверок в трёх раскладках (сборка в корне; модуль `core/`; два модуля
   `core/` + `adapter/` — Gradle только в изменённом модуле, красный модуль блокирует, коммит
   спецификации одного модуля замораживает фичи другого, чужая незакоммиченная работа не считается)
   на временном git-репозитории с фиктивным `origin/main`:
@@ -2014,9 +2037,11 @@ protection базовой ветки и то, что любая попытка �
   `/protection` в тексте ответа ревьюеру; текстовое сопоставление смотрит на оператор, который пишет, и не считает
   `gauntlet.log` набором; у ревьюера разрешены чтения с перенаправлением, `git branch --all`, `unzip -l`, `tar tf`,
   `tee` и `mkdir` вне проекта; источники `cp` читаются, а не пишутся; `git restore --staged` и `git reset <путь>`
-  трогают только индекс; роли со своей зоной не блокируются на `2>/dev/null`. Самопроверка 997 → 2365 → 2431
-  (+456 и +22 на раскладку; файл настроек читается с разделителями `java.util.Properties` — `key: value`,
-  `key value`; строка `$'…'` раскодируется, как в bash, а код perl в кавычках судится в том виде, как написан).
+  трогают только индекс; роли со своей зоной не блокируются на `2>/dev/null`. Самопроверка 997 → 2365 → 2431 → 2536
+  (+456, +22 и +35 на раскладку; файл настроек читается с разделителями `java.util.Properties` — `key: value`,
+  `key value`; строка `$'…'` раскодируется, как в bash, а код perl в кавычках судится в том виде, как написан;
+  шаблон поиска perl — данные: ``perl -ne 'print if /`/'`` читает; `acceptance.features` с `./` или `/` на конце
+  замораживает тот же каталог).
   Независимое ревью этой же ревизии нашло дефекты и в её собственных правках — исправлены. `IntegrityCheck`:
   вырезание комментариев выдумывало параметр замыкания (`{ $/* … */ test -> /$`, вложенный комментарий Kotlin) и
   прятало `test.enabled = false`; теперь скрипт читается лексером языка, а 437 сниппетов, сверенных с настоящим
@@ -2042,6 +2067,26 @@ protection базовой ветки и то, что любая попытка �
   - `GherkinMutator`: transformer с не-ASCII именем не находился. Мутант с падением и успехом (повторный
     прогон) считался убитым.
   - Область `changed`: удалённый glue-файл не мутировал ни одной фичи.
+
+  Повторное ревью той же головы нашло ещё 8 дефектов, все исправлены:
+  - `GherkinMutator`, повторные попытки сценария (плагин test-retry, `reports.junitXml.mergeReruns`).
+    Контроль, упавший и прошедший на повторе, в объединённом `testcase` считался прошедшим. Из двух падений
+    мутанта оставалось первое, и вердикт зависел от порядка попыток. Теперь каждая попытка судится правилами
+    одиночного прогона; разные вердикты попыток — ошибка.
+  - `GherkinMutator`, transformer. Он искался по исходникам в UTF-8 и по имени «Файл.java#метод», а теперь —
+    по скомпилированному glue, как его узнаёт Cucumber: класс и метод на classpath прогона мутантов. Исходник не
+    в UTF-8 и сборка без debug-информации давали ложный kill, однофамилец в другом классе — ложную ошибку.
+  - Запятая в пути. `Скидка, рубли.feature`, `Ledger,Copy.java` и каталог `Acme, Inc` давали 0 мутантов,
+    «PMD: OK», «DRY gate: OK» и PIT без мутантов. Теперь списки путей — файлом через NUL, пути из `git -z`.
+  - JVM гейтов.
+    - Launcher, закреплённый проектом в `afterEvaluate` и прочитанный слушателем `projectsEvaluated` (init-скрипт,
+      IDE), оставался JVM проекта. Теперь набор назначает свой и после `afterEvaluate`.
+    - После смены JVM гейта задача шла UP-TO-DATE на старом результате. Теперь запрошенная JVM — вход задачи.
+  - ArchUnit-тест набора был написан для Java 16, и компилятор проекта на Java 8 или 11 его не собирал. Теперь
+    это код Java 8, его по-прежнему собирает компилятор проекта. Гейт ниже Java 17 назван сразу. Смена
+    `architecture.properties` больше не оставляет `archTest` UP-TO-DATE на результате прежней политики.
+  - guard. Шаблон поиска perl — данные: ``perl -ne 'print if /`/'`` читает. Слитный `perl '-esystem(...)'` —
+    отказ.
 
   Регрессии инструментов, установщика и CI лежат в `tests/` репозитория набора и гоняются по распакованному
   бандлу.
@@ -2098,6 +2143,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -2106,6 +2152,7 @@ import java.util.Locale;
 import java.util.Properties;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -2199,7 +2246,7 @@ class ArchitectureTest {
         List<String> tooFar = new ArrayList<>();
         System.out.println("ARCH component          Ca   Ce      I      A      D");
         List<JavaPackage> components = base.getSubpackages().stream()
-                .sorted(Comparator.comparing(JavaPackage::getName)).toList();
+                .sorted(Comparator.comparing(JavaPackage::getName)).collect(Collectors.toList());
         for (JavaPackage p : components) {
             String id = p.getName();
             double d = metrics.getNormalizedDistanceFromMainSequence(id);
@@ -2257,14 +2304,14 @@ class ArchitectureTest {
     }
 
     private static Properties load() {
-        Path file = Path.of(System.getProperty("gauntlet.architecture", "gauntlet/config/architecture.properties"));
+        Path file = Paths.get(System.getProperty("gauntlet.architecture", "gauntlet/config/architecture.properties"));
         Properties p = new Properties();
         try (InputStream in = Files.newInputStream(file)) {
             p.load(in);
         } catch (IOException e) {
             throw new IllegalStateException("Cannot read architecture policy " + file.toAbsolutePath(), e);
         }
-        if (p.getProperty("base.package", "").isBlank()) {
+        if (p.getProperty("base.package", "").trim().isEmpty()) {
             throw new IllegalStateException("base.package is missing in " + file.toAbsolutePath());
         }
         return p;
@@ -2527,9 +2574,10 @@ project.gradle.version=8.14.3
 project.framework.springBoot.version=4.0.7
 project.test.junit-jupiter.version=6.1.2
 
-# JVM for Gauntlet tools only. The application keeps its own Java/toolchain and dependencies.
+# JVM for Gauntlet tools only (17 or newer): it runs the tools and the kit's ArchUnit test.
+# The application keeps its own Java/toolchain and dependencies.
 # A major version (21); Gradle reads a full one (21.0.2) as its major.
-# Optional local path: GAUNTLET_GATE_JAVA_HOME or -Pgauntlet.gateJavaHome (never commit it).
+# Optional local path, a JDK: GAUNTLET_GATE_JAVA_HOME or -Pgauntlet.gateJavaHome (never commit it).
 # In a monorepo a module may set its own project.java.version / gate.java.version in its overlay
 # (gauntlet/config/<module>/gauntlet.properties): CI runs every build on its own pair.
 gate.java.version=21
@@ -2816,16 +2864,40 @@ def buildDirFile = { String path -> layout.buildDirectory.file(path).get().asFil
 // and pmdGate (test.mustRunAfter names them): it must not need git, ask the compile task for its arguments or
 // resolve anything. The closures below are called from task actions and lazy providers, and answer once per build.
 
-// git's answer as lines; null when git cannot be started
-def git = { List<String> args ->
+// git's answer as text; null when git cannot be started
+def gitText = { List<String> args ->
     try {
         return providers.exec {
             commandLine(['git', '-c', 'core.quotePath=false'] + args)
             workingDir = projectDir
             ignoreExitValue = true
-        }.standardOutput.asText.get().readLines()*.trim().findAll { it }
+        }.standardOutput.asText.get()
     } catch (Exception ignored) {       // ignoreExitValue covers a failing git, not a missing one
         return null
+    }
+}
+// git's answer as lines; null when git cannot be started
+def git = { List<String> args -> gitText(args)?.readLines()?.collect { it.trim() }?.findAll { it } }
+// The paths a git command lists with -z, each exactly as named. Without -z git quotes a name that holds a double
+// quote, a backslash or a control character (core.quotePath=false or not) and a line break would cut it in two:
+// `Скидка "VIP".feature` came back as "src/.../Скидка \"VIP\".feature" and matched no file.
+def gitPaths = { List<String> args -> gitText(args)?.tokenize('\u0000') }
+// Lists of paths go to the gauntlet tools as a file of NUL-ended paths, the form `git diff -z` writes. Joined into
+// one argument they were split at every comma: the changed "Скидка, рубли.feature" became two paths that name no
+// file, and the scoped check passed on nothing. A file keeps every character of a name and has no length limit.
+def pathList = { String name, Collection<String> paths ->
+    def list = buildDirFile("gauntlet/${name}")
+    list.parentFile.mkdirs()
+    list.bytes = paths.collect { it + '\u0000' }.join('').getBytes('UTF-8')
+    return list.absolutePath
+}
+// A path as a process started in `dir` reads it: relative, so the directories above `dir` ("/home/me/Acme, Inc")
+// are no part of it - PMD and Cucumber split what they are given at every comma.
+def relativeTo = { File dir, File target ->
+    try {
+        return dir.toPath().toAbsolutePath().normalize().relativize(target.toPath().toAbsolutePath().normalize()).toString() ?: '.'
+    } catch (IllegalArgumentException otherRoot) {      // another drive (Windows): only the absolute path names it
+        return target.absolutePath
     }
 }
 def gitMissing = 'git is not available'
@@ -2850,11 +2922,16 @@ def changedFiles = {
         return []   // gauntletScope fails the build before any scoped check runs
     }
     def files = new LinkedHashSet<String>()
-    files.addAll(git(['diff', '--relative', '--name-only', '--diff-filter=ACMR', mergeBase()]) ?: [])
-    files.addAll(git(['ls-files', '--others', '--exclude-standard']) ?: [])
+    files.addAll(gitPaths(['diff', '-z', '--relative', '--name-only', '--diff-filter=ACMR', mergeBase()]) ?: [])
+    files.addAll(gitPaths(['ls-files', '-z', '--others', '--exclude-standard']) ?: [])
     return files as List<String>
 }.memoize()
-def changedFeatures = { -> changedFiles()?.findAll { it.startsWith(featuresPath + '/') && it.endsWith('.feature') } }
+// the changed feature files under the features directory, however acceptance.features is written ("features/",
+// "./features"): the raw setting as a string prefix matched no path, and scope=changed mutated nothing
+def changedFeatures = { ->
+    def root = featuresDir.toPath().toAbsolutePath().normalize()
+    changedFiles()?.findAll { it.endsWith('.feature') && file(it).toPath().toAbsolutePath().normalize().startsWith(root) }
+}
 // The roots of the main source set that hold sources to judge: inside this build's directory (git reports the
 // changed files relative to it) and not under its build directory - a generated root there is build output.
 def mainSourceRoots = { ->
@@ -3196,8 +3273,11 @@ def gateJavaHome = System.getenv('GAUNTLET_GATE_JAVA_HOME') ?: (findProperty('ga
 def gateJavaVersion = setting('gate.java.version', '')
 // a toolchain is asked for by its major version: 21.0.2, 17-ea and 1.8 are 21, 17 and 8
 def gateJavaMajor = gateJavaVersion.replaceFirst(/^1\./, '').find(/^\d+/)
+// the oldest Java the gauntlet's own code runs on (records, Stream.toList in its tools and ArchUnit test): an
+// older gate is named when a gate task starts, and no toolchain is looked up for it
+def gateJavaMin = 17
 // GAUNTLET_GATE_JAVA_HOME names the JVM itself: then no toolchain is looked up at all
-def gateJavaLauncher = !gateJavaHome && gateJavaMajor ? javaToolchains.launcherFor {
+def gateJavaLauncher = !gateJavaHome && gateJavaMajor && (gateJavaMajor as int) >= gateJavaMin ? javaToolchains.launcherFor {
     languageVersion = JavaLanguageVersion.of(gateJavaMajor as int)
 } : null
 def javaBin = "${System.getProperty('java.home')}/bin/java"
@@ -3208,6 +3288,12 @@ def gateJavaBin = { ->
     if (gateJavaVersion && !gateJavaMajor) {
         throw new GradleException("gauntlet: gate.java.version '${gateJavaVersion}' names no Java version - write its " +
                 "major version (21), in gauntlet/config/gauntlet.properties or the module's overlay.")
+    }
+    if (gateJavaMajor && (gateJavaMajor as int) < gateJavaMin) {
+        // the gate JVM runs the gauntlet's own code - its tools and its ArchUnit test - written for Java 17
+        throw new GradleException("gauntlet: gate.java.version '${gateJavaVersion}' is Java ${gateJavaMajor}: the gate " +
+                "JVM runs the gauntlet's own tools, which need Java ${gateJavaMin} or newer. The application keeps " +
+                "its own Java (project.java.version); write the gate's as ${gateJavaMin} or newer.")
     }
     return gateJavaLauncher != null ? gateJavaLauncher.get().executablePath.asFile.absolutePath : javaBin
 }
@@ -3239,6 +3325,11 @@ def gateJava = { task ->
     }
     if ((task instanceof JavaExec || task instanceof Test) && (gateJavaHome || gateJavaVersion)) {
         gateJvmOf(task)
+        // The JVM the gate asks for is an input of the task. A launcher fixed before the gauntlet could set it stays
+        // when only gate.java.version or the gate home changes: the task would be UP-TO-DATE or come from the
+        // build cache, and the check below would never run.
+        task.inputs.property('gauntletGateJvm', gateJavaHome ? "home ${gateJavaHome}".toString()
+                : "Java ${gateJavaMajor ?: gateJavaVersion}".toString())
         task.doFirst {
             def launcher = task.javaLauncher.getOrNull()
             def used = launcher != null ? launcher.executablePath.asFile : new File(task.executable ?: javaBin)
@@ -3459,18 +3550,22 @@ tasks.register('pmdGate', JavaExec) {
     classpath = configurations.gauntletCpd
     mainClass = 'net.sourceforge.pmd.cli.PmdCli'
     def report = buildDirFile('reports/pmd/gauntlet.xml')
-    args 'check', '--rulesets', configFile('pmd-ruleset.xml').absolutePath,
-            '--format', 'xml', '--report-file', report.absolutePath, '--relativize-paths-with', projectDir.absolutePath,
+    args 'check', '--format', 'xml', '--report-file', report.absolutePath,
             '--no-fail-on-violation', '--no-cache', '--no-progress', '--show-suppressed'
     ignoreExitValue = true   // the verdict comes from the XML report, like checkstyleGate
     onlyIf { !scanTargets().isEmpty() }
     doFirst {
-        args(['--use-version', "java-${java.targetCompatibility.majorVersion}".toString(), '--encoding', sourceEncoding()] +
-                scanTargets().collectMany { ['--dir', it.absolutePath] })
+        // PMD splits every value of --rulesets, --dir and --relativize-paths-with at commas: under "/home/me/Acme, Inc"
+        // it loaded no rules, and a changed "Ledger,Copy.java" left it no file - "PMD: OK" on nothing. The ruleset and
+        // the sources go relative to the directory PMD starts in (the report then names the sources that way too),
+        // the sources as positional parameters after "--", which PMD takes whole.
+        args(['--rulesets', relativeTo(workingDir, configFile('pmd-ruleset.xml')),
+              '--use-version', "java-${java.targetCompatibility.majorVersion}".toString(), '--encoding', sourceEncoding()])
         // the JDK's own classes (jrt-fs.jar of the JDK running PMD) explicitly, or PMD warns about guessing them
         def jdk = javaLauncher.get().metadata.installationPath.asFile
         args '--aux-classpath', (sourceSets.main.compileClasspath + sourceSets.main.output.classesDirs +
                 files(new File(jdk, 'lib/jrt-fs.jar'))).asPath
+        args(['--'] + scanTargets().collect { relativeTo(workingDir, it) })
         report.delete()
         report.parentFile.mkdirs()
     }
@@ -3510,6 +3605,10 @@ tasks.register('archTest', Test) {
     classpath = sourceSets.archTest.runtimeClasspath
     useJUnitPlatform()
     systemProperty 'gauntlet.architecture', configFile('architecture.properties').absolutePath
+    // the policy is read by the test, not handed to it: without this input a stricter policy left archTest
+    // UP-TO-DATE (or FROM-CACHE after clean) on the result of the old one
+    inputs.file(configFile('architecture.properties')).withPropertyName('architecturePolicy')
+            .withPathSensitivity(PathSensitivity.NONE)
     testLogging { events 'failed'; exceptionFormat = 'full'; showStandardStreams = true }
     jacoco { enabled = false }
     mustRunAfter 'test'
@@ -3519,7 +3618,14 @@ def configureCucumber = { Test task, File features ->
     task.testClassesDirs = sourceSets.acceptanceTest.output.classesDirs
     task.classpath = sourceSets.acceptanceTest.runtimeClasspath
     task.useJUnitPlatform { includeEngines 'cucumber' }
-    task.systemProperty 'cucumber.features', features.absolutePath
+    // cucumber.features is a comma-separated list: a directory under "/home/me/Acme, Inc" goes relative to the
+    // project directory, where its test JVM then starts
+    if (features.absolutePath.contains(',')) {
+        task.workingDir = projectDir
+        task.systemProperty 'cucumber.features', relativeTo(projectDir, features)
+    } else {
+        task.systemProperty 'cucumber.features', features.absolutePath
+    }
     task.systemProperty 'cucumber.publish.quiet', 'true'
     if (glue) {
         task.systemProperty 'cucumber.glue', glue
@@ -3584,7 +3690,8 @@ tasks.register('crapGate', Exec) {
         def only = changedSources()
         if (only != null) {
             requireChangedClasses()             // CrapGate derives the changed types the same way
-            args '--only', only*.path.join(','), '--sources', sourceSets.main.java.srcDirs*.absolutePath.join(',')
+            args '--only-file', pathList('crap-changed-sources', only*.path)
+            sourceSets.main.java.srcDirs.each { args '--sources', it.absolutePath }                  // one root each
         }
     }
 }
@@ -3612,7 +3719,8 @@ tasks.register('cpdReport', JavaExec) {
     outputs.file(report)
     onlyIf { !roots.get().isEmpty() }
     doFirst {
-        args(['--encoding', sourceEncoding()] + roots.get().collectMany { ['--dir', it.absolutePath] })
+        // positional after "--": CPD splits a --dir value at commas, not a positional one (see pmdGate)
+        args(['--encoding', sourceEncoding(), '--'] + roots.get()*.absolutePath)
         report.parentFile.mkdirs()
     }
 }
@@ -3628,7 +3736,7 @@ tasks.register('dryGate', Exec) {
     doFirst {
         def only = changedMainJava()
         if (only != null) {
-            args '--only', only.join(',')
+            args '--only-file', pathList('dry-changed-sources', only)
         }
     }
 }
@@ -3677,6 +3785,13 @@ plugins.withId('info.solidsoft.pitest') {
             staleReport.delete()
             if (!pkg) {
                 throw new GradleException('gauntlet: set basePackage in gauntlet/config/gauntlet.properties')
+            }
+            // The plugin hands PIT the class directories to mutate as one comma-separated list (--mutableCodePaths),
+            // and PIT splits it: under "/home/me/Acme, Inc" it found "No mutations" and the gate passed on nothing.
+            def split = mutableCodePaths.files.find { it.absolutePath.contains(',') }
+            if (split) {
+                throw new GradleException("gauntlet: PIT would read ${split} as two paths at its comma and find nothing " +
+                        "to mutate. Build from a directory without a comma in its path.")
             }
         }
         if (scope != 'all') {
@@ -3740,7 +3855,7 @@ tasks.register('gherkinMutants', Exec) {
             // The step definitions are what this gate checks: a changed glue file or acceptance resource can hollow
             // a step of a feature that did not change, so then every feature is mutated. Deleting a glue file (a
             // hook, a step class) or moving it away changes the glue as well: both ends of a rename count.
-            def touched = (git(['diff', '--relative', '--name-only', '--no-renames', mergeBase()]) ?: []) + changed
+            def touched = (gitPaths(['diff', '-z', '--relative', '--name-only', '--no-renames', mergeBase()]) ?: []) + changed
             def roots = sourceSets.acceptanceTest.allSource.srcDirs.collect { it.toPath().toAbsolutePath().normalize() }
             def changedGlue = touched.unique().findAll { path ->
                 !path.endsWith('.feature') && roots.any { file(path).toPath().toAbsolutePath().normalize().startsWith(it) }
@@ -3749,7 +3864,7 @@ tasks.register('gherkinMutants', Exec) {
                 logger.lifecycle("gauntlet: ${changedGlue.size()} acceptance glue file(s) changed (" +
                         "${changedGlue.take(3).join(', ')}${changedGlue.size() > 3 ? ', ...' : ''}) - every feature is mutated")
             } else {
-                args '--only', changedFeatures().join(',')
+                args '--only-file', pathList('changed-features', changedFeatures())
             }
         }
     }
@@ -3782,8 +3897,12 @@ tasks.register('gherkinMutation', Exec) {
     dependsOn 'gherkinMutantsRun'
     executable javaBin
     args "${tools}/GherkinMutator.java", 'verdict', '--mutants', mutantsDir.absolutePath, '--results', mutantResults.absolutePath
-    // the glue sources: a failure thrown by a transformer (@ParameterType, ...) is a rejected value, not a kill
-    doFirst { args '--glue', sourceSets.acceptanceTest.allSource.srcDirs*.absolutePath.join(',') }
+    // The glue the mutant run loaded, as compiled - its classpath (configureCucumber): a failure thrown by a transformer
+    // (@ParameterType, ...) is a rejected value, not a kill. Cucumber names a glue method by its class and method, and
+    // so does the verdict: the language of the glue and the encoding of its sources do not matter. The entries go as
+    // a list file (see pathList): a classpath can be long, and a path can hold any separator.
+    def glueClasspath = sourceSets.acceptanceTest.runtimeClasspath
+    doFirst { args '--glue-file', pathList('glue-classpath', glueClasspath.files*.absolutePath) }
 }
 
 // ------------------------------------------------------------------------------ aggregates
@@ -3886,15 +4005,21 @@ tasks.configureEach { Task task ->
 
 // The gate JVM is the last word on these tasks, whatever the project says about its Test/JavaExec tasks before
 // this script, after it or in afterEvaluate: the configuration is added once every project is evaluated. (Later
-// is too late - Gradle fixes the launcher of a task when it puts the task into the task graph.) It is also set
-// when a task is created: whatever reads the launcher in between (an IDE's model builder, an init script) then
-// fixes the gate JVM, not the project's.
+// is too late - Gradle fixes the launcher of a task when it puts the task into the task graph.) Gradle also keeps
+// a launcher that was read once the project is evaluated, and an init script's projectsEvaluated runs before this
+// one: so the gate JVM is set as well when a task is created (for what reads launchers in afterEvaluate - an IDE's
+// model builder, an init script) and after the project's own afterEvaluate actions (an action added from inside
+// afterEvaluate runs after all of them), over a launcher the project pinned there.
 def gateTasks = ['checkstyleGate', 'pmdGate', 'cpdReport', 'acceptanceTest', 'archTest', 'gherkinMutantsRun',
                  'integrityCheck', 'acceptanceCheck', 'crapGate', 'dryGate', 'pitSummary', 'gherkinMutants', 'gherkinMutation']
-gateTasks.each { tasks.named(it) { gateJvmOf(it) } }
-plugins.withId('info.solidsoft.pitest') {
-    tasks.named('pitest') { gateJvmOf(it) }
+def gateJvmOfTasks = { ->
+    gateTasks.each { tasks.named(it) { gateJvmOf(it) } }
+    plugins.withId('info.solidsoft.pitest') {
+        tasks.named('pitest') { gateJvmOf(it) }
+    }
 }
+gateJvmOfTasks()
+afterEvaluate { afterEvaluate { gateJvmOfTasks() } }
 gradle.projectsEvaluated {
     gateTasks.each { tasks.named(it) { gateJava(it) } }
     plugins.withId('info.solidsoft.pitest') {
@@ -4016,6 +4141,25 @@ GRADLE_PATH_OPTIONS = {"-p", "--project-dir", "-g", "--gradle-user-home", "--pro
                        "-c", "--settings-file", "-I", "--init-script", "--include-build"}
 PERL_WRITES = re.compile(r"\b(open|unlink|rename|system|exec|qx|mkdir|rmdir|truncate|chmod|chown|symlink|link|"
                          r"utime|syswrite|sysopen)\b|`")
+# a perl switch cluster that ends in -e / -E: the program is the rest of the word or the next word (-ne, -lane, -0777ne)
+PERL_PROGRAM_SWITCH = re.compile(r"(-[acdnpsStTuUwWXl0-9]*[eE])(.*)", re.S)
+# -i edits in place (-pi, -i.bak, -wpi, a lone -i anywhere); M m I F C D V e E take the rest of their word, so the i
+# of -Mstrict, -I/usr/lib or of an attached program (-neprint if ...) is none
+PERL_IN_PLACE = re.compile(r"-(?!-)[^MmIFCDVeE]*i")
+PERL_QUOTE_LIKE = {"q", "qq", "qw", "qx", "m", "qr", "s", "tr", "y"}
+# perl expects a term after these, so a / that follows them opens a pattern (checked against perl 5.38)
+PERL_BEFORE_PATTERN = {"", "(", ",", "!", "&&", "||", "=~", "!~", "{", ";", "if", "unless", "and", "or", "not",
+                       "split", "grep", "for", "foreach", "while", "until"}
+PERL_BRACKETS = {"(": ")", "[": "]", "{": "}", "<": ">"}
+PERL_WORD = re.compile(r"[A-Za-z_]\w*(?:::\w+)*")
+PERL_NUMBER = re.compile(r"\d[\d_]*(?:\.[\d_]+)?(?:[eE][+-]?\d+)?")
+PERL_VARIABLE = re.compile(r"\$(?:#?[A-Za-z_]\w*(?:::\w+)*|\d+|[&.,;!@/\\+-])|@(?:[A-Za-z_]\w*(?:::\w+)*|[-+])")
+PERL_OPERATOR = re.compile(r"&&|\|\||=~|!~|==|!=|>=|=>|->|\.\.\.?|\+\+|--|\*\*|::|[-+*/%&.=!~^|\\(){}\[\],;:>]")
+PERL_FLAGS = re.compile(r"[A-Za-z]*")                  # the modifiers after a pattern or a quote-like text
+PERL_READLINE = re.compile(r"<\$?\w*>")                # <>, <STDIN>, <$fh>
+# what interpolating a pattern can run: (?{ }), (??{ }), (*{ }), @{[ ]}, ${\ }, $x{...}, $x[...]; a $ before ), | or
+# the end is an anchor
+PERL_PATTERN_CODE = re.compile(r"\(\s*[?*]\s*\??\s*\{|@|\$(?![)|]|\Z)")
 REDIRECT = re.compile(r"(?<!>)>>?\|?\s*([^\s;&|<>()]+)")
 GLOB_CHARS = re.compile(r"[*?\[]")
 STATEMENT_END = re.compile(r";|&&|\|\||\n")
@@ -4048,6 +4192,13 @@ def main():
     return 0
 
 
+def features_rel_of(value):
+    """acceptance.features as gauntlet.gradle reads it: an empty value is the default, and "./src/.../features/"
+    names the directory "src/.../features" - as a text prefix it named no path, and the spec was not frozen."""
+    value = (value or "").strip() or DEFAULT_FEATURES
+    return os.path.normpath(value).replace(os.sep, "/").strip("/")
+
+
 class Context:
     """Where the specification lives, which branch is the base, and whether the spec is frozen."""
 
@@ -4057,7 +4208,7 @@ class Context:
         # module = the Gradle build directories inside a monorepo, comma-separated ("" = the repository root)
         self.modules = [m.strip().strip("/") for m in props.get("module", "").split(",") if m.strip()]
         prefixes = [m + "/" for m in self.modules] or [""]
-        features_rel = props.get("acceptance.features", DEFAULT_FEATURES).strip("/") + "/"
+        features_rel = features_rel_of(props.get("acceptance.features")) + "/"
         self.features_dirs = tuple(pfx + features_rel for pfx in prefixes)
         self.test_code = tuple(pfx + p for pfx in prefixes for p in TEST_CODE)
         self.src_main = [pfx + "src/main" for pfx in prefixes]
@@ -5724,9 +5875,9 @@ def writes_worktree(words, segment, raw=None):
         return True
     if cmd == "sed":
         return "i" in short_flags(args) or "--in-place" in args
-    if cmd == "perl":
-        return "i" in short_flags(args) or ("e" in short_flags(args).lower()
-                                            and bool(PERL_WRITES.search(raw if raw is not None else segment)))
+    if cmd == "perl":                      # code comes with -e / -E, -M / -m ('-MPOSIX;rmdir(...)') and -F (a pattern)
+        return any(PERL_IN_PLACE.match(a) for a in args) or (bool(set(short_flags(args)) & set("eEMmF"))
+                                                             and perl_writes(raw if raw is not None else segment))
     if cmd in ("awk", "gawk"):
         return "-i" in args or any(a.startswith("-i") for a in args)
     if cmd in SHELLS:
@@ -5749,6 +5900,144 @@ def writes_worktree(words, segment, raw=None):
             return True
         return any(writes_worktree(words_of(code), code) for code in inline_code_strings(cmd, args))
     return False
+
+
+def perl_writes(text):
+    """True when the perl command line `text` (as written) names a call that writes, in its program or in its other
+    words (-M'POSIX;system(...)' is code too). The program is the one perl runs: the -e / -E texts, separate or
+    attached (-esystem(...)), joined by newlines. Its match patterns are data - `perl -ne 'print if /`/'` and
+    `perl -ne 'print if /open/'` only read."""
+    try:
+        words = shlex.split(text, posix=True)
+    except ValueError:
+        words = []
+    start = next((k for k, w in enumerate(words) if os.path.basename(w) == "perl"), None)
+    if start is None:
+        return bool(PERL_WRITES.search(text))
+    other, programs, i = words[:start + 1], [], start + 1
+    while i < len(words):
+        switch = PERL_PROGRAM_SWITCH.fullmatch(words[i])
+        if switch and (switch.group(2) or i + 1 < len(words)):
+            programs.append(switch.group(2) or words[i + 1])
+            i += 1 if switch.group(2) else 2
+        elif words[i].startswith("-") and words[i] not in ("-", "--"):
+            other.append(words[i])
+            i += 1
+        else:
+            other += words[i:]              # the script or the first file: perl reads no more switches
+            break
+    return bool(PERL_WRITES.search(" ".join(other)) or PERL_WRITES.search(perl_without_patterns("\n".join(programs))))
+
+
+def perl_without_patterns(code):
+    """perl's program without the text of its match patterns: a pattern is data, `print if /`/` and `s/system//`
+    call nothing. Only what perl certainly reads as a pattern goes - a / where perl expects a term (see
+    PERL_BEFORE_PATTERN), the pattern of m// and of s/// - and only when it runs no code (PERL_PATTERN_CODE).
+    Strings, qr//, tr/// and the replacement of s/// (code with /e) stay. Whatever this reader does not follow
+    exactly leaves the whole program as it is: a comment, ?, POD, a heredoc or <...> glob, ${...}, $$, $', a
+    quote-like word after a sigil, -> or - (&s, ->s, -s, %m), a / after a variable (perl reads
+    `print $fh /.../` as a pattern), after a word or after a }."""
+    out, prev, i = [], "", 0
+    while i < len(code):
+        c = code[i]
+        if c.isspace():
+            out.append(c)
+            i += 1
+            continue
+        if c in "#?" or (c == "=" and (i == 0 or code[i - 1] == "\n")):
+            return code                                  # a comment, ?PATTERN?, POD
+        word = PERL_WORD.match(code, i)
+        if word:
+            name, end = word.group(0), word.end()
+            if name in ("sub", "format", "__END__", "__DATA__") or code.startswith("'", end):
+                return code                              # a sub's name, a format, data, Foo'bar
+            sigil = prev in ("%", "&", "*", "-", "->", "::")     # &s, %m, -s, ->s: a name, not an operator
+            if name in PERL_QUOTE_LIKE:
+                read = perl_quote_like(code, end, name)
+                if read is None or sigil or prev in ("package", "use", "no", "require"):
+                    return code                          # a name (use s, ->s), =>, $h{s}, a text never closed
+                spans, end = read
+                out.append(perl_pattern(code, i, end, spans[0]) if name in ("m", "s") else code[i:end])
+                prev, i = "term", end
+                continue
+            out.append(name)
+            prev, i = ("name" if sigil else name), end
+            continue
+        if c == "/" and prev in PERL_BEFORE_PATTERN:
+            close = perl_closing(code, i)
+            if close < 0:
+                return code
+            end = PERL_FLAGS.match(code, close + 1).end()
+            out.append(perl_pattern(code, i, end, (i + 1, close)))
+            prev, i = "term", end
+            continue
+        if c in "'\"`":
+            close = perl_closing(code, i)
+            if close < 0:
+                return code
+            out.append(code[i:close + 1])
+            prev, i = "term", close + 1
+            continue
+        if c == "<":
+            readline = PERL_READLINE.match(code, i)
+            if not readline or prev not in PERL_BEFORE_PATTERN:
+                return code                              # a heredoc, a glob, a comparison
+            out.append(readline.group(0))
+            prev, i = "term", readline.end()
+            continue
+        token = PERL_NUMBER.match(code, i) or PERL_VARIABLE.match(code, i) or PERL_OPERATOR.match(code, i)
+        if not token or (c == "/" and prev != "term") or (c == "{" and prev in ("%", "&", "*")):
+            return code                                  # a / after a variable or a word may open a pattern
+        out.append(token.group(0))
+        prev = ("term" if c.isdigit() or c in ")]" else "variable" if c in "$@" else token.group(0))
+        i = token.end()
+    return "".join(out)
+
+
+def perl_quote_like(code, i, word):
+    """([(start, end) of each delimited text], the end of the construct) of perl's quote-like `word` whose
+    delimiters start at i - or None when it is not read exactly: =>, a hash key ($h{s}), a comment or a letter for a
+    delimiter, a text that is never closed."""
+    spans, k = [], i
+    for part in range(2 if word in ("s", "tr", "y") else 1):
+        if part == 0 or code[k] in "}])>":              # s{...}{...}: the replacement has delimiters of its own
+            k += part
+            while k < len(code) and code[k].isspace():
+                k += 1
+            if (k == len(code) or code[k] in "=)]}>:\\" or code[k] == "_" or code[k].isalnum()
+                    or (code[k] == "#" and (part or k > i))):
+                return None
+        close = perl_closing(code, k)
+        if close < 0:
+            return None
+        spans.append((k + 1, close))
+        k = close                                        # s/.../.../: the middle delimiter is shared
+    return spans, PERL_FLAGS.match(code, k + 1).end()
+
+
+def perl_closing(code, i):
+    """Index of the delimiter that closes the one at i, or -1: a bracket nests, any other character closes at its
+    next unescaped occurrence."""
+    opening = code[i]
+    closing, depth, k = PERL_BRACKETS.get(opening, opening), 0, i + 1
+    while k < len(code):
+        if code[k] == "\\":
+            k += 1
+        elif code[k] == closing:
+            if depth == 0:
+                return k
+            depth -= 1
+        elif code[k] == opening:
+            depth += 1
+        k += 1
+    return -1
+
+
+def perl_pattern(code, start, end, span):
+    """code[start:end] without the text of the pattern at span - unless interpolating that pattern can run code."""
+    if PERL_PATTERN_CODE.search(re.sub(r"\\.", "", code[span[0]:span[1]], flags=re.S)):
+        return code[start:end]
+    return code[start:span[0]] + code[span[1]:end]
 
 
 def changes_state(words, segment, cwd=None, ctx=None, raw=None):
@@ -6811,7 +7100,52 @@ def guard_tests(repo):
             ('main', 'perl open for writing',
              'perl -e \'open(F, ">", "gauntlet/config/gauntlet.properties")\''),
             ('reviewer', 'perl system with one string',
-             'perl -e \'system("touch notes.txt")\'')):
+             'perl -e \'system("touch notes.txt")\''),
+            # a pattern is data only where perl reads one and only when it runs no code (review of 2c1cd0b)
+            ('main', 'perl code block in a pattern',
+             'perl -e \'"x" =~ /(?{ system("rm -rf gauntlet") })/\''),
+            ('main', 'perl optimistic code block in a pattern',
+             'perl -e \'"x" =~ /(*{ system("rm -rf gauntlet") })/\''),
+            ('main', 'perl code interpolated into a pattern',
+             'perl -ne \'print if /@{[ system("rm -rf gauntlet") ]}/\' README.md'),
+            ('main', 'perl s///e runs its replacement',
+             'perl -e \'$_ = "x"; s/x/system("rm -rf gauntlet")/e\''),
+            ('main', 'perl code interpolated into the replacement of s///',
+             'perl -pe \'s/x/@{[ system("rm -rf gauntlet") ]}/\' README.md'),
+            ('main', 'perl division before the write',
+             'perl -e \'$a = 1 / 2; system("rm -rf gauntlet")\''),
+            ('main', 'perl division after a variable',
+             'perl -e \'$a = $b / 2; system("rm -rf gauntlet"); $c = $d / 4\''),
+            ('main', 'perl a / inside a string',
+             'perl -e \'print "x, / "; system("rm -rf gauntlet"); print " / "\''),
+            ('main', 'perl a / inside tr',
+             'perl -e \'tr/a/(/; system("rm -rf gauntlet"); /z/\''),
+            ('main', 'perl a / inside a comment',
+             'perl -e \'print 1 # ( /\nsystem("rm -rf gauntlet"); print "/"\''),
+            ('main', 'perl a / inside a heredoc',
+             'perl -e \'print <<E;\n( /\nE\nsystem("rm -rf gauntlet"); print "/"\''),
+            ('main', 'perl joins two -e into one string',
+             'perl -e \'print "( \' -e \' /"; system("rm -rf gauntlet"); print "/"\''),
+            ('main', 'perl sub named m',
+             'perl -e \'sub m { system("rm -rf gauntlet") } &m\''),
+            ('main', 'perl ${/} is a variable',
+             'perl -e \'print ${/}; system("rm -rf gauntlet"); print "/"\''),
+            ('main', 'perl %if is a hash',
+             'perl -e \'%if = (); print %if / 1; system("rm -rf gauntlet"); /x/\''),
+            ('main', 'perl & s is a call',
+             'perl -e \'sub s {1} $x = & s/ 1; system("rm -rf gauntlet"); //\''),
+            ('main', 'perl program attached to -e',
+             'perl \'-esystem("rm -rf gauntlet")\''),
+            ('main', 'perl -i after the program',
+             "perl -pe 's/a/b/' -i gauntlet/README.md"),
+            ('main', 'perl -i after the value of -I',
+             "perl -I lib -i -pe 's/a/b/' gauntlet/README.md"),
+            ('reviewer', 'perl filter that also writes',
+             'perl -ne \'print if /`/; system("touch notes.txt")\' README.md'),
+            ('reviewer', 'perl -pi with a backtick in the pattern',
+             "perl -pi -e 's/`//g' README.md"),
+            ('reviewer', 'perl code after -M',
+             "perl '-MPOSIX;link(q{README.md},q{x})' /dev/null")):
         expect_deny(repo, "reading: " + name, agent, "Bash", command=command.replace("{M}", M).replace("{F}", FEATURES))
     for agent, name, command in (
             ('main', 'a comment with an apostrophe before ls',
@@ -6903,7 +7237,30 @@ def guard_tests(repo):
             ('main', 'perl -ne that reads the kit',
              "perl -ne 'print if /guard/' gauntlet/README.md"),
             ('reviewer', 'perl -ne that reads',
-             "perl -ne 'print if /x/' notes.txt")):
+             "perl -ne 'print if /x/' notes.txt"),
+            # a backtick or a write word inside a match pattern is data (review of 2c1cd0b)
+            ('reviewer', 'perl -ne with a backtick in the pattern',
+             "perl -ne 'print if /`/' README.md"),
+            ('reviewer', 'perl -nle with a backtick in the pattern over the kit',
+             "perl -nle 'print if /`/' gauntlet/README.md"),
+            ('reviewer', 'perl -n -e with a backtick in m{}',
+             "perl -n -e 'print if m{`}' README.md"),
+            ('reviewer', 'perl -lne that prints inline code',
+             "perl -lne 'print $1 if /`([^`]+)`/' README.md"),
+            ('reviewer', 'perl -pe that strips backticks',
+             "perl -pe 's/`//g' README.md"),
+            ('reviewer', 'perl -ne with write words in the pattern',
+             "perl -ne 'print if /system|open|unlink/ && !/`/' README.md"),
+            ('reviewer', 'perl -Mstrict -ne: the i of strict is no -i',
+             "perl -Mstrict -ne 'print if /`/' README.md"),
+            ('reviewer', 'perl with a program attached to -ne',
+             "perl '-neprint if /`/' README.md"),
+            ('main', 'perl -ne with a backtick in the pattern over the kit',
+             "perl -ne 'print if /`/' gauntlet/README.md"),
+            ('main', 'perl -ne with a write word in the pattern over the kit',
+             "perl -ne 'print if /open/' gauntlet/README.md"),
+            ('hardener', 'perl -ne with a backtick in the pattern over the main code',
+             "perl -ne 'print if /`/' {M}src/main/java/com/example/service/domain/Order.java")):
         expect_allow(repo, "reading control: " + name, agent, "Bash",
                      command=command.replace("{M}", M).replace("{F}", FEATURES))
     # --- what the command does: where it runs after a cd (also `cd "$(git rev-parse --show-toplevel)"`, `cd -`,
@@ -7211,6 +7568,16 @@ def guard_tests(repo):
     check("specifier blocked when frozen", r is not None and "frozen" in r, repr(r))
     expect_deny(repo, "specifier new feature file when frozen", "specifier", "Write", file_path=FEATURES + "/other.feature", content="x")
     expect_deny(repo, "main blocked when frozen", "main", "Edit", file_path=feature, old_string="a", new_string="b")
+    # the same directory written as "./src/.../features/": Gradle reads it as one, so must the freeze
+    props = os.path.join(repo, "gauntlet/config/gauntlet.properties")
+    with open(props) as f:
+        original = f.read()
+    for spelling in ("./" + FEATURES_REL, FEATURES_REL + "/"):
+        with open(props, "w") as f:
+            f.write(original.replace("acceptance.features=" + FEATURES_REL, "acceptance.features=" + spelling))
+        expect_deny(repo, f"frozen with acceptance.features={spelling}", "main", "Bash", command=f"echo x >> {feature}")
+    with open(props, "w") as f:
+        f.write(original)
     r = guard(repo, "main", "Bash", command=f"git rm {feature}")
     check("git rm feature when frozen", r is not None and "frozen" in r, repr(r))
     expect_deny(repo, "specifier bash on frozen features", "specifier", "Bash", command=f"cp /tmp/x.feature {feature}")
@@ -8182,7 +8549,9 @@ def affected_modules(changed):
 
 
 def features_dirs():
-    rel = properties().get("acceptance.features", DEFAULT_FEATURES).strip("/")
+    # as gauntlet.gradle reads it: an empty value is the default, "./src/.../features/" is "src/.../features"
+    value = properties().get("acceptance.features", "").strip() or DEFAULT_FEATURES
+    rel = os.path.normpath(value).replace(os.sep, "/").strip("/")
     return [os.path.join(m, rel) for m in MODULES] if MODULES else [rel]
 
 
@@ -8613,13 +8982,15 @@ import org.w3c.dom.NodeList;
  *
  * <pre>
  * java CrapGate.java --report build/reports/jacoco/test/jacocoTestReport.xml --threshold 8
- *      [--only src/main/java/a/B.java,src/main/java/a/C.java]   (scope: only these files)
- *      [--sources src/main/java,src/compat/java]                 (main source roots, with --only)
+ *      [--only-file changed-sources]                             (scope: only the files it lists, see below)
+ *      [--sources src/main/java --sources src/compat/java]       (main source roots, one each, with --only-file)
  *      [--encoding UTF-8]                                        (the charset javac reads the sources with)
  *      [--allowlist gauntlet/config/crap-allowlist.txt]           (human-approved exceptions)
  *      [--exclude *Application,*MapperImpl]                        (class-name globs)
  *      [--top 15]
  * </pre>
+ * {@code --only-file} lists the changed source files, each path ended by a NUL character, as
+ * {@code git diff --name-only -z} writes them: a comma or a line break stays part of its name. An empty file = none.
  * Exit codes: 0 = within threshold, 1 = threshold exceeded, 2 = usage or input error.
  */
 public class CrapGate {
@@ -8647,8 +9018,8 @@ public class CrapGate {
             a = Args.parse(args);
         } catch (IllegalArgumentException e) {
             err.println("CrapGate: " + e.getMessage());
-            err.println("usage: java CrapGate.java --report <jacoco.xml> [--threshold 8] [--only f1,f2]"
-                    + " [--sources dir1,dir2] [--encoding UTF-8] [--allowlist file] [--exclude globs] [--top N]");
+            err.println("usage: java CrapGate.java --report <jacoco.xml> [--threshold 8] [--only-file list]"
+                    + " [--sources dir]... [--encoding UTF-8] [--allowlist file] [--exclude globs] [--top N]");
             return 2;
         }
         if (a.only != null && a.only.isEmpty()) {
@@ -9202,8 +9573,8 @@ public class CrapGate {
                 switch (key) {
                     case "--report" -> a.report = value;
                     case "--threshold" -> a.threshold = Double.parseDouble(value);
-                    case "--only" -> a.only = splitToSet(value);
-                    case "--sources" -> a.sources = new ArrayList<>(splitToSet(value));
+                    case "--only-file" -> a.only = new HashSet<>(pathList(value));
+                    case "--sources" -> a.sources.add(value);      // one root each: a path may hold a comma
                     case "--encoding" -> a.encoding = Charset.forName(value);
                     case "--allowlist" -> a.allow = readAllowlist(value);
                     case "--exclude" -> a.excludes = new ArrayList<>(splitToSet(value));
@@ -9215,6 +9586,21 @@ public class CrapGate {
                 throw new IllegalArgumentException("--report is required");
             }
             return a;
+        }
+
+        /** The paths of a list file, each ended by a NUL character ({@code git diff --name-only -z}), exactly as written. */
+        static List<String> pathList(String file) {
+            List<String> list = new ArrayList<>();
+            try {
+                for (String path : Files.readString(Path.of(file), StandardCharsets.UTF_8).split("\0")) {
+                    if (!path.isEmpty()) {
+                        list.add(path);
+                    }
+                }
+            } catch (IOException e) {
+                throw new IllegalArgumentException("cannot read the list " + file + ": " + e);
+            }
+            return list;
         }
 
         static Set<String> splitToSet(String csv) {
@@ -9265,8 +9651,11 @@ public class CrapGate {
 import java.io.File;
 import java.io.FileDescriptor;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.PrintStream;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -9281,11 +9670,14 @@ import org.w3c.dom.NodeList;
 /**
  * DRY gate: reads a PMD CPD XML report and fails on duplicated code.
  *
- * <p>With {@code --only}, only duplications that touch at least one of the listed (changed)
- * files count, so an existing codebase can adopt the gate without fixing history first.
+ * <p>With {@code --only-file}, only duplications that touch at least one of the listed (changed)
+ * files count, so an existing codebase can adopt the gate without fixing history first. The file lists their
+ * paths relative to the project directory, each ended by a NUL character as {@code git diff --name-only -z}
+ * writes them (a comma or a line break stays part of its name); an empty file = none; a listed path that names
+ * no file is an error (exit 2) - the scope would otherwise match nothing and pass.
  *
  * <pre>
- * java DryGate.java --report build/reports/cpd/cpd.xml --project-dir . [--only a.java,b.java] [--max 0]
+ * java DryGate.java --report build/reports/cpd/cpd.xml --project-dir . [--only-file changed-sources] [--max 0]
  * </pre>
  * Exit codes: 0 = OK, 1 = too many duplications, 2 = usage or input error.
  */
@@ -9319,7 +9711,7 @@ public class DryGate {
                 switch (args[i]) {
                     case "--report" -> report = value;
                     case "--project-dir" -> projectDir = value;
-                    case "--only" -> only = csv(value);
+                    case "--only-file" -> only = pathList(value);
                     case "--max" -> max = Integer.parseInt(value);
                     default -> throw new IllegalArgumentException("unknown option " + args[i]);
                 }
@@ -9329,12 +9721,20 @@ public class DryGate {
             }
         } catch (RuntimeException e) {
             err.println("DryGate: " + e.getMessage());
-            err.println("usage: java DryGate.java --report <cpd.xml> [--project-dir dir] [--only f1,f2] [--max 0]");
+            err.println("usage: java DryGate.java --report <cpd.xml> [--project-dir dir] [--only-file list] [--max 0]");
             return 2;
         }
         if (only != null && only.isEmpty()) {
             out.println("DRY gate: no changed Java sources in scope - nothing to check.");
             return 0;
+        }
+        if (only != null) {
+            Path root = Path.of(projectDir);
+            List<String> missing = only.stream().filter(f -> !Files.exists(root.resolve(f))).sorted().toList();
+            if (!missing.isEmpty()) {
+                err.println("DryGate: the scope names no file under " + projectDir + ": " + missing);
+                return 2;
+            }
         }
         File xml = new File(report);
         if (!xml.isFile()) {
@@ -9422,12 +9822,17 @@ public class DryGate {
         return v.isEmpty() ? 0 : Integer.parseInt(v);
     }
 
-    static Set<String> csv(String value) {
+    /** The paths of a list file, each ended by a NUL character ({@code git diff --name-only -z}), exactly as written. */
+    static Set<String> pathList(String file) {
         Set<String> set = new HashSet<>();
-        for (String s : value.split(",")) {
-            if (!s.isBlank()) {
-                set.add(s.trim());
+        try {
+            for (String path : Files.readString(Path.of(file), StandardCharsets.UTF_8).split("\0")) {
+                if (!path.isEmpty()) {
+                    set.add(path);
+                }
             }
+        } catch (IOException e) {
+            throw new UncheckedIOException("cannot read the list " + file, e);
         }
         return set;
     }
@@ -9436,9 +9841,12 @@ public class DryGate {
 ===== END FILE gauntlet/tools/DryGate.java =====
 
 ===== BEGIN FILE gauntlet/tools/GherkinMutator.java =====
+import java.io.ByteArrayInputStream;
+import java.io.DataInputStream;
 import java.io.FileDescriptor;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.PrintStream;
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -9452,15 +9860,20 @@ import java.time.LocalTime;
 import java.time.Period;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipException;
+import java.util.zip.ZipFile;
 import javax.xml.parsers.DocumentBuilderFactory;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
@@ -9478,10 +9891,17 @@ import org.w3c.dom.NodeList;
  *
  * <pre>
  * java GherkinMutator.java generate --features src/acceptanceTest/resources/features \
- *      --out build/gherkin-mutation/mutants [--only a.feature,b.feature]
+ *      --out build/gherkin-mutation/mutants [--only-file changed-features]
  * java GherkinMutator.java verdict --mutants build/gherkin-mutation/mutants \
- *      --results build/gherkin-mutation/results [--glue src/acceptanceTest/java,...]
+ *      --results build/gherkin-mutation/results [--glue build/classes/java/acceptanceTest --glue lib.jar ...]
+ *      [--glue-file glue-classpath]
  * </pre>
+ * {@code --only-file} limits {@code generate} to the feature files it lists: each path ended by a NUL character, the
+ * form {@code git diff --name-only -z} and {@code find -print0} write - a comma, a quote or a line break stays part
+ * of its name. An empty file puts no feature in scope; a listed path that names no feature file under
+ * {@code --features} is an error (exit 2), never a run over nothing. {@code --glue} names one entry of the classpath
+ * of the mutant run each time (a class directory or a jar, never split at a separator); {@code --glue-file} lists
+ * the entries the same way as {@code --only-file}.
  * {@code generate} writes one feature file per mutant: the original Scenario Outline with its
  * {@code <placeholders>} and Background intact, and a single Examples row whose one target cell is
  * mutated - Cucumber interpolates every other value exactly as in the original run, so a non-mutated
@@ -9497,10 +9917,14 @@ import org.w3c.dom.NodeList;
  * a condition - on the first step that uses the mutated column or a later one. Not a kill: a step that failed
  * before that line (the changed value cannot have caused it); a value Cucumber rejected before any step
  * definition ran it (argument conversion, a {@code @ParameterType}/{@code @DataTableType}/{@code @DocStringType}
- * transformer - found in the glue sources of {@code --glue} -, the glue object, an ambiguous step); a failure
- * without a step frame (a hook, a fixture, the context); skipped/aborted or missing. All of these are errors.
+ * transformer - read from the compiled glue, {@code --glue} = the classpath of the mutant run -, the glue object,
+ * an ambiguous step); a failure without a step frame (a hook, a fixture, the context); skipped/aborted or missing.
+ * All of these are errors.
  * A kill by an undefined step for the new value and a kill by a non-assertion exception are counted
  * separately in the summary. Passed = survived.
+ * A scenario that ran more than once (a retry plugin, a rerun) is judged on every attempt by these rules, whether
+ * Gradle reported the attempts separately or merged ({@code reports.junitXml.mergeReruns}): the same verdict on
+ * every attempt is that verdict, different verdicts are an error - for a mutant and for a control.
  * Every control must pass: it is the original row run in the mutant harness with nothing changed. A control
  * that does not pass means the mutant run itself is broken (the environment or a fixture is down, the scenario
  * depends on other scenarios or on its own name/position - or, for the control after the mutants, the row
@@ -9601,10 +10025,11 @@ public class GherkinMutator {
     record Control(String id, FeatureDoc feature, Scenario scenario, Examples examples, int row, boolean after) {
     }
 
-    /** What one generated scenario did: kind = passed | aborted | undefined | failed (thrown by a step
+    /** What one attempt of a generated scenario did: kind = passed | aborted | undefined | failed (thrown by a step
      *  definition) | rejected (Cucumber failed before a step definition ran: argument conversion, a transformer,
-     *  the glue object, an ambiguous step) | error (a failure outside every step); type = the exception class the
-     *  runner reported, or ""; line = the line of the generated feature with the failing step, or -1. */
+     *  the glue object, an ambiguous step) | error (a failure outside every step) - or inconsistent (attempts with
+     *  different verdicts, see combine); type = the exception class the runner reported, or ""; line = the line of
+     *  the generated feature with the failing step, or -1. */
     record Outcome(String kind, String type, int line) {
         Outcome(String kind, String type) {
             this(kind, type, -1);
@@ -9633,17 +10058,22 @@ public class GherkinMutator {
             return 2;
         }
         Map<String, String> opts = new LinkedHashMap<>();
+        List<String> glue = new ArrayList<>();
         for (int i = 1; i + 1 < args.length; i += 2) {
-            opts.put(args[i], args[i + 1]);
+            if (args[i].equals("--glue")) {
+                glue.add(args[i + 1]);          // one classpath entry per --glue: a separator could be part of its path
+            } else {
+                opts.put(args[i], args[i + 1]);
+            }
         }
         try {
             return switch (args[0]) {
                 case "generate" -> generate(Path.of(opts.getOrDefault("--features", "src/acceptanceTest/resources/features")),
                         Path.of(opts.getOrDefault("--out", "build/gherkin-mutation/mutants")),
-                        opts.containsKey("--only") ? csv(opts.get("--only")) : null, out);
+                        opts.containsKey("--only-file") ? pathList(Path.of(opts.get("--only-file"))) : null, out);
                 case "verdict" -> verdict(Path.of(opts.getOrDefault("--mutants", "build/gherkin-mutation/mutants")),
                         Path.of(opts.getOrDefault("--results", "build/gherkin-mutation/results")),
-                        transformers(opts.containsKey("--glue") ? csv(opts.get("--glue")) : List.of()), out);
+                        glue(glue, opts.get("--glue-file")), out);
                 case "no-skipped" -> noSkipped(Path.of(opts.getOrDefault("--results", "build/test-results/acceptanceTest")),
                         opts.containsKey("--features") ? Path.of(opts.get("--features")) : null, out);
                 default -> {
@@ -9670,6 +10100,24 @@ public class GherkinMutator {
         List<Path> files = new ArrayList<>();
         try (Stream<Path> s = Files.walk(featuresDir)) {
             files = s.filter(p -> p.toString().endsWith(".feature")).sorted().toList();
+        }
+        if (only != null) {
+            // A listed path that names no feature file means the list lost its paths on the way (joined with commas,
+            // "Скидка, рубли.feature" came apart into two names of nothing): mutating nothing would pass on nothing.
+            List<String> unknown = new ArrayList<>();
+            for (String listed : only) {
+                boolean found = false;
+                for (Path file : files) {
+                    found = found || matchesAny(file, List.of(listed));
+                }
+                if (!found) {
+                    unknown.add(listed);
+                }
+            }
+            if (!unknown.isEmpty()) {
+                out.println("GHERKIN ERROR the scope names no feature file under " + featuresDir + ": " + unknown);
+                return 2;
+            }
         }
         List<Mutant> mutants = new ArrayList<>();
         List<Control> controls = new ArrayList<>();
@@ -9724,13 +10172,13 @@ public class GherkinMutator {
         for (Mutant m : mutants) {
             List<String> text = render(m);
             Files.write(outDir.resolve(m.id() + ".feature"), text, StandardCharsets.UTF_8);
-            manifest.add(String.join("\t", m.id(), m.feature().path, String.valueOf(m.examples().rowLines.get(m.row())),
+            manifest.add(String.join("\t", m.id(), tsv(m.feature().path), String.valueOf(m.examples().rowLines.get(m.row())),
                     tsv(m.scenario().name), tsv(m.key()), tsv(m.original()), tsv(m.mutated()),
                     String.valueOf(firstUse(m, text))));
         }
         for (Control c : controls) {
             Files.write(outDir.resolve(c.id() + ".feature"), render(c), StandardCharsets.UTF_8);
-            manifest.add(String.join("\t", c.id(), c.feature().path, String.valueOf(c.examples().rowLines.get(c.row())),
+            manifest.add(String.join("\t", c.id(), tsv(c.feature().path), String.valueOf(c.examples().rowLines.get(c.row())),
                     tsv(c.scenario().name), CONTROL_KEY, "", "", ""));
         }
         Files.write(outDir.resolve("manifest.tsv"), manifest, StandardCharsets.UTF_8);
@@ -9837,7 +10285,8 @@ public class GherkinMutator {
         if (doc.languageLine != null) {
             lines.add(doc.languageLine);
         }
-        lines.add("# Gherkin " + what + " of " + doc.path + " - generated, do not edit");
+        // the path on one line: a line break in a file name would end the comment and start a line of Gherkin
+        lines.add("# Gherkin " + what + " of " + tsv(doc.path) + " - generated, do not edit");
         lines.addAll(doc.tags);
         lines.add(featureKeyword(doc) + ": " + label + " | " + doc.name);
         lines.addAll(doc.background);
@@ -10258,7 +10707,7 @@ public class GherkinMutator {
 
     // ---------------------------------------------------------------- verdict
 
-    static int verdict(Path mutantsDir, Path resultsDir, Set<String> transformers, PrintStream out) throws IOException {
+    static int verdict(Path mutantsDir, Path resultsDir, Glue glue, PrintStream out) throws IOException {
         Path manifestFile = mutantsDir.resolve("manifest.tsv");
         if (!Files.isRegularFile(manifestFile)) {
             out.println("Gherkin mutation: no manifest at " + manifestFile + " - nothing to judge.");
@@ -10275,7 +10724,7 @@ public class GherkinMutator {
             out.println("Gherkin mutation: no mutants (no Examples values in scope) - OK.");
             return 0;
         }
-        Map<String, Outcome> outcome = readResults(resultsDir, transformers);
+        Map<String, List<Outcome>> attempts = readResults(resultsDir, glue);
         int killed = 0;
         int byUndefinedStep = 0;
         int byOtherException = 0;
@@ -10284,7 +10733,8 @@ public class GherkinMutator {
         for (Map.Entry<String, String[]> e : manifest.entrySet()) {
             String[] f = e.getValue();
             String what = f[1] + ":" + f[2] + " \"" + f[3] + "\" " + f[4] + ": " + f[5] + " -> " + f[6];
-            Outcome o = outcome.get(e.getKey());
+            int uses = firstUseLine(f);
+            Outcome o = combine(attempts.get(e.getKey()), attempt -> mutantVerdict(attempt, uses));
             if (o == null) {
                 errors.add("MUTANT ERROR    " + e.getKey() + " not executed  " + what);
             } else if (o.kind().equals("passed")) {
@@ -10301,9 +10751,9 @@ public class GherkinMutator {
                 errors.add("MUTANT ERROR    " + e.getKey() + " the value never reached a step definition (" + thrown(o)
                         + ": Cucumber could not convert it, a transformer rejected it, the glue object failed or the step"
                         + " is ambiguous), not a kill  " + what);
-            } else if (o.kind().equals("failed") && firstUseLine(f) > 0 && o.line() > 0 && o.line() < firstUseLine(f)) {
+            } else if (mutantVerdict(o, uses).equals("early")) {
                 errors.add("MUTANT ERROR    " + e.getKey() + " failed on line " + o.line() + ", before the first step that"
-                        + " uses <" + f[4] + "> (line " + firstUseLine(f) + ") - the changed value did not cause it, not a"
+                        + " uses <" + f[4] + "> (line " + uses + ") - the changed value did not cause it, not a"
                         + " kill  " + what);
             } else {
                 killed++;
@@ -10318,7 +10768,7 @@ public class GherkinMutator {
         List<String> brokenControls = new ArrayList<>();
         for (Map.Entry<String, String[]> e : controls.entrySet()) {
             String[] f = e.getValue();
-            Outcome o = outcome.get(e.getKey());
+            Outcome o = combine(attempts.get(e.getKey()), Outcome::kind);
             if (o != null && o.kind().equals("passed")) {
                 controlsPassed++;
             } else {
@@ -10467,36 +10917,82 @@ public class GherkinMutator {
         return list;
     }
 
-    static Map<String, Outcome> readResults(Path resultsDir, Set<String> transformers) throws IOException {
-        Map<String, Outcome> outcome = new LinkedHashMap<>();
+    /**
+     * Every attempt of every generated scenario, in report order: one per scenario in an ordinary run. A retry (the
+     * test-retry plugin, a rerun) runs a scenario again, and Gradle reports the attempts in one of two shapes: each
+     * attempt as a {@code <testcase>} of its own, or - with {@code reports.junitXml.mergeReruns}, Surefire's shape -
+     * the attempts of a test that failed merged into one {@code <testcase>}. A merged test that passed in the end
+     * holds a {@code <flakyFailure>}/{@code <flakyError>} per failed attempt and no element for the passing one
+     * ({@code <skipped>} when the last attempt was skipped); one that failed every time holds {@code <failure>} or
+     * {@code <error>} for the first attempt and {@code <rerunFailure>}/{@code <rerunError>} for each later one.
+     * Reading only {@code <failure>} took a control that failed and then passed for a passed control.
+     */
+    static Map<String, List<Outcome>> readResults(Path resultsDir, Glue glue) throws IOException {
+        Map<String, List<Outcome>> attempts = new LinkedHashMap<>();
         for (Element tc : testcases(resultsDir)) {
             Matcher m = RESULT_ID.matcher(tc.getAttribute("name") + " " + tc.getAttribute("classname"));
             if (!m.find()) {
                 continue;
             }
             String id = m.group(1) != null ? m.group(1) : m.group(2);
-            Outcome result = new Outcome("passed", "");
+            List<Outcome> list = attempts.computeIfAbsent(id, k -> new ArrayList<>());
+            boolean passedLast = true;              // no element stands for the last attempt: it passed
             for (Node n = tc.getFirstChild(); n != null; n = n.getNextSibling()) {
                 if (n instanceof Element e) {
                     switch (e.getTagName()) {
                         // The stage decides, not the element name: Gradle writes every failed scenario as
                         // <failure>, Surefire-style writers use <error> for a non-assertion exception.
-                        case "failure", "error" -> result = failureOutcome(e, transformers);
-                        case "skipped" -> result = result.kind().equals("passed") ? new Outcome("aborted", "") : result;
+                        case "failure", "error", "rerunFailure", "rerunError" -> {
+                            list.add(failureOutcome(e, glue));
+                            passedLast = false;
+                        }
+                        case "flakyFailure", "flakyError" -> list.add(failureOutcome(e, glue));
+                        case "skipped" -> {
+                            list.add(new Outcome("aborted", ""));
+                            passedLast = false;
+                        }
                         default -> {
                         }
                     }
                 }
             }
-            Outcome prev = outcome.get(id);
-            if (prev == null) {
-                outcome.put(id, result);
-            } else if (!prev.kind().equals(result.kind())) {
-                // one scenario, two different results (a retry, a rerun): its detection is not stable - no verdict
-                outcome.put(id, new Outcome("inconsistent", prev.type().isEmpty() ? result.type() : prev.type()));
+            if (passedLast) {
+                list.add(new Outcome("passed", ""));
             }
         }
-        return outcome;
+        return attempts;
+    }
+
+    /**
+     * One outcome from all attempts of a scenario ({@code null} = none ran). Each attempt is judged on its own by
+     * {@code verdictOf} - the rules of a single run -, then the same verdict on every attempt is that verdict (a
+     * mutant killed on each attempt stays killed; the first attempt stands for it), and different verdicts are
+     * "inconsistent": a detection that does not repeat is no kill, a control that does not repeat is broken.
+     * Comparing kinds is not enough: two failures in a step are a kill and no kill when only one of them is on or
+     * after the first step that uses the changed value - keeping either one made the verdict depend on the order.
+     */
+    static Outcome combine(List<Outcome> attempts, Function<Outcome, String> verdictOf) {
+        if (attempts == null || attempts.isEmpty()) {
+            return null;
+        }
+        Outcome first = attempts.get(0);
+        for (Outcome o : attempts) {
+            if (!verdictOf.apply(o).equals(verdictOf.apply(first))) {
+                return new Outcome("inconsistent", first.type().isEmpty() ? o.type() : first.type());
+            }
+        }
+        return first;
+    }
+
+    /** The verdict one attempt of a mutant gives: "killed" (a failure thrown by a step definition on or after the
+     *  first step that uses the changed value, or an undefined step), "early" (thrown by a step before that one),
+     *  or its kind - "passed" (survived), "aborted", "error", "rejected". */
+    static String mutantVerdict(Outcome o, int firstUse) {
+        return switch (o.kind()) {
+            case "failed" -> firstUse > 0 && o.line() > 0 && o.line() < firstUse ? "early" : "killed";
+            case "undefined" -> "killed";
+            default -> o.kind();
+        };
     }
 
     /**
@@ -10512,107 +11008,273 @@ public class GherkinMutator {
      * well. A @Before/@After hook or a fixture fails without a step frame: "error". The control scenarios guard the
      * other direction - a harness in which the UNMUTATED row fails in a step proves nothing either.
      */
-    static Outcome failureOutcome(Element failure, Set<String> transformers) {
+    static Outcome failureOutcome(Element failure, Glue glue) throws IOException {
         String type = failure.getAttribute("type");
         if (undefinedStep(failure)) {
             return new Outcome("undefined", type);
         }
-        String trace = failure.getTextContent();
+        String trace = trace(failure);
         int step = trace.indexOf("✽.");
         if (step < 0) {
             return new Outcome(trace.contains(RUNNER) ? "rejected" : "error", type);
         }
         String before = trace.substring(0, step);
-        if (before.contains(RUNNER) || transformers.contains(lastFrame(before))) {
+        if (before.contains(RUNNER) || glue != null && glue.isTransformer(lastFrame(before))) {
             return new Outcome("rejected", type);
         }
         Matcher line = STEP_LINE.matcher(trace.substring(step));
         return new Outcome("failed", type, line.find() ? Integer.parseInt(line.group(1)) : -1);
     }
 
+    /** The stack trace of one failed attempt: the text of {@code <failure>}/{@code <error>}; a flaky or rerun
+     *  element keeps it in a {@code <stackTrace>} child (next to that attempt's output, which is no trace). */
+    static String trace(Element failure) {
+        for (Node n = failure.getFirstChild(); n != null; n = n.getNextSibling()) {
+            if (n instanceof Element e && e.getTagName().equals("stackTrace")) {
+                return e.getTextContent();
+            }
+        }
+        return failure.getTextContent();
+    }
+
     /** Frames of Cucumber's own runner: in a step's stack they are cut away, unless no step definition ran. */
     static final String RUNNER = "io.cucumber.core.runner.";
     /** The line of the step frame: "✽.<step text>(file:///.../m1.feature:12)" - the text may hold colons. */
     static final Pattern STEP_LINE = Pattern.compile("^✽\\.[^\\n]*:(\\d+)\\)");
-    /** A stack frame "at [loader//]pkg.Class.method(File.java:12)" -> "File.java#method". */
-    static final Pattern FRAME = Pattern.compile("at (?:[^\\s/]+//)?[^\\s(]*?([^\\s.(]+)\\(([^:)\\s]+)");
+    /** A stack frame line "at [loader/[module]/]pkg.Class.method(File.java:12)". The location is its last parenthesized
+     *  part: a JVM name can hold spaces and parentheses (Kotlin `the total (EUR) is`, a Groovy "string" method). */
+    static final Pattern FRAME = Pattern.compile("(?m)^\\s*at ([^\\n]*\\))");
 
-    /** "File.java#method" of the last frame in this part of a trace, or "". */
-    static String lastFrame(String trace) {
-        String last = "";
+    /** Where a frame points: the binary name of its class ("pkg.Outer$Inner", "pkg.FileKt"), the method, the line
+     *  (-1 when the class has no line numbers). */
+    record Frame(String className, String method, int line) {
+    }
+
+    /** The last frame in this part of a trace, or null. */
+    static Frame lastFrame(String trace) {
+        Frame last = null;
         Matcher m = FRAME.matcher(trace);
         while (m.find()) {
-            last = m.group(2) + "#" + m.group(1);
+            String frame = m.group(1);
+            int open = frame.length() - 1;                      // the "(" that the final ")" closes
+            for (int depth = 0; open > 0; open--) {
+                depth += frame.charAt(open) == ')' ? 1 : frame.charAt(open) == '(' ? -1 : 0;
+                if (depth == 0) {
+                    break;
+                }
+            }
+            if (open <= 0) {
+                continue;
+            }
+            String name = frame.substring(0, open).substring(frame.substring(0, open).lastIndexOf('/') + 1); // without "app//"
+            String location = frame.substring(open + 1, frame.length() - 1);
+            String line = location.substring(location.lastIndexOf(':') + 1);
+            int dot = name.lastIndexOf('.');
+            last = new Frame(dot < 0 ? "" : name.substring(0, dot), name.substring(dot + 1),
+                    line.matches("\\d+") ? Integer.parseInt(line) : -1);
         }
         return last;
     }
 
-    static final Pattern TRANSFORMER_ANNOTATION = Pattern.compile(
-            "@(?:io\\.cucumber\\.java\\.)?(?:ParameterType|DataTableType|DocStringType|DefaultParameterTransformer"
-                    + "|DefaultDataTableEntryTransformer|DefaultDataTableCellTransformer)\\b");
-    static final Pattern CALL = Pattern.compile("([\\p{javaJavaIdentifierStart}][\\p{javaJavaIdentifierPart}]*)\\s*\\(");
-
     /**
-     * "File#method" of every transformer method in the glue sources (Java or Kotlin): a method annotated with one
-     * of Cucumber's transformer annotations. A missing directory contributes nothing.
+     * The compiled glue the mutant run loaded: its classpath (class directories and jars, in its order), searched the
+     * way its class loader searches it. Cucumber cuts a step's stack right behind the glue method it called and knows
+     * that method by the binary name of its class and its name (AbstractGlueDefinition.isDefinedAt). The verdict
+     * looks up exactly that class and reads whether that method carries one of Cucumber's transformer annotations -
+     * whatever the language of the glue (a Kotlin top-level function is a method of its FileKt class, a nested class
+     * is Outer$Inner) and whatever the encoding of its sources.
      */
-    static Set<String> transformers(List<String> glue) throws IOException {
-        Set<String> found = new HashSet<>();
-        for (String dir : glue) {
-            Path root = Path.of(dir);
-            if (!Files.isDirectory(root)) {
-                continue;
+    static final class Glue {
+        final List<String> classpath;
+        /** class -> the names of its transformer methods -> their lines */
+        final Map<String, Map<String, Lines>> classes = new HashMap<>();
+
+        Glue(List<String> classpath) {
+            this.classpath = classpath;
+        }
+
+        /**
+         * Whether the frame is a transformer method's: the same class and method name. A step definition can overload
+         * a transformer's name in the same class; its frame is told apart only by positive evidence - a line of the
+         * same-named method without a transformer annotation that is no transformer's line. Without that evidence
+         * (no line numbers, a line no table names) the frame is the transformer's, and the failure is no kill.
+         */
+        boolean isTransformer(Frame frame) throws IOException {
+            if (frame == null) {
+                return false;
             }
-            List<Path> sources;
-            try (Stream<Path> s = Files.walk(root)) {
-                sources = s.filter(p -> p.toString().endsWith(".java") || p.toString().endsWith(".kt")).toList();
+            Map<String, Lines> methods = classes.get(frame.className());
+            if (methods == null) {
+                methods = transformersOf(frame.className());
+                classes.put(frame.className(), methods);
             }
-            for (Path source : sources) {
-                String text = new String(Files.readAllBytes(source), StandardCharsets.UTF_8);
-                Matcher a = TRANSFORMER_ANNOTATION.matcher(text);
-                while (a.find()) {
-                    int i = a.end();
-                    if (i < text.length() && text.charAt(i) == '(') {
-                        i = closing(text, i);                       // the annotation's own arguments
+            Lines lines = methods.get(frame.method());
+            return lines != null && !(lines.other().contains(frame.line()) && !lines.transformer().contains(frame.line()));
+        }
+
+        /** The transformer methods of the first class file of that name on the classpath. A class that is not there
+         *  fails the verdict: whether its method was a transformer is unknown, and a guess could count a rejected
+         *  value as a kill. */
+        Map<String, Lines> transformersOf(String className) throws IOException {
+            String resource = className.replace('.', '/') + ".class";
+            for (String entry : classpath) {
+                Path root = Path.of(entry);
+                if (Files.isDirectory(root)) {
+                    Path file = root.resolve(resource);
+                    if (Files.isRegularFile(file)) {
+                        return transformerMethods(Files.readAllBytes(file), file.toString());
                     }
-                    int end = i;
-                    while (end < text.length() && text.charAt(end) != '{' && text.charAt(end) != '=' && text.charAt(end) != ';') {
-                        end++;
+                } else if (Files.isRegularFile(root)) {
+                    ZipFile jar;
+                    try {
+                        jar = new ZipFile(root.toFile());
+                    } catch (ZipException notAJar) {
+                        continue;                                       // a class loader skips it as well
                     }
-                    String method = null;
-                    for (Matcher c = CALL.matcher(text.substring(i, end)); c.find(); ) {
-                        method = c.group(1);                         // the last name before "(": the method
-                    }
-                    if (method != null) {
-                        found.add(source.getFileName() + "#" + method);
+                    try (jar) {
+                        ZipEntry e = jar.getEntry(resource);
+                        if (e != null) {
+                            try (InputStream in = jar.getInputStream(e)) {
+                                return transformerMethods(in.readAllBytes(), root + "!/" + resource);
+                            }
+                        }
                     }
                 }
             }
+            if (ClassLoader.getPlatformClassLoader().getResource(resource) != null) {
+                return Map.of();                                // a class of the JDK itself is never glue
+            }
+            throw new IOException("class " + className + " of a step frame is not on the glue classpath (--glue), so"
+                    + " a transformer cannot be told from a step definition - pass the classpath of the mutant run");
         }
+    }
+
+    /** Cucumber's transformer annotations, as a class file names their types. */
+    static final Set<String> TRANSFORMER_ANNOTATIONS = Set.of("Lio/cucumber/java/ParameterType;",
+            "Lio/cucumber/java/DataTableType;", "Lio/cucumber/java/DocStringType;",
+            "Lio/cucumber/java/DefaultParameterTransformer;", "Lio/cucumber/java/DefaultDataTableEntryTransformer;",
+            "Lio/cucumber/java/DefaultDataTableCellTransformer;");
+
+    /** The source lines of the methods with one name: of those with a transformer annotation, of the others. */
+    record Lines(Set<Integer> transformer, Set<Integer> other) {
+    }
+
+    /** The names of the methods of one class file (JVM specification, chapter 4) that carry a transformer annotation,
+     *  with the lines of every method of that name (empty without line numbers). */
+    static Map<String, Lines> transformerMethods(byte[] bytes, String where) throws IOException {
+        Map<String, Set<Integer>> transformers = new HashMap<>();
+        Map<String, Set<Integer>> others = new HashMap<>();
+        try {
+            DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes));
+            if (in.readInt() != 0xCAFEBABE) {
+                throw new IOException("not a class file");
+            }
+            skip(in, 4);                                                // minor and major version
+            String[] utf8 = new String[in.readUnsignedShort()];
+            for (int i = 1; i < utf8.length; i++) {
+                int tag = in.readUnsignedByte();
+                switch (tag) {
+                    case 1 -> utf8[i] = in.readUTF();                   // modified UTF-8, the format of DataInput
+                    case 7, 8, 16, 19, 20 -> skip(in, 2);
+                    case 15 -> skip(in, 3);
+                    case 3, 4, 9, 10, 11, 12, 17, 18 -> skip(in, 4);
+                    case 5, 6 -> {
+                        skip(in, 8);
+                        i++;                                            // a long or a double takes two entries
+                    }
+                    default -> throw new IOException("unknown constant pool tag " + tag);
+                }
+            }
+            skip(in, 6);                                                // access flags, this class, super class
+            skip(in, 2 * in.readUnsignedShort());                       // interfaces
+            for (int fields = in.readUnsignedShort(); fields > 0; fields--) {
+                skip(in, 6);
+                for (int attributes = in.readUnsignedShort(); attributes > 0; attributes--) {
+                    skip(in, 2);
+                    skip(in, in.readInt());
+                }
+            }
+            for (int methods = in.readUnsignedShort(); methods > 0; methods--) {
+                skip(in, 2);                                            // access flags
+                String method = utf8[in.readUnsignedShort()];
+                skip(in, 2);                                            // descriptor
+                boolean transformer = false;
+                Set<Integer> lines = new HashSet<>();
+                for (int attributes = in.readUnsignedShort(); attributes > 0; attributes--) {
+                    String attribute = utf8[in.readUnsignedShort()];
+                    DataInputStream a = new DataInputStream(new ByteArrayInputStream(bytes(in, in.readInt())));
+                    if ("RuntimeVisibleAnnotations".equals(attribute)) {
+                        for (int n = a.readUnsignedShort(); n > 0; n--) {
+                            transformer |= TRANSFORMER_ANNOTATIONS.contains(utf8[a.readUnsignedShort()]);
+                            skipElementValuePairs(a);
+                        }
+                    } else if ("Code".equals(attribute)) {
+                        skip(a, 4);                                     // max stack, max locals
+                        skip(a, a.readInt());                           // the bytecode
+                        skip(a, 8 * a.readUnsignedShort());             // the exception table
+                        for (int n = a.readUnsignedShort(); n > 0; n--) {
+                            String codeAttribute = utf8[a.readUnsignedShort()];
+                            int length = a.readInt();
+                            if (!"LineNumberTable".equals(codeAttribute)) {
+                                skip(a, length);
+                                continue;
+                            }
+                            for (int entries = a.readUnsignedShort(); entries > 0; entries--) {
+                                skip(a, 2);                             // start pc
+                                lines.add(a.readUnsignedShort());
+                            }
+                        }
+                    }
+                }
+                (transformer ? transformers : others).computeIfAbsent(method, k -> new HashSet<>()).addAll(lines);
+            }
+        } catch (IOException | RuntimeException e) {
+            throw new IOException("cannot read the glue class " + where + ": " + e, e);
+        }
+        Map<String, Lines> found = new HashMap<>();
+        transformers.forEach((method, lines) -> found.put(method, new Lines(lines, others.getOrDefault(method, Set.of()))));
         return found;
     }
 
-    /** Index just past the parenthesis that closes the one at open; strings are skipped. */
-    static int closing(String text, int open) {
-        int depth = 0;
-        char quote = 0;
-        for (int i = open; i < text.length(); i++) {
-            char c = text.charAt(i);
-            if (quote != 0) {
-                if (c == '\\') {
-                    i++;
-                } else if (c == quote) {
-                    quote = 0;
-                }
-            } else if (c == '"' || c == '\'') {
-                quote = c;
-            } else if (c == '(') {
-                depth++;
-            } else if (c == ')' && --depth == 0) {
-                return i + 1;
-            }
+    /** Skips the element-value pairs of an annotation whose type index was just read. */
+    static void skipElementValuePairs(DataInputStream a) throws IOException {
+        for (int pairs = a.readUnsignedShort(); pairs > 0; pairs--) {
+            skip(a, 2);                                                 // the element's name
+            skipElementValue(a);
         }
-        return text.length();
+    }
+
+    static void skipElementValue(DataInputStream a) throws IOException {
+        int tag = a.readUnsignedByte();
+        switch (tag) {
+            case 'B', 'C', 'D', 'F', 'I', 'J', 'S', 'Z', 's', 'c' -> skip(a, 2);
+            case 'e' -> skip(a, 4);                                     // an enum constant: its type and name
+            case '@' -> {                                               // a nested annotation
+                skip(a, 2);
+                skipElementValuePairs(a);
+            }
+            case '[' -> {
+                for (int n = a.readUnsignedShort(); n > 0; n--) {
+                    skipElementValue(a);
+                }
+            }
+            default -> throw new IOException("unknown annotation element tag " + tag);
+        }
+    }
+
+    /** Skips exactly n bytes of a class file: a length beyond its end is a broken class file, not a shorter one. */
+    static void skip(DataInputStream in, int n) throws IOException {
+        if (n < 0 || n > in.available()) {
+            throw new IOException("truncated class file");
+        }
+        in.skipNBytes(n);
+    }
+
+    static byte[] bytes(DataInputStream in, int n) throws IOException {
+        if (n < 0 || n > in.available()) {
+            throw new IOException("truncated class file");
+        }
+        return in.readNBytes(n);
     }
 
     /** The manifest's line of the first step that uses the mutated column; 0 when unknown (an older manifest). */
@@ -10622,7 +11284,7 @@ public class GherkinMutator {
 
     /** Cucumber reports a step without a matching definition with this specific exception. */
     static boolean undefinedStep(Element failure) {
-        String text = failure.getAttribute("type") + " " + failure.getTextContent();
+        String text = failure.getAttribute("type") + " " + trace(failure);
         return text.contains("UndefinedStepException");
     }
 
@@ -10648,18 +11310,33 @@ public class GherkinMutator {
         return false;
     }
 
-    static List<String> csv(String s) {
+    /** The glue classpath of the verdict: every --glue entry, then the entries of --glue-file; null = none given
+     *  (transformers are then not told apart, as without a classpath at all). */
+    static Glue glue(List<String> entries, String listFile) throws IOException {
+        if (entries.isEmpty() && listFile == null) {
+            return null;
+        }
+        List<String> classpath = new ArrayList<>(entries);
+        if (listFile != null) {
+            classpath.addAll(pathList(Path.of(listFile)));
+        }
+        return new Glue(classpath);
+    }
+
+    /** The paths of a list file, each ended by a NUL character ({@code git diff --name-only -z}), exactly as written. */
+    static List<String> pathList(Path file) throws IOException {
         List<String> list = new ArrayList<>();
-        for (String x : s.split(",")) {
-            if (!x.isBlank()) {
-                list.add(x.trim());
+        for (String path : Files.readString(file, StandardCharsets.UTF_8).split("\0")) {
+            if (!path.isEmpty()) {
+                list.add(path);
             }
         }
         return list;
     }
 
+    /** One field of a line-based file: a tab, a line feed or a carriage return (in a file name too) ends nothing. */
     static String tsv(String s) {
-        return s.replace('\t', ' ').replace('\n', ' ');
+        return s.replace('\t', ' ').replace('\n', ' ').replace('\r', ' ');
     }
 
     static void deleteRecursively(Path dir) throws IOException {

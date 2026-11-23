@@ -276,6 +276,7 @@ class TestSelection(IntegrityCase):
         "engines in a block that names no declared task": "fooTest { useJUnitPlatform { includeEngines 'junit-jupiter' } }",
         "empty parentheses before the block": "tasks.withType(Test).configureEach() { exclude '**/OrdersTest*' }",
         "configure with empty parentheses": "tasks.named('test').configure() { exclude '**/OrdersTest*' }",
+        "all with empty parentheses": "tasks.withType(Test).all() { exclude '**/OrdersTest*' }",
         "doFirst with empty parentheses": "test { doFirst() { include '**/*Fast*' } }",
         "an inner block behind the task": "test.doFirst { setExcludes(['**/OrdersTest*']) }",
         "under a condition": "test {\n    if (!project.hasProperty('all')) {\n        exclude '**/OrdersTest*'\n    }\n}",
@@ -321,6 +322,8 @@ class TestSelection(IntegrityCase):
         "a JVM test suite the gauntlet does not run":
             "testing { suites { componentTest(JvmTestSuite) { targets { all { testTask.configure { exclude '**/X*' } } } } } }",
         "a suite reached by its path": "testing.suites.integrationTest.targets.all { testTask.configure { exclude '**/X*' } }",
+        "a suite configured by its name inside suites":
+            "testing { suites { integrationTest { targets { all { testTask.configure { exclude '**/X*' } } } } } }",
         "engines of a task the gauntlet does not run":
             "tasks.register('smokeTest', Test) { useJUnitPlatform { includeEngines 'junit-jupiter' } }",
         "categories of a declared task": "task integrationTest(type: Test) { useJUnit { includeCategories 'a.Slow' } }",

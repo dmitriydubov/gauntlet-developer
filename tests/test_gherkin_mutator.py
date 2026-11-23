@@ -409,6 +409,24 @@ class WhereItFailed(Sandbox):
         self.assertIn("MUTANT ERROR    m1 failed on line 5, before the first step that uses <price> (line 7) - the changed"
                       " value did not cause it, not a kill", out)
 
+    def test_a_failure_of_a_mutant_whose_column_no_step_uses_kills_nothing(self):
+        # review of 7061885: uses=0 (a Then with a literal, a column only in the scenario title) read as "unknown", so a
+        # stand failure that hit only the mutant's run was a kill and the survivor that flags the spec went green
+        self.manifest_with_uses(0)
+        write_results(self.results, [(control_name(1), PASSED), (mutant_name(1), in_step())])
+        code, out = self.run_verdict()
+        self.assertEqual(1, code, out)
+        self.assertIn("0 killed, 0 survived, 1 error(s)", self.summary(out))
+        self.assertIn("MUTANT ERROR    m1 failed, but no step uses <price> (the scenario title at most) - the changed"
+                      " value did not cause it, not a kill", out)
+
+    def test_a_mutant_whose_column_no_step_uses_survives(self):
+        self.manifest_with_uses(0)
+        write_results(self.results, [(control_name(1), PASSED), (mutant_name(1), PASSED)])
+        code, out = self.run_verdict()
+        self.assertEqual(1, code, out)
+        self.assertIn("MUTANT SURVIVED m1", out)
+
     def test_a_step_that_fails_where_the_value_is_used_kills(self):
         for uses in (5, 4):
             with self.subTest(uses=uses):

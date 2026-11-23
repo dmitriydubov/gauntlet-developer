@@ -13,6 +13,7 @@ import importlib.util
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -287,6 +288,22 @@ REDIRECTIONS = (
 # a file descriptor is no file
 NO_FILE = ("echo x >&2", "echo x 2>&1", "echo x >&-", "echo x 1>&2-", "echo x > >(cat)",
            'exec {fd}>&2; echo x 2>&"$fd"')
+# >& with a word the guard cannot compute (a variable): bash writes the file after >& and 1>&, and after any other
+# descriptor or {name} takes the word for a descriptor - one that is no number is an "ambiguous redirect", no file
+UNKNOWN_AFTER_DUP = (
+    ('f=out.txt; echo x >&"$f"', True),
+    ('f=out.txt; echo x 1>&"$f"', True),
+    ('f=out.txt; echo x 01>&"$f"', True),
+    ('f=out.txt; echo x >& "$f"', True),
+    ('f=out.txt; echo x a2>&"$f"', True),
+    ('f=out.txt; echo x 2 >&"$f"', True),
+    ('f=out.txt; { echo x; }>&"$f"', True),
+    ('f=out.txt; echo x 2>&"$f"', False),
+    ('f=out.txt; echo x 3>&"$f"', False),
+    ('f=out.txt; (echo x)2>&"$f"', False),
+    ('f=out.txt; exec {fd}>&"$f"', False),
+    ('exec {saved}>&2; echo x 2>&"$saved"', False),
+)
 
 
 @unittest.skipUnless(shutil.which("bash"), "needs bash")
@@ -342,6 +359,66 @@ class RedirectionsAgainstBash(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertEqual(self.written_by_bash(command), set(), "the corpus is wrong: bash wrote a file")
                 self.assertEqual(self.judged_by_guard(command), set())
+
+    def test_a_variable_after_the_duplication_operator_is_a_file_where_bash_makes_one(self):
+        # review of 7061885: f578834 took every word it could not compute after >& for a descriptor, and the reviewer
+        # wrote through `>&"$output"`; efa4c50 had taken it for a file even after 2>&, and denied restoring stderr
+        g = self.guard
+        for command, writes in UNKNOWN_AFTER_DUP:
+            with self.subTest(command=command):
+                self.assertEqual(bool(self.written_by_bash(command)), writes, "the corpus is wrong")
+                code = g.shell_code(command)
+                neutral = g.QUOTED.sub(lambda m: re.sub(r"[>;&|()`\n]", "_", m.group(0)), code)
+                targets = [t for segment, _, at in g.walk(g.segments_scoped(neutral), self.work, self.work)
+                           for t in g.redirect_targets(segment, at, self.work)]
+                self.assertEqual(bool(targets), writes, targets)
+
+
+class UnreadableCommand(unittest.TestCase):
+    """A command the guard cannot read in time or at all is refused: a hook that crashes or exceeds Claude Code's timeout
+    lets the command run (review of 7061885: 1000 nested $( ... ) overflowed the reader, 300 took a minute)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.guard = load_guard()
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="gauntlet-unreadable-")
+        self.addCleanup(self.tmp.cleanup)
+        self.ctx = self.guard.Context(self.tmp.name)
+
+    @staticmethod
+    def nested(levels, quoted_paren=False):
+        command = "touch gauntlet/config/x"
+        for _ in range(levels):
+            command = f"echo ')' $({command})" if quoted_paren else f"echo $({command})"
+        return command
+
+    def test_deep_nesting_is_refused_before_it_is_read(self):
+        reason = self.guard.bash_violation("main", self.nested(300), self.ctx, self.tmp.name)
+        self.assertIn("cannot judge", reason or "")
+        self.assertIn("300 levels", reason)
+
+    def test_a_reading_that_overflows_is_refused(self):
+        command = self.nested(1000, quoted_paren=True)
+        self.assertLessEqual(self.guard.nesting_depth(command), self.guard.MAX_NESTING, "the count must be fooled here")
+        self.assertIn("nests too deeply", self.guard.bash_violation("main", command, self.ctx, self.tmp.name) or "")
+
+    @unittest.skipUnless(hasattr(signal, "SIGALRM"), "needs SIGALRM")
+    def test_a_reading_that_runs_out_of_time_is_refused(self):
+        command = self.nested(300, quoted_paren=True)
+        self.assertLessEqual(self.guard.nesting_depth(command), self.guard.MAX_NESTING, "the count must be fooled here")
+        before = self.guard.JUDGE_SECONDS
+        self.guard.JUDGE_SECONDS = 1
+        try:
+            reason = self.guard.bash_violation("main", command, self.ctx, self.tmp.name)
+        finally:
+            self.guard.JUDGE_SECONDS = before
+        self.assertIn("longer than 1 s", reason or "")
+
+    def test_a_command_of_ordinary_depth_is_judged_as_before(self):
+        reason = self.guard.bash_violation("main", self.nested(10), self.ctx, self.tmp.name)
+        self.assertIn("could modify gauntlet", reason or "")
 
 
 if __name__ == "__main__":

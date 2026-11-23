@@ -300,6 +300,65 @@ class TestSelection(IntegrityCase):
                                                       "    if (name == 'integrationTest') { include '**/*IT*' } else { exclude '**/*IT*' }\n}",
         "the patterns changed in with { }": "test.excludes.with { add('**/WithTest*') }",
         "the patterns changed in tap { }": "test { excludes.tap { add('**/TapTest*') } }",
+        # Groovy reads an operator or a call on the next line as part of the statement: each of these writes the
+        # patterns on Gradle 8.14.3 (7061885 round)
+        "the property assigned on the next line": "test {\n    excludes\n        = ['**/OrdersTest*']\n}",
+        "the patterns added to on the next line": "test {\n    excludes\n        += ['**/OrdersTest*']\n}",
+        "the patterns taken from on the next line": "test {\n    excludes\n        -= ['**/OrdersTest*']\n}",
+        "<< on the next line": "test {\n    excludes\n        << '**/OrdersTest*'\n}",
+        "?= on the next line": "test {\n    excludes\n        ?= ['**/OrdersTest*']\n}",
+        "a call on the next line": "test {\n    excludes\n        .add('**/OrdersTest*')\n}",
+        "a line comment before the operator": "test {\n    excludes // the slow one\n        = ['**/OrdersTest*']\n}",
+        "a block comment over lines before the operator": "test {\n    excludes /* the slow\n       one */ = ['**/OrdersTest*']\n}",
+        "a backslash before the line break": "test {\n    excludes \\\n        = ['**/OrdersTest*']\n}",
+        "a call after a backslash": "test {\n    excludes \\\n        .add('**/OrdersTest*')\n}",
+        "a blank line before the operator": "test {\n    excludes\n\n        = ['**/OrdersTest*']\n}",
+        "includes on the next line": "test {\n    includes\n        = ['**/*Fast*']\n}",
+        "the property on the task, assigned on the next line": "test.excludes\n    = ['**/OrdersTest*']",
+        "a property named by a string, assigned on the next line": "test['excludes']\n    = ['**/OrdersTest*']",
+        "a subscript closed on the next line": "test['excludes'\n    ] = ['**/OrdersTest*']",
+        "a quoted property assigned on the next line": "test.\"excludes\"\n    = ['**/OrdersTest*']",
+        "it, assigned on the next line": "tasks.withType(Test).configureEach {\n    it.excludes\n        = ['**/OrdersTest*']\n}",
+        "the parameter, added to on the next line": "tasks.withType(Test).configureEach { t ->\n    t.excludes\n"
+                                                    "        += ['**/OrdersTest*']\n}",
+        "named test, assigned on the next line": "tasks.named('test') {\n    excludes\n        = ['**/OrdersTest*']\n}",
+        "every Test task, assigned on the next line": "tasks.withType(Test) {\n    excludes\n        = ['**/OrdersTest*']\n}",
+        "inside doFirst, << on the next line": "test {\n    doFirst {\n        excludes\n            << '**/OrdersTest*'\n    }\n}",
+        "under a condition, assigned on the next line": "test {\n    if (System.getenv('CI')) {\n        includes\n"
+                                                        "            = ['**/*Fast*']\n    }\n}",
+        # a condition on some other name than the task's chooses no task (7061885 round)
+        "a condition on the project's name": "test {\n    if (project.name == 'billing') {\n        exclude '**/OrdersTest*'\n    }\n}",
+        "a condition on the root project's name": "test { if (rootProject.name == 'billing') { exclude '**/OrdersTest*' } }",
+        "a property called name in a string": "test { if (project.hasProperty('name')) { exclude '**/OrdersTest*' } }",
+        "os.name in a string": "test { if (System.getProperty('os.name').contains('Linux')) { exclude '**/OrdersTest*' } }",
+        "a loop variable called name": "test { for (name in ['a']) { exclude '**/OrdersTest*' } }",
+        "a catch parameter called name": "test { try { file('x').text } catch (Exception name) { exclude '**/OrdersTest*' } }",
+        "an else-if on the project's name": "test {\n    if (System.getenv('CI')) {\n        println 'ci'\n"
+                                            "    } else if (project.name == 'billing') {\n        exclude '**/OrdersTest*'\n    }\n}",
+        "a while on the project's name": "test { while (project.name == 'billing') { exclude '**/OrdersTest*'; break } }",
+        "a switch on the project's name": "test { switch (project.name) { case 'billing': println 'billing'; "
+                                          "exclude '**/OrdersTest*'; break } }",
+        # one named task has one name: a condition on it chooses nothing
+        "the task's own name": "test { if (name == 'test') { exclude '**/OrdersTest*' } }",
+        "the task's own name in a lookup": "tasks.named('test') { if (name == 'test') { exclude '**/OrdersTest*' } }",
+        "the acceptance tests under their own name": "acceptanceTest { if (name == 'acceptanceTest') { exclude '**/*' } }",
+        # in every Test task only the task's own name chooses one
+        "the project's name in every Test task": "tasks.withType(Test) { t ->\n"
+                                                 "    if (project.name == 'billing') { t.exclude '**/OrdersTest*' }\n}",
+        "the project's name behind it": "tasks.withType(Test).configureEach { if (it.project.name == 'billing') "
+                                        "{ exclude '**/OrdersTest*' } }",
+        "a name behind a chain in every Test task": "tasks.withType(Test).configureEach { if (gradle.rootProject.name == "
+                                                    "'billing') { exclude '**/OrdersTest*' } }",
+        "a file's name in every Test task": "tasks.withType(Test).configureEach { if (file('x').name.endsWith('x')) "
+                                            "{ exclude '**/OrdersTest*' } }",
+        "os.name in every Test task": "tasks.withType(Test).configureEach { if (System.getProperty('os.name')"
+                                      ".contains('Linux')) { exclude '**/OrdersTest*' } }",
+        # a Groovy closure's this is the script: this.name is the project's name (checked on Gradle 8.14.3)
+        "this.name in every Test task": "tasks.withType(Test) { if (this.name == 'billing') { exclude '**/OrdersTest*' } }",
+        "a loop variable called name in every Test task": "tasks.withType(Test).configureEach { for (String name : ['a']) "
+                                                          "{ exclude '**/OrdersTest*' } }",
+        "a catch parameter called name in every Test task": "tasks.withType(Test) { try { file('x').text } "
+                                                            "catch (Exception name) { exclude '**/OrdersTest*' } }",
     }
     FREE = {
         "jar": "jar { exclude 'META-INF/*.SF' }",
@@ -344,6 +403,29 @@ class TestSelection(IntegrityCase):
                                              "    if (name in ['integrationTest', 'e2eTest']) { include '**/*IT*' }\n}",
         "a condition on the parameter's name": "tasks.withType(Test).configureEach { t ->\n"
                                                "    if (t.name.startsWith('integration')) { t.include '**/*IT*' }\n}",
+        "a condition on it.name": "tasks.withType(Test).configureEach { if (it.name == 'integrationTest') { include '**/*IT*' } }",
+        "a condition on delegate.name": "tasks.withType(Test).configureEach { if (delegate.name == 'integrationTest') "
+                                        "{ include '**/*IT*' } }",
+        "a condition on getName()": "tasks.withType(Test) { if (getName() == 'integrationTest') { include '**/*IT*' } }",
+        "a condition on the start of the name": "tasks.withType(Test).configureEach { if (name.startsWith('integration')) "
+                                                "{ include '**/*IT*' } }",
+        "a condition on the name in the testTask of every suite": "testing { suites { configureEach { targets.all { "
+                                                                  "testTask.configure {\n    if (name == 'integrationTest') "
+                                                                  "{ include '**/*IT*' }\n} } } } }",
+        # a condition on some other name inside a task the gauntlet does not run: the selection is still that task's
+        "engines of a task the gauntlet does not run, under a condition on os.name":
+            "tasks.register('smokeTest', Test) {\n    if (System.getProperty('os.name').contains('Linux')) "
+            "{ useJUnitPlatform { includeEngines 'junit-jupiter' } }\n}",
+        "filter patterns of a declared task, under a condition on the project's name":
+            "tasks.register('smokeTest', Test)\nsmokeTest { if (project.name == 'billing') "
+            "{ filter { includePatterns = ['*Smoke*'] } } }",
+        # what only reads the patterns, whatever follows on the next line
+        "a comparison on the next line": "test { doFirst { println(excludes\n    == [] as Set) } }",
+        "a match on the next line": "test { doFirst { println(excludes\n    =~ /Orders/) } }",
+        "the patterns read, a statement on the next line": "test {\n    doFirst {\n        println excludes\n"
+                                                           "        println 'all tests'\n    }\n}",
+        "the patterns in a string, an assignment on the next line": "test {\n    description = \"${excludes}\"\n"
+                                                                    "    maxParallelForks = 2\n}",
     }
     KOTLIN_B2 = {
         "the test accessor": "tasks.test { exclude(\"**/OrdersTest*\") }",
@@ -364,6 +446,13 @@ class TestSelection(IntegrityCase):
         "the patterns changed in apply { }": "tasks.test { excludes.apply { add(\"**/OrdersTest*\") } }",
         "the patterns changed by plusAssign": "tasks.test { excludes.plusAssign(\"**/OrdersTest*\") }",
         "the patterns changed in with(...) { }": "tasks.test { with(excludes) { add(\"**/OrdersTest*\") } }",
+        "under a condition on the project's name": "tasks.test { if (project.name == \"billing\") { exclude(\"**/OrdersTest*\") } }",
+        "when on the project's name": "tasks.test { when (project.name) { \"billing\" -> exclude(\"**/OrdersTest*\") } }",
+        "the task's own name": "tasks.test { if (name == \"test\") { exclude(\"**/OrdersTest*\") } }",
+        "the task's own name, named with a type": "tasks.named<Test>(\"test\") { if (name == \"test\") "
+                                                  "{ exclude(\"**/OrdersTest*\") } }",
+        "os.name in every Test task": "tasks.withType<Test>().configureEach { if (System.getProperty(\"os.name\")"
+                                      ".contains(\"Linux\")) { exclude(\"**/OrdersTest*\") } }",
     }
     KOTLIN_FREE = {
         "the jar accessor": "tasks.jar { exclude(\"META-INF/*.SF\") }",
@@ -379,6 +468,14 @@ class TestSelection(IntegrityCase):
                                                   "{ targets.all { testTask.configure { exclude(\"**/X*\") } } }",
         "a condition on the task's name": "tasks.withType<Test>().configureEach { when (name) { \"integrationTest\" -> "
                                           "{ include(\"**/*IT*\") } } }",
+        # a braced arm is a block of its own and never looked through: only a bare arm pins the name condition
+        "a condition on the task's name with a bare arm": "tasks.withType<Test>().configureEach { when (name) "
+                                                          "{ \"integrationTest\" -> include(\"**/*IT*\") } }",
+        "a condition on this.name": "tasks.withType<Test>().configureEach { if (this.name == \"integrationTest\") "
+                                    "{ include(\"**/*IT*\") } }",
+        "engines of a registered task under a condition on the project's name":
+            "tasks.register<Test>(\"smokeTest\") { if (project.name == \"billing\") "
+            "{ useJUnitPlatform { includeEngines(\"junit-jupiter\") } } }",
     }
 
     def test_every_filter_of_a_test_task_is_b2(self):

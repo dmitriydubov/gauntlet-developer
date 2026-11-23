@@ -779,6 +779,46 @@ class GherkinHarness(GradleCase):
                 if parallel:    # the project's own acceptance run keeps its parallel mode
                     self.assertIn("purchase on ForkJoinPool-", results("test-results/acceptanceTest"))
 
+    def test_a_mutant_run_the_project_changed_after_the_kit_is_refused(self):
+        # a doFirst registered before the kit - tasks.withType(Test) above the apply line, as a convention plugin,
+        # allprojects or an init script registers it - runs after the kit's: its provider won, the scenarios ran in
+        # parallel (or at random on Cucumber 8), both controls ran before the mutant, the stand's quota failed it - a
+        # kill - and the gate passed; its forks went through as well (review of 7061885). The kit judges the settings
+        # once the mutants have run, and a run without the kit's provider is refused as well.
+        self.project(example=False)
+        self.file(GLUE + "CreditSteps.java", CREDIT_STEPS)
+        self.file(GLUE + "PurchaseSteps.java", PURCHASE_STEPS)
+        self.file(FEATURES + "credits.feature", CREDITS)
+        build = os.path.join(self.lab, "build.gradle")
+        plain = kit.read(build)
+        apply = "apply from: 'gauntlet/gauntlet.gradle'"
+
+        def provider(properties):
+            arguments = ", ".join(f"'-D{key}={value}'" for key, value in properties.items())
+            return "        jvmArgumentProviders.add({ [" + arguments + "] } as CommandLineArgumentProvider)\n"
+
+        variants = {    # the project's doFirst, Cucumber, what the kit names
+            "a provider that runs the scenarios in parallel": (provider(PARALLEL), CUCUMBER,
+                                                               "cucumber.execution.parallel.enabled=true"),
+            "forks": ("        maxParallelForks = 2\n        forkEvery = 1\n", CUCUMBER,
+                      "maxParallelForks=2, forkEvery=1"),
+            "a provider of a random order on Cucumber 8": (
+                provider({"cucumber.execution.order": "random", "cucumber.execution.order.random.seed": "7"}), "8.0.1",
+                "cucumber.execution.order=random"),
+            "the kit's provider removed": ("        jvmArgumentProviders.clear()\n", CUCUMBER,
+                                           "cucumber.execution.parallel.enabled=unset, cucumber.execution.order=unset"),
+        }
+        for what, (block, version, named) in variants.items():
+            with self.subTest(what):
+                kit.write(build, plain.replace(apply, "tasks.withType(Test).configureEach {\n    doFirst {\n" + block
+                                               + "    }\n}\n" + apply, 1))
+                kit.set_property(self.lab, "cucumber.version", version)
+                self.commit(what)
+                r = self.gradle("gherkinMutation", "-Pgauntlet.scope=all")
+                self.assert_build(r, False)
+                self.assertIn("gauntlet: gherkinMutantsRun ran with " + named + ": its controls prove nothing", r.out)
+                self.assertNotIn("Gherkin mutation: OK", r.out)
+
     def test_a_stand_failure_in_a_step_whose_text_holds_a_line_break_kills_nothing(self):
         # the address cell holds \n, so the Given's text - and Cucumber's step frame - holds a line break. The stand
         # is down while the mutant of <count> runs, in that Given, before the hollow Then that first uses <count>. Read
@@ -1308,7 +1348,8 @@ class HardenerStop(GradleCase):
     hook of .claude/settings.json that re-runs mutationGate before the hardener may finish. PIT's incremental analysis
     kept a KILLED verdict while the mutated class and the killing test's class were unchanged, and a SURVIVED one while
     the covering test classes were: a test changed through its test data kept its old verdict, and the hook took it
-    over from the hardener's last run (pitest UP-TO-DATE). CI starts without the history (review of efa4c50)."""
+    over from the hardener's last run (pitest UP-TO-DATE). CI starts without the default history (review of efa4c50);
+    a history the project configures itself did the same, from the checkout as well (review of 7061885)."""
 
     PRICES = ("package com.example.service.domain;\n\npublic class Prices {\n    public int fee(int amount) {\n"
               "        if (amount > 0) {\n            return 5;\n        }\n        return 0;\n    }\n}\n")
@@ -1368,6 +1409,47 @@ class HardenerStop(GradleCase):
         self.assertIn("PIT summary: 3 mutant(s) {KILLED=3}", r.out)             # was the old survivor
         r = self.hardener_stops()
         self.assertEqual(r.code, 0, r)
+
+    def test_a_history_the_project_configures_stops_the_hardener(self):
+        # the plugin hands PIT the project's own history files with enableDefaultIncrementalAnalysis off as well, and
+        # the project can turn the flag on again: "Incremental analysis reduced number of mutations by 3", the weakened
+        # test kept its kills, mutationGate and the hook passed - also with the files in the checkout and build/ wiped,
+        # as in a fresh clone (review of 7061885). Each form gets a project, a session and a hook state of its own.
+        history = ("    historyInputLocation = layout.buildDirectory.file('application-pit.history')\n"
+                   "    historyOutputLocation = layout.buildDirectory.file('application-pit.history')\n")
+        in_checkout = history.replace("layout.buildDirectory", "layout.projectDirectory")
+        apply = "apply from: 'gauntlet/gauntlet.gradle'"
+        forms = {   # what build.gradle adds before the kit / after it, build/ wiped before the second run
+            "pitest {} before the kit": ("pitest {\n" + history + "}\n", "", False),
+            "pitest {} after the kit": ("", "pitest {\n" + history + "}\n", False),
+            "files in the checkout, build/ wiped": ("pitest {\n" + in_checkout + "}\n", "", True),
+            "on the task": ("", "tasks.named('pitest') {\n" + history + "}\n", False),
+            "the flag turned on after the kit": ("", "pitest {\n    enableDefaultIncrementalAnalysis = true\n}\n",
+                                                 False),
+        }
+        refused = "gauntlet: PIT incremental analysis is configured for this build"
+        base = self.tmp
+        for n, (form, (before, after, wipe)) in enumerate(forms.items()):
+            with self.subTest(form):
+                self.tmp = os.path.join(base, str(n))
+                self.lab = os.path.join(self.tmp, "lab")
+                self.start_session()
+                build = os.path.join(self.lab, "build.gradle")
+                kit.write(build, kit.read(build).replace(apply, before + apply, 1) + after)
+                self.prices(boundary=0)
+                self.commit("prices")
+                r = self.gradle("mutationGate", "--continue")
+                self.assert_build(r, False)
+                self.assertIn(refused, r.out)
+                self.prices(boundary=-1)
+                if wipe:
+                    shutil.rmtree(os.path.join(self.lab, "build"))
+                r = self.gradle("mutationGate", "--continue")
+                self.assert_build(r, False)
+                self.assertIn(refused, r.out)
+                r = self.hardener_stops()
+                self.assertEqual(r.code, 2, r)
+                self.assertIn(refused, r.out)
 
 
 if __name__ == "__main__":

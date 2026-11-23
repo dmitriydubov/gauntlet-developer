@@ -562,19 +562,31 @@ ArchUnit-тест, шаблоны, установку и документаци�
   - Уточнения после ответов ревьюерам: `README.md`, раздел 9 — код интерпретатора хук может принять за запись
     (inline-код python, node и ruby всегда, perl со словом записи не в шаблоне поиска); отказ получает не только
     ревьюер, но и остальные роли, когда в тексте команды назван защищённый путь.
+  - Ревью головы `7061885` (Codex, Kimi, Grok, Qwen), по уточнённому правилу остановки: регресс исправляется, только
+    если это ложный зелёный или ложный красный без обходного пути, и только ужесточением:
+    - `hooks/guard.py`: после `>&` слово — файл так, как его берёт bash (`>&` и `1>&` пишут файл и с переменной,
+      после другого дескриптора файла нет); команду, которую хук не может прочитать (`$( … )` глубже 32 уровней,
+      чтение дольше 20 с), он отклоняет.
+    - `tools/IntegrityCheck.java`: запись в `excludes`/`includes` со следующей строки и условие на чужое имя внутри
+      блока задачи гейта — находка B2.
+    - `gauntlet.gradle`: история PIT, которую задаёт проект, останавливает гейт; после прогона мутантов набор
+      сверяет форки и `-D` и падает, если `doFirst` проекта их перебил.
+    - `tools/GherkinMutator.java`: падение мутанта колонки, которую не использует ни один шаг, — ошибка, а не kill.
+    - Чего набор не видит и где он перестраховывается — `README.md`, раздел 9.
   - Роли: `hardener` чинит красный контроль в тестовом коде (`@Before`), правка фичи — вопрос человеку.
 - `.claude/agents/specifier.md`, `hardener.md`, `gauntlet/CLAUDE.md`: сценарий обязан исполняться сам по себе;
   красный контроль — зависимость сценария от соседнего или от стенда, а не слабое step-определение.
-- `hooks/selftest.py`: 997 → 2629 проверок (сокращения и их разрешающие контроли, конфигурация git, `gh`,
+- `hooks/selftest.py`: 997 → 2650 проверок (сокращения и их разрешающие контроли, конфигурация git, `gh`,
   оболочки/обёртки/вложенный код для human-only, путей и ролей, чтение командной строки, каталог после `cd`,
   перенаправления, `gh api`, чтения ревьюера, `buildSrc`, вывод при таймауте, `$'…'`, код perl в кавычках,
-  шаблоны perl, каталог фич с `./`, цель перенаправления как слово bash, `readpipe`). `README.md`,
+  шаблоны perl, каталог фич с `./`, цель перенаправления как слово bash, `readpipe`, `>&` с переменной, команда,
+  которую хук не может прочитать). `README.md`,
   `INSTALL.md`, `config/gauntlet.properties` — описание синхронизировано.
-- Проверки: `python3 tests/run.py` в репозитории набора (распакованный бандл): самопроверка хуков 2629/2629,
+- Проверки: `python3 tests/run.py` в репозитории набора (распакованный бандл): самопроверка хуков 2650/2650,
   инструменты, установщик, shell-шаги CI, побайтная пересборка; реальные Gradle 8.14.3/JDK 21 и 25, Cucumber
-  7.23.0 и 8.0.1 — полный `gauntlet` на примере (9/9 Gherkin-мутантов, 6 контролей, PIT 2/2) и 47 сценариев находок;
+  7.23.0 и 8.0.1 — полный `gauntlet` на примере (9/9 Gherkin-мутантов, 6 контролей, PIT 2/2) и 49 сценариев находок;
   регрессионный набор репозитория прошёл в GitHub Actions (`.github/workflows/kit-tests.yml`, ubuntu-24.04,
-  257 тестов); workflow самого набора (`gauntlet.yml`) там не исполняется: его шаги проверены локально как shell.
+  266 тестов); workflow самого набора (`gauntlet.yml`) там не исполняется: его шаги проверены локально как shell.
 
 ## Как распаковать (Claude выполняет это на шаге 2 протокола `start`)
 
@@ -608,8 +620,8 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 - `.github/workflows/gauntlet.yml` (7658 байт)
 - `CLAUDE.md` (279 байт)
 - `gauntlet/CLAUDE.md` (65401 байт)
-- `gauntlet/INSTALL.md` (16010 байт)
-- `gauntlet/README.md` (86727 байт)
+- `gauntlet/INSTALL.md` (17017 байт)
+- `gauntlet/README.md` (95176 байт)
 - `gauntlet/archtest/gauntlet/architecture/ArchitectureTest.java` (7999 байт)
 - `gauntlet/config/architecture.properties` (1420 байт)
 - `gauntlet/config/checkstyle.xml` (4593 байт)
@@ -618,9 +630,9 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 - `gauntlet/config/integrity-allowlist.txt` (445 байт)
 - `gauntlet/config/pit-runerror-allowlist.txt` (1485 байт)
 - `gauntlet/config/pmd-ruleset.xml` (11398 байт)
-- `gauntlet/gauntlet.gradle` (68034 байт)
-- `gauntlet/hooks/guard.py` (110040 байт)
-- `gauntlet/hooks/selftest.py` (135116 байт)
+- `gauntlet/gauntlet.gradle` (71481 байт)
+- `gauntlet/hooks/guard.py` (112844 байт)
+- `gauntlet/hooks/selftest.py` (136597 байт)
 - `gauntlet/hooks/session_start.sh` (3116 байт)
 - `gauntlet/hooks/stop_gate.py` (22315 байт)
 - `gauntlet/install.sh` (12194 байт)
@@ -628,8 +640,8 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 - `gauntlet/templates/acceptanceTest/resources/features/example_discount.feature` (1258 байт)
 - `gauntlet/tools/CrapGate.java` (32267 байт)
 - `gauntlet/tools/DryGate.java` (7694 байт)
-- `gauntlet/tools/GherkinMutator.java` (77039 байт)
-- `gauntlet/tools/IntegrityCheck.java` (74424 байт)
+- `gauntlet/tools/GherkinMutator.java` (77741 байт)
+- `gauntlet/tools/IntegrityCheck.java` (77388 байт)
 - `gauntlet/tools/PitSummary.java` (11633 байт)
 
 ## Файлы
@@ -1630,11 +1642,19 @@ apply from: '../gauntlet/gauntlet.gradle'      // последней строк�
 платформы (Windows с JDK 17 или более ранней), локально компилируется. Но гейт на ней падает с находкой E1, и так
 же упадёт CI на Linux.
 
+Если скрипт сборки задаёт историю PIT (`historyInputLocation`, `historyOutputLocation`,
+`enableDefaultIncrementalAnalysis` или `withHistory` в `pitest { }` или у задачи `pitest`), убери её: с историей
+PIT оставляет тесту прежние вердикты. Гейт отклоняет такую сборку, как только впервые запускает PIT; на первом
+прогоне (шаг 6) мутировать нечего, и PIT не запускается.
+
 ## 5. Приёмочные тесты
 - Скопируй `gauntlet/templates/acceptanceTest/java/.../CucumberSpringConfiguration.java` в
   `src/acceptanceTest/java/<пакет из acceptance.glue>/` и поправь `package`.
 - Step-классы (glue) живут только в `src/acceptanceTest/java`. Правку glue в другом месте (отдельный модуль, общий
   source set шагов) область `changed` не видит, и `gherkinMutation` проверит пустое множество.
+- Если сборка настраивает все задачи `Test` в `doFirst` (параллель, `maxParallelForks`, `forkEvery`, провайдеры
+  `-D`) и он зарегистрирован раньше строки `apply`, он не должен касаться `gherkinMutantsRun`: мутанты идут в одном
+  JVM по одному сценарию, и набор проверяет это после прогона.
 - Если контексту нужны PostgreSQL, RabbitMQ и т. п. — добавь в этот класс Testcontainers так же, как в
   существующих интеграционных тестах (`@ServiceConnection` / `@DynamicPropertySource`).
 - Пример фичи `templates/.../example_discount.feature` **не копируй**: это только образец формата.
@@ -1727,7 +1747,7 @@ gauntlet/
   archtest/               ArchUnit-тест, читающий config/architecture.properties
   hooks/                  guard.py (PreToolUse), stop_gate.py (Stop; SubagentStop hardener'а — matcher в
                           .claude/settings.json), session_start.sh (SessionStart; в облаке поднимает dockerd),
-                          selftest.py (2629 проверок хуков в трёх раскладках: python3 gauntlet/hooks/selftest.py)
+                          selftest.py (2650 проверок хуков в трёх раскладках: python3 gauntlet/hooks/selftest.py)
   templates/              конфигурация Cucumber+Spring, пример фичи на русском
   claude/, ci/            только до установки: install.sh переносит их в .claude/ и .github/workflows/
 ```
@@ -1873,7 +1893,7 @@ Auto-fix (кнопка в CI status bar сессии): на упавший CI и
 | фичи есть, а не исполнено ни одного сценария; устаревшие результаты прошлого прогона | `acceptanceCheck` (результаты стираются перед прогоном) |
 | фича без значений «Примеров» проходит `gherkinMutation` вхолостую | `gherkinMutants`: «GHERKIN VACUOUS» по каждому сценарию со своими шагами, но без значений «Примеров»; сценарий без собственных шагов освобождён — Cucumber компилирует для него пустой pickle (Gherkin `compilePickleSteps` не подмешивает Background при пустом списке шагов), исполнять и мутировать нечего |
 | два прогона Gradle в одном `build/` (фоновый прогон, Stop-хук, сабагент) | блокировка `.gradle/gauntlet-build.lock`: второй ждёт до 1500 с (`-Pgauntlet.lockWaitSeconds`) |
-| hardener заканчивает с выжившими мутантами | SubagentStop-хук в `.claude/settings.json` (matcher `^hardener$`) гоняет `mutationGate` |
+| hardener заканчивает с выжившими мутантами | SubagentStop-хук в `.claude/settings.json` (matcher `^hardener$`) гоняет `mutationGate`; без истории PIT: историю, которую задаёт проект, гейт отклоняет |
 | hardener «временно» правит продакшен-файлы ради ручных мутантов (PIT нечего мутировать) | правило роли: мутанты предлагает списком, применяет, гоняет тесты и откатывает кодер, перед коммитом `src/main` проверяется на чистоту; guard по `agent_type` — растяжка, обход через скрипт виден в diff |
 | мутант RUN_ERROR засчитан PIT как убитый, хотя тест не запускался | `PitSummary.java`: RUN_ERROR печатается `UNVERIFIED` и валит `mutationGate`, пока человек не впишет его в `config/pit-runerror-allowlist.txt` |
 | обход guard через ключевые слова shell (`for … do rm`, `if …; then git push --force`) | guard разбирает команду после `do`, `then`, `else`, `{`, `!` так же, как после `&&` |
@@ -1882,10 +1902,10 @@ Auto-fix (кнопка в CI status bar сессии): на упавший CI и
 | `git push --mirror`/`--all`/`--branches`, `push HEAD`/`push origin @` (`@` — синоним HEAD) или push без refspec сидя на базовой ветке; `git -C <worktree> push` из feature-сессии, когда worktree на базовой ветке; `--no-verif` (сокращение); `core.hooksPath` через `-c`/`--config-env` перед любой подкомандой и записью `git config core.hooksPath …`; алиасы и `include.path` (`git config alias.fp 'push --force'`), прячущие любую из этих команд; пути в другом регистре (`GAUNTLET/…`) | guard ловит все эти формы (чтение конфигурации и `--unset` разрешены) (push без refspec на базовой ветке = push базовой ветки при `push.default=simple`; текущая ветка берётся с учётом `-C`/`--git-dir`); `HEAD:other`/`@:other` базовой веткой не считаются и разрешены; сравнение путей и `mentions` регистронезависимы (macOS/Windows) |
 | команда, которую guard читал иначе, чем оболочка: апостроф в комментарии или в теле heredoc (`# don't forget` и следующей строкой `git push --force`), перенос строки через `\` (`cp src/A.java \` + `gauntlet/config/`), `<<` в строке или в арифметике, программа через heredoc, here-string или pipe (`bash <<EOF`, `python3 - <<EOF`, `bash <<< '…'`, `echo '…' \| python3`), подстановка в теле heredoc, `find … -exec sed -i` | до правил команда читается одним проходом: комментарии убираются, строки с `\` склеиваются, тело heredoc выносится из командной строки и судится как программа того, кто его читает (для `cat` и `tee` это данные), шаблон `case` не закрывает подоболочку; чтение сверено с настоящим bash; скрипт `sed`, программа `awk` и условия `find` — не пути, а `find` пишет, когда пишет команда его `-exec` |
 | `cd` в каталог, который хук не вычислял (`cd "$(git rev-parse --show-toplevel)" && echo … >> gauntlet/config/gauntlet.properties`, `cd "$CLAUDE_PROJECT_DIR"`, `cd -`, `popd`), и перенаправление, принятое за аргумент (`git push origin 2>&1` на базовой ветке — «refspec» `2>`; `echo '…' \| bash 2>&1`) | каталог после `cd` вычисляется для `~`, `$HOME`, `$PWD`, `$CLAUDE_PROJECT_DIR` и корня git; после `cd -`, `popd` и неизвестной цели команда судится по всем каталогам, где она уже была, и по корню проекта; перенаправления и here-string не входят в аргументы команды |
-| цель перенаправления, склеенная из кусков или собранная глобом (`> 'gauntlet'/config/…`, `> gaunt\let/…`, `> "$CLAUDE_PROJECT_DIR"/gauntlet/…`, `> gauntle?/config/…`), запись через `>&файл` и `>\|` | цель судится как слово, которое из неё делает bash: кавычки и `\` сняты, куски склеены, известные хуку переменные раскрыты, глоб сопоставлен с файлами; `>&` с файлом и `>\|` — запись, `>&2` и `2>&1` — дескриптор; экранированный `\>` — символ, и `\|` и `&` после него — конвейер и конец команды; сверено с настоящим bash |
-| не запускать падающий тест фильтром задачи `Test` (`test { exclude '**/OrdersTest*' }`, `test { if (ci) { exclude … } }`, `filter { includePatterns = … }`, `includeEngines`, категории JUnit 4, группы TestNG) | `integrityCheck` B2 знает имена выбора тестов Gradle и узнаёт задачу по тексту скрипта. `exclude` и `include` — находка там, где они настраивают задачу `Test`, которую гоняет гейт (`test`, `archTest`, `acceptanceTest`, `gherkinMutantsRun`, `withType(Test)`), в том числе внутри `filter`, `doFirst`, `if`; `includes`/`excludes` — когда их пишут. Остальные имена — находка везде, кроме задачи `Test`, которую скрипт называет и гейт не запускает. Те же слова у `jar`, копирования, source set и зависимостей — не находка; чего B2 не видит — раздел 9 |
+| цель перенаправления, склеенная из кусков или собранная глобом (`> 'gauntlet'/config/…`, `> gaunt\let/…`, `> "$CLAUDE_PROJECT_DIR"/gauntlet/…`, `> gauntle?/config/…`), запись через `>&файл` и `>\|` | цель судится как слово, которое из неё делает bash: кавычки и `\` сняты, куски склеены, известные хуку переменные раскрыты, глоб сопоставлен с файлами; `>&` и `1>&` со словом — запись, и с переменной тоже, `>\|` — запись; число и `-` после `>&` и любое слово после другого дескриптора (`2>&"$saved_stderr"`) — дескриптор; экранированный `\>` — символ, и `\|` и `&` после него — конвейер и конец команды; сверено с настоящим bash |
+| не запускать падающий тест фильтром задачи `Test` (`test { exclude '**/OrdersTest*' }`, `test { if (ci) { exclude … } }`, `filter { includePatterns = … }`, `includeEngines`, категории JUnit 4, группы TestNG) | `integrityCheck` B2 знает имена выбора тестов Gradle и узнаёт задачу по тексту скрипта. `exclude` и `include` — находка там, где они настраивают задачу `Test`, которую гоняет гейт (`test`, `archTest`, `acceptanceTest`, `gherkinMutantsRun`, `withType(Test)`), в том числе внутри `filter`, `doFirst`, `if` (условие на имя задачи выбирает её, только когда блок настраивает несколько задач `Test`); `includes`/`excludes` — когда их пишут, и со следующей строки тоже. Остальные имена — находка везде, кроме задачи `Test`, которую скрипт называет и гейт не запускает. Те же слова у `jar`, копирования, source set и зависимостей — не находка; чего B2 не видит — раздел 9 |
 | step-определение игнорирует параметр | `gherkinMutation` |
-| мутант «убит» не изменённым значением, а сломанным стендом: упала фикстура, сценарий зависит от соседнего, строку нельзя прогнать дважды на одном стенде, параллельный прогон проекта поставил оба контроля раньше мутанта, значение отверг сам Cucumber | `gherkinMutation`: каждая мутируемая строка «Примеров» прогоняется без изменений дважды — до мутантов (`cN`) и после них (`zN`), оба контроля обязаны пройти; мутанты и контроли идут в одном JVM, по одному сценарию, в порядке имён файлов, как бы проект ни запускал свою приёмку (параллельный Cucumber в `junit-platform.properties` или в `tasks.withType(Test)`, `cucumber.execution.order`, `maxParallelForks`, `forkEvery`); kill — только падение, брошенное step-определением, на первом шаге, который использует мутированную колонку, или позже. Падение раньше этого шага, значение, которое Cucumber не смог конвертировать или которое отверг transformer (`@ParameterType` и т. п.), неудавшийся glue-объект, неоднозначный шаг, хук или фикстура — ошибка, а не kill |
+| мутант «убит» не изменённым значением, а сломанным стендом: упала фикстура, сценарий зависит от соседнего, строку нельзя прогнать дважды на одном стенде, параллельный прогон проекта поставил оба контроля раньше мутанта, значение отверг сам Cucumber | `gherkinMutation`: каждая мутируемая строка «Примеров» прогоняется без изменений дважды — до мутантов (`cN`) и после них (`zN`), оба контроля обязаны пройти; мутанты и контроли идут в одном JVM, по одному сценарию, в порядке имён файлов, как бы проект ни запускал свою приёмку (параллельный Cucumber в `junit-platform.properties` или в `tasks.withType(Test)`, `cucumber.execution.order`, `maxParallelForks`, `forkEvery`), а если `doFirst` проекта всё же перебил это, прогон после себя падает и называет настройку; kill — только падение, брошенное step-определением, на первом шаге, который использует мутированную колонку, или позже. Падение раньше этого шага, падение мутанта колонки, которую не использует ни один шаг, значение, которое Cucumber не смог конвертировать или которое отверг transformer (`@ParameterType` и т. п.), неудавшийся glue-объект, неоднозначный шаг, хук или фикстура — ошибка, а не kill |
 | область `changed` молча не увидела изменённый класс (кодировка исходников, второй корень main source set, необычное объявление типа) и гейт прошёл по пустому множеству | область строится по всем корням main source set, и Checkstyle, PMD, CPD получают их все; исходник читается как его читает javac (Unicode-escape, одиночный CR, `options.encoding` прежде `-encoding`); `gauntletScope` падает на изменённом исходнике, не читаемом в этой кодировке; перед PIT и CRAP каждый выведенный тип обязан существовать как класс, исходник с кодом обязан дать тип, а класс, чей атрибут `SourceFile` называет изменённый исходник, — быть среди выведенных |
 | имя с разделителем списка: изменённая `Скидка, рубли.feature` или `Ledger,Copy.java`, имя с кавычкой или переводом строки (git берёт его в кавычки), проект в каталоге `Acme, Inc` — путь распадался на имена, которых нет, и гейт проходил по пустому множеству (0 мутантов, «PMD: OK», «DRY gate: OK», PIT «No mutations found») | пути изменённых файлов читаются из `git … -z`; списки путей уходят инструментам набора файлом, где каждый путь кончается символом NUL (`--only-file`), корни исходников — по одному (`--sources`), classpath glue — тем же файлом-списком (`--glue-file`); путь из списка, который не называет файл, — ошибка, а не пустой прогон; PMD и CPD получают исходники позиционно после `--`, правила — путём от рабочего каталога; Cucumber — каталог фич относительно каталога проекта; PIT, который режет свои пути по запятой, в таком каталоге не запускается, а называет причину |
 | спрятать нарушение от `integrityCheck` за комментарием, строкой или именем параметра (`{ $/* … */ test -> /$`, вложенный комментарий Kotlin, `// tasks.named('jar') {`, `tasks.test.enabled = false` в блоке с параметром `test`), `@org.junit.jupiter.api.Disabled`, тестовое дерево в другой кодировке | `integrityCheck` читает скрипт и исходник как компилятор Groovy, Kotlin или javac: комментарии — не код, скобка в строке — не скобка, блок — тот, что действительно открыт; освобождение B1 — только когда получатель ровно параметр блока; аннотации с пакетом; каждое дерево исходников — в кодировке своей задачи компиляции, нечитаемый исходник — находка E1 |
@@ -1906,8 +1926,9 @@ Auto-fix (кнопка в CI status bar сессии): на упавший CI и
 команде, код из файла (скрипт, который запускает интерпретатор), `cd` внутри конвейера (`cd x | cat; …` — bash
 каталог не меняет, zsh меняет, хук считает, что сменился), конфигурация git через переменные окружения
 (`GIT_CONFIG_*`), алиасы, уже лежащие в глобальном конфиге, `push.default=upstream` с push без refspec и
-настройки репозитория через `gh api -X PATCH repos/…`, функции модулей perl (`File::Copy`) и программа awk
-(`system()`, `print >` внутри неё): статический разбор их не видит.
+настройки репозитория через `gh api -X PATCH repos/…`, функции модулей perl (`File::Copy`), программа awk
+(`system()`, `print >` внутри неё) и команды записи, которых хук не знает (`sort -o`, `uniq`, `shuf -o`, `gzip`,
+`split`, `zip`, `mkfifo`, `javac -d`; у main и `dd of=`): статический разбор их не видит.
 `permissions.deny` тоже префиксный и обходится обёрткой. Опора — `integrityCheck`, CI, GitHub branch
 protection базовой ветки и то, что любая попытка видна в diff PR, который читает человек. Это растяжка,
 а не сейф.
@@ -1915,7 +1936,7 @@ protection базовой ветки и то, что любая попытка �
 ## 8. Что проверено в этой версии, а что нет
 
 Проверено здесь (Gradle 8.14.3, Java 21):
-- Хуки, `hooks/selftest.py`, 2629 проверок в трёх раскладках (сборка в корне; модуль `core/`; два модуля
+- Хуки, `hooks/selftest.py`, 2650 проверок в трёх раскладках (сборка в корне; модуль `core/`; два модуля
   `core/` + `adapter/` — Gradle только в изменённом модуле, красный модуль блокирует, коммит
   спецификации одного модуля замораживает фичи другого, чужая незакоммиченная работа не считается)
   на временном git-репозитории с фиктивным `origin/main`:
@@ -2078,12 +2099,15 @@ protection базовой ветки и то, что любая попытка �
   `gauntlet.log` набором; у ревьюера разрешены чтения с перенаправлением, `git branch --all`, `unzip -l`, `tar tf`,
   `tee` и `mkdir` вне проекта; источники `cp` читаются, а не пишутся; `git restore --staged` и `git reset <путь>`
   трогают только индекс; роли со своей зоной не блокируются на `2>/dev/null`. Самопроверка 997 → 2365 → 2431 → 2536
-  → 2623 → 2629 (+456, +22, +35, +29 и +2 на раскладку; файл настроек читается с разделителями `java.util.Properties` —
+  → 2623 → 2629 → 2650 (+456, +22, +35, +29, +2 и +7 на раскладку; файл настроек читается с разделителями
+  `java.util.Properties` —
   `key: value`, `key value`; строка `$'…'` раскодируется, как в bash, а код perl в кавычках судится в том виде, как
   написан; шаблон поиска perl — данные: ``perl -ne 'print if /`/'`` читает; `acceptance.features` с `./` или `/` на
   конце замораживает тот же каталог; цель перенаправления — слово, которое из неё делает bash, `>&файл` и `>|` —
-  запись, а после экранированного `\>` `|` — конвейер и `&` — конец команды; `>&` с переменной, которую хук не
-  знает, — дескриптор (`2>&"$saved_stderr"`); `readpipe` — запись perl).
+  запись, а после экранированного `\>` `|` — конвейер и `&` — конец команды; после `>&` слово — файл так, как его
+  берёт bash: число и `-` — дескриптор, после дескриптора, отличного от 1 (`2>&"$saved_stderr"`), файла нет, а
+  `>&слово` и `1>&слово` пишут файл, и с переменной тоже; команда, которую хук не может прочитать (`$( … )` глубже
+  32 уровней, чтение дольше 20 с), — отказ; `readpipe` — запись perl).
   Независимое ревью этой же ревизии нашло дефекты и в её собственных правках — исправлены. `IntegrityCheck`:
   вырезание комментариев выдумывало параметр замыкания (`{ $/* … */ test -> /$`, вложенный комментарий Kotlin) и
   прятало `test.enabled = false`; теперь скрипт читается лексером языка, а 437 сниппетов, сверенных с настоящим
@@ -2153,6 +2177,21 @@ protection базовой ветки и то, что любая попытка �
     `exclude` внутри `if` в блоке `test` и `configureEach() { }` не была находкой.
   - guard. Ревьюеру отказывалось в `2>&"$saved_stderr"`.
 
+  Ревью головы `7061885` нашло шесть дефектов в правках предыдущего раунда. Исправлены они и два давних ложных
+  зелёных — только ужесточением, а где можно, проверкой того, с чем прогон действительно шёл; остальное — в разделе 9:
+  - guard. Правка для `2>&"$saved_stderr"` считала дескриптором любое слово, которое хук не вычислит, и ревьюер
+    писал через `>&"$f"`. Теперь как в bash: после `>&` и `1>&` слово — файл, после другого дескриптора — нет.
+  - guard. Команду, которую хук не может прочитать (`$( … )` глубже 32 уровней, чтение дольше 20 с, переполнение
+    стека), он отклоняет: упавший или не успевший хук её пропускал.
+  - `integrityCheck`. Запись в `excludes`/`includes` со следующей строки и условие на чужое имя (`project.name`,
+    `'os.name'`, переменная цикла) внутри блока задачи гейта не были находкой B2.
+  - PIT. История, которую задаёт сам проект (`historyInputLocation`, `historyOutputLocation`,
+    `enableDefaultIncrementalAnalysis`), включала инкрементальный анализ. Теперь такая настройка останавливает гейт.
+  - `gherkinMutation`. `doFirst` проекта, зарегистрированный раньше набора, возвращал прогону мутантов параллель и
+    форки. Теперь после прогона набор сверяет форки задачи и последние `-D` Cucumber в аргументах JVM, которые
+    называет Gradle, и падает, если они не те, что он ставил.
+  - `gherkinMutation`. Падение мутанта колонки, которую не использует ни один шаг, считалось kill.
+
   Регрессии инструментов, установщика и CI лежат в `tests/` репозитория набора и гоняются по распакованному
   бандлу.
 - `install.sh` на демо-проекте: чистая установка; слияние с существующим `.claude/settings.json`
@@ -2175,17 +2214,35 @@ CI на GitHub. Оттуда — правки ревизии 3: RUN_ERROR в `mu
 следов внешнего контура» в коде и документах, ревизия источников документации по фактической доступности.
 
 ## 9. Ограничения
-- `integrityCheck` B2 узнаёт задачу по тексту скрипта и не видит фильтр:
-  - через переменную или псевдоним (`def t = tasks.test; t.exclude …`, `def e = test.excludes; e << …`);
-  - в `configure(test) { }` и `with(test) { }`;
+- `integrityCheck` B2 узнаёт фильтр по тексту скрипта в известных формах, и список ниже не исчерпывающий: класс
+  целиком закроет проверка по выполненным тестам. B2 не видит фильтр:
+  - через переменную или псевдоним (`def t = tasks.test; t.exclude …`, `def e = test.excludes; e << …`), через
+    геттер и `setProperty` (`getIncludes().add(…)`, `filter.getIncludePatterns().add(…)`,
+    `test.setProperty('excludes', …)`);
+  - в `configure(test) { }` и `with(test) { }`, в замыкании в скобках (`withType(Test, { … })`,
+    `named('test', { … })`, `configureEach({ … })`);
   - по ключу контейнера (`tasks['test'].exclude`, `tasks.getAt('test')`) и в Kotlin через приведение
     `(tasks["test"] as Test)`;
-  - в коллекции с предикатом (`tasks.matching { it.name == 'test' }.all { … }`, `tasks.findAll { … }.each { … }`);
-  - под условием на имя задачи внутри `withType(Test)`: `if (name == 'integrationTest') { include … }` выбирает
-    задачу и находкой не считается, поэтому не считается и `if (name != 'integrationTest') { exclude … }`, хотя
-    оно касается гейта.
+  - в коллекции с предикатом (`tasks.matching { it.name == 'test' }.all { … }`, `tasks.findAll { … }.each { … }`),
+    в `tasks.configureEach { }` и `tasks.all { }` с проверкой типа (`if (it instanceof Test)`);
+  - под условием на имя задачи внутри `withType(Test)` или `tasks.configureEach`: `if (name == 'integrationTest')
+    { include … }` выбирает задачу и находкой не считается, поэтому не считается и
+    `if (name != 'integrationTest') { exclude … }`, хотя оно касается гейта; так же в `testTask` набора `test`, в
+    `withType(Test).each { if (name == …) }` (там `name` — имя проекта), в `for (t in [name])` и при переменной
+    скрипта с именем `name`;
+  - в параметре внутреннего замыкания (`test { doFirst { t -> t.exclude … } }`), за собственным параметром задачи
+    (`test { t -> t.doFirst { exclude … } }`), в ветке `case X:`, в ветке Kotlin `when` в фигурных скобках, в
+    замыканиях `each`, `with`, `run`, `apply`, `also` и Kotlin `let`/`takeIf` внутри блока задачи.
 
   Такой фильтр виден в diff скрипта сборки, который читает человек.
+- B2 находит фильтр там, где его нет, и тогда помогает правка скрипта: локальная переменная с именем `includes` или
+  `excludes` (`def includes = getIncludes().join(', ')`) — переименуйте её; выбор с получателем в задаче, которую
+  гейт не запускает (`smoke.useJUnitPlatform { includeEngines … }`), — уберите получатель; ветка с условием на
+  чужое имя внутри одной задачи гейта, которая никогда не выполняется (`test { if (name == 'integrationTest')
+  { exclude … } }`), — уберите её; `getName ( )` с пробелами, `if` без фигурных скобок, Kotlin `when` без
+  субъекта или получатель, которого B2 не знает (`this@withType.name`, `getDelegate().name`, `it['name']`,
+  `(it as Test).name`, `"$name"`), в условии на имя внутри `withType(Test)` — напишите `getName()`, скобки,
+  `when (name)` или просто `name`.
 - Glue (step-классы) — только в `src/acceptanceTest/java`. Правку glue в отдельном модуле или в общем source set
   шагов область `changed` не видит: `gherkinMutation` проверит пустое множество.
 - Transformer (`@ParameterType` и т. п.) читается из базовой копии класса. В multi-release JAR, где аннотация есть
@@ -2193,6 +2250,18 @@ CI на GitHub. Оттуда — правки ревизии 3: RUN_ERROR в `mu
   экосистеме Cucumber такие JAR не встречаются.
 - Исходники не в UTF-8 требуют явного `options.encoding`: без него гейт читает их как UTF-8 и падает с находкой E1
   (INSTALL, раздел 4).
+- Прогон мутантов сверяется с точными значениями: `-Dcucumber.execution.parallel.enabled=FALSE`, `forkEvery = 100`
+  или удалённые провайдеры аргументов JVM в `doFirst` проекта гейт отклоняет, хотя прогон шёл последовательно, —
+  держите такой `doFirst` в стороне от `gherkinMutantsRun`. Аргументы JVM набор судит так, как их называет Gradle:
+  `_JAVA_OPTIONS` в окружении задачи, файл аргументов (`@файл`, `-XX:VMOptionsFile`), провайдер, который после
+  прогона отвечает иначе, чем при запуске, и `doLast` проекта, зарегистрированный раньше набора и вернувший
+  настройки, он не видит; это закроет проверка порядка сценариев по отчёту.
+- Колонка, которая попадает в шаг только через значение другой колонки той же строки (`| x<b>y | 5 |`), для набора
+  не используется: падение её мутанта — ошибка, а не kill. Не вкладывайте плейсхолдер в значение.
+- Stop-хук следит за `src/`, `gradle/`, `buildSrc/` и файлами сборки; правку в другом корне main source set
+  (`sourceSets.main.java.srcDir 'legacy/java'`) проверяет только CI.
+- Команду, которую guard не может прочитать (`$( … )` глубже 32 уровней или чтение дольше 20 с), он отклоняет —
+  разбейте её на несколько.
 - Чтение от записи в коде интерпретатора хук не отличает (`python3 -c`, `node -e`, `ruby -e`) или отличает только
   по словам (perl), поэтому может принять чтение за запись. Код python, node и ruby считается записью всегда. Код
   perl — когда в командной строке perl есть слово записи (`system`, `open`, `unlink` и т. п.) не в шаблоне поиска:
@@ -2211,7 +2280,11 @@ CI на GitHub. Оттуда — правки ревизии 3: RUN_ERROR в `mu
 - Облачная VM: ~4 vCPU, 16 ГБ, 30 ГБ; PIT на Spring-коде бывает медленным — помогают `scope=changed` и
   `@Tag("no-mutate")` для тяжёлых тестов. Инкрементального анализа PIT нет: его история оставляла тесту,
   ослабленному через вспомогательный класс или тестовый ресурс, прежних убитых мутантов, и хук hardener'а
-  пропускал выжившего; каждый прогон заново мутирует все изменённые классы.
+  пропускал выжившего; каждый прогон заново мутирует все изменённые классы. Историю, которую задаёт сборка
+  проекта (`historyInputLocation`, `historyOutputLocation`, `enableDefaultIncrementalAnalysis`/`withHistory` в
+  `pitest { }` или у задачи), гейт отклоняет, как только запускает PIT, — уберите её. Мимо настроек плагина
+  (`--historyInputLocation` в `argumentProviders` задачи `pitest`, сторонний плагин истории PIT) набор историю
+  не видит.
 - `pit.testStrengthThreshold=100` будет упираться в эквивалентных мутантов: агент остановится и покажет
   мутанта, решение за вами.
 - Внутренние зависимости (общая библиотека из корпоративного Nexus) из облака недоступны: библиотека
@@ -3857,7 +3930,8 @@ plugins.withId('info.solidsoft.pitest') {
         // No history (build/pitHistory.txt): PIT's incremental analysis keeps a KILLED verdict while the mutated class
         // and the killing test's class are unchanged, and a SURVIVED one while the covering test classes are. A test
         // weakened through a helper class or a test resource kept its kills, and the hardener's SubagentStop hook let
-        // the survivor through; a test sharpened that way kept its survivor. Every run judges the tests as they are.
+        // the survivor through; a test sharpened that way kept its survivor. A history the project sets through the
+        // plugin is refused when pitest runs (its doFirst below).
         enableDefaultIncrementalAnalysis = false
         excludedGroups = listSetting('pit.excludedGroups', 'no-mutate') as Set
         // nested classes too, as JaCoCo (jacocoExcludes) and CrapGate (outer class name) already do
@@ -3892,6 +3966,21 @@ plugins.withId('info.solidsoft.pitest') {
             if (split) {
                 throw new GradleException("gauntlet: PIT would read ${split} as two paths at its comma and find nothing " +
                         "to mutate. Build from a directory without a comma in its path.")
+            }
+            // The plugin hands PIT the project's own history files with the flag above off as well, and the project can
+            // turn the flag on again: a weakened test kept its kills and mutationGate passed. Judged as the task has
+            // them now (pitest {} or the task, before this script, after it, in afterEvaluate) and fixed: a doFirst of
+            // the project's that runs after this one can no longer set them.
+            [historyInputLocation, historyOutputLocation, enableDefaultIncrementalAnalysis]*.finalizeValue()
+            def flag = enableDefaultIncrementalAnalysis.getOrElse(false)
+            def history = [historyInputLocation: historyInputLocation.present,
+                           historyOutputLocation: historyOutputLocation.present,
+                           'enableDefaultIncrementalAnalysis (withHistory)': flag].findAll { it.value }.keySet()
+            if (history) {
+                throw new GradleException("gauntlet: PIT incremental analysis is configured for this build (" +
+                        "${history.join(', ')}): PIT would keep the verdicts of an earlier run, and a test weakened " +
+                        "since would keep its kills. Remove it from pitest { } and the pitest task - in the build script, a convention " +
+                        "plugin or an init script.")
             }
         }
         if (scope != 'all') {
@@ -3986,18 +4075,44 @@ tasks.register('gherkinMutantsRun', Test) {
         // failing scenarios are what this run is for: a project-wide failFast would stop it after the first kill
         failFast = false
         // The controls of a row run before its mutants and after them (GherkinMutator generate): one JVM, one scenario
-        // at a time, the files in the order of their names - whatever the project chose for its own acceptance run in
-        // junit-platform.properties (a system property wins over it) or in tasks.withType(Test). In parallel both
+        // at a time, the files in the order of their names - not as the project runs its own acceptance tests (in
+        // junit-platform.properties, where a system property wins, or in tasks.withType(Test)). In parallel both
         // controls ran first, and a stand that wears out (a quota) failed the mutant instead: a kill.
         maxParallelForks = 1
         forkEvery = 0
-        // as the last arguments of the test JVM, added at execution: a -D of the project's own - jvmArgs, an argument
-        // provider, a systemProperty its own doFirst sets after this one - comes before them, and the last -D wins
+        // an argument provider added at execution: the test JVM gets one -D per key, and a provider's beats the
+        // project's jvmArgs and systemProperty, even ones its own doFirst sets after this one
         jvmArgumentProviders.add({ ['-Dcucumber.execution.parallel.enabled=false', '-Dcucumber.execution.order=lexical'] }
                 as CommandLineArgumentProvider)
         // Gradle 8.14 lists the report directory without creating it: recreate it after the wipe
         mutantResults.deleteDir()
         mutantResults.mkdirs()
+    }
+    // A doFirst registered before this script (tasks.withType(Test) above the apply line, a convention plugin,
+    // allprojects, an init script) runs after the one above: its forks went through, and its own provider won - the
+    // mutants ran in parallel or in a random order, and the gate passed. So the settings are judged here, after the
+    // test action (it returns when mutants fail: ignoreFailures), where no doFirst can change them any more. Unset
+    // counts as wrong: the kit's provider was removed. The arguments are the ones Gradle lists: _JAVA_OPTIONS in the
+    // task's environment, an argument file or a provider that answers differently after the run are not seen
+    // (README section 9); the order the scenarios really ran in is what would settle it.
+    doLast {
+        def last = { String key ->
+            def values = allJvmArgs.findAll { it.startsWith("-D${key}=") }
+            values ? values[-1].substring(key.length() + 3) : 'unset'
+        }
+        def used = [maxParallelForks: maxParallelForks, forkEvery: forkEvery,
+                    'cucumber.execution.parallel.enabled': last('cucumber.execution.parallel.enabled'),
+                    'cucumber.execution.order': last('cucumber.execution.order')]
+        def wrong = [maxParallelForks: 1, forkEvery: 0, 'cucumber.execution.parallel.enabled': 'false',
+                     'cucumber.execution.order': 'lexical'].findAll { key, value -> used[key] != value }
+                .collect { key, value -> "${key}=${used[key]}" }
+        if (wrong) {
+            throw new GradleException("gauntlet: gherkinMutantsRun ran with ${wrong.join(', ')}: its controls prove " +
+                    "nothing unless one JVM runs one scenario at a time, in the order of the file names. A doFirst " +
+                    "of the project's own changed what the kit set (one registered before apply from: " +
+                    "tasks.withType(Test), a convention plugin, allprojects, an init script) - keep it off " +
+                    "gherkinMutantsRun.")
+        }
     }
 }
 
@@ -4180,6 +4295,7 @@ import json
 import os
 import re
 import shlex
+import signal
 import subprocess
 import sys
 
@@ -4274,6 +4390,16 @@ PERL_PATTERN_CODE = re.compile(r"\(\s*[?*]\s*\??\s*\{|@|\$(?![)|]|\Z)")
 # file descriptor (`>&2` duplicates one, `>&-` closes it, `>&log` writes the file log)
 REDIRECT = re.compile(r"(?<![<>])(<>|>&|>>?\|?)")
 FD_WORD = re.compile(r"\d+-?|-")
+# the descriptor written right before >& (`2>&word`, `{fd}>&word`): bash duplicates the word into it, and a word that is
+# no number is an error there ("ambiguous redirect"), not a file. Only `>&word` and `1>&word` write the file `word`.
+DUP_FD = re.compile(r"(?:^|(?<=[\s;&|(){}]))(\d+|\{[A-Za-z_][A-Za-z0-9_]*\})$")
+# A command the guard cannot read in time or at all is refused, not let through: a hook that crashes or exceeds
+# Claude Code's timeout lets the command run. 300 nested $( ... ) took a minute to read and 1000 overflowed the stack;
+# a command written by hand nests a few levels, and 32 are read in a fraction of a second.
+MAX_NESTING = 32
+JUDGE_SECONDS = 20
+TOO_COMPLEX = ("The guard cannot judge this command ({}). Write it as several simpler commands; if this is "
+               "really needed, ask the human.")
 GLOB_CHARS = re.compile(r"[*?\[]")
 STATEMENT_END = re.compile(r";|&&|\|\||\n")
 
@@ -4294,7 +4420,7 @@ def main():
         path = params.get("file_path") or params.get("notebook_path") or ""
         reason = user_config_violation(path) or path_violation(agent, ctx.relative(path), ctx)
     elif tool == "Bash":
-        reason = command_violation(agent, params.get("command", ""), ctx, event.get("cwd") or project)
+        reason = bash_violation(agent, params.get("command", ""), ctx, event.get("cwd") or project)
     else:
         reason = None
     if reason:
@@ -4303,6 +4429,46 @@ def main():
             "permissionDecision": "deny",
             "permissionDecisionReason": "[gauntlet guard] " + reason}}))
     return 0
+
+
+class JudgeTimeout(BaseException):
+    """The reading ran out of time. A BaseException, so that no `except Exception` on the way swallows it."""
+
+
+def nesting_depth(command):
+    """How deep $( ... ), <( ... ) and >( ... ) nest, counted on the raw text without regard to quotes. It refuses an
+    absurd command early; what it miscounts is caught by the time budget and the recursion limit in bash_violation."""
+    depth = deepest = 0
+    for i, c in enumerate(command):
+        if c == "(" and i and command[i - 1] in "$<>":
+            depth += 1
+            deepest = max(deepest, depth)
+        elif c == ")" and depth:
+            depth -= 1
+    return deepest
+
+
+def bash_violation(agent, command, ctx, cwd):
+    """command_violation, refused instead of crashing or running out of time."""
+    depth = nesting_depth(command)
+    if depth > MAX_NESTING:
+        return TOO_COMPLEX.format(f"$( ... ) nested {depth} levels deep")
+    timer = hasattr(signal, "SIGALRM")
+    if timer:
+        def expired(signum, frame):
+            raise JudgeTimeout
+        previous = signal.signal(signal.SIGALRM, expired)
+        signal.alarm(JUDGE_SECONDS)
+    try:
+        return command_violation(agent, command, ctx, cwd)
+    except RecursionError:
+        return TOO_COMPLEX.format("it nests too deeply to read")
+    except JudgeTimeout:
+        return TOO_COMPLEX.format(f"reading it took longer than {JUDGE_SECONDS} s")
+    finally:
+        if timer:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, previous)
 
 
 def features_rel_of(value):
@@ -4513,8 +4679,9 @@ def redirect_targets(segment, cwd, project):
     backslashes removed, the pieces joined, a glob matched against the files there. `> 'gauntlet'/config/x`,
     `> gaunt\\let/config/x`, `> gauntle?/config/x` and `> "$CLAUDE_PROJECT_DIR"/gauntlet/config/x` write into
     gauntlet/ like `> gauntlet/config/x` does; `>&2` and `2>&1` write no file. Any other variable stays as
-    written: what it holds is the known limit of a static reading. After >& it is taken for the descriptor it
-    almost always is (`2>&"$saved_stderr"` restores stderr)."""
+    written: what it holds is the known limit of a static reading. After >& the word is a file the way bash takes
+    it: a number or - is a descriptor (`>&2`, `2>&1`, `>&-`); after a descriptor other than 1 (`2>&"$saved_stderr"`,
+    `{fd}>&...`) no word is a file; `>&word` and `1>&word` write the file `word`, a variable as well."""
     targets = []
     for m in REDIRECT.finditer(segment):
         word = HERE_WORD.match(segment, m.end()).group(1)
@@ -4525,7 +4692,7 @@ def redirect_targets(segment, cwd, project):
         except ValueError:
             target = word
         target = expand(target, cwd, project)
-        if m.group(1) == ">&" and (FD_WORD.fullmatch(target) or unresolvable(target)):
+        if m.group(1) == ">&" and (FD_WORD.fullmatch(target) or into_descriptor(segment, m.start())):
             continue
         if GLOB_CHARS.search(target) and not unresolvable(target):
             bases = [""] if os.path.isabs(target) else candidates(cwd, project)
@@ -4533,6 +4700,12 @@ def redirect_targets(segment, cwd, project):
         else:
             targets.append(target)
     return targets
+
+
+def into_descriptor(segment, at):
+    """The >& at `at` duplicates into a descriptor other than 1, which takes no file name."""
+    fd = DUP_FD.search(segment, 0, at)
+    return fd is not None and (fd.group(1).startswith("{") or int(fd.group(1)) != 1)
 
 
 def raw_of(segment, neutral, command):
@@ -6601,6 +6774,18 @@ def guard_tests(repo):
     expect_deny(repo, "rm gauntlet dir", "main", "Bash", command="rm -rf gauntlet")
     expect_deny(repo, "hook switch", "main", "Bash", command="GAUNTLET_GUARD=off ./gradlew gauntlet")
     expect_deny(repo, "export hook switch", "main", "Bash", command="export GAUNTLET_STOP_HOOK=off; ./gradlew test")
+    # a command the guard cannot read is refused: a crashed or timed-out hook lets it run (review of 7061885)
+    deep, hidden = "touch gauntlet/config/x", "touch gauntlet/config/x"
+    for _ in range(100):
+        deep = f"echo $({deep})"
+    for _ in range(1000):
+        hidden = f"echo ')' $({hidden})"      # the quoted ) defeats the nesting count; the reader overflows
+    expect_deny(repo, "$( ... ) nested 100 levels deep", "main", "Bash", command=deep)
+    expect_deny(repo, "$( ... ) nested 1000 levels deep behind quoted parentheses", "main", "Bash", command=hidden)
+    shallow = "cat gauntlet/config/gauntlet.properties"
+    for _ in range(10):
+        shallow = f"echo $({shallow})"
+    expect_allow(repo, "$( ... ) nested 10 levels deep that only reads", "main", "Bash", command=shallow)
     # --- no false positives
     expect_allow(repo, "gradlew gauntletFast", "main", "Bash", command="./gradlew gauntletFast --continue")
     expect_allow(repo, "gradlew gauntlet", "main", "Bash", command="./gradlew gauntlet --continue -Pgauntlet.baseRef=origin/main")
@@ -7303,6 +7488,13 @@ def guard_tests(repo):
              "ls >| notes.txt"),
             ('main', '>& with a file under a known variable',
              'echo x >& "$CLAUDE_PROJECT_DIR"/gauntlet/config/gauntlet.properties'),
+            # bash writes the file after >& and 1>& whatever the word holds (review of 7061885)
+            ('reviewer', '>& with a file under a variable',
+             'output=gauntlet/review-proof.tmp; echo text >&"$output"'),
+            ('reviewer', '1>& with a file under a variable',
+             'f=notes.txt; ls 1>&"$f"'),
+            ('hardener', '>& with a variable path into the main code',
+             'echo x >& "$OUT"/{M}src/main/java/A.java'),
             ('main', 'a backslash before >| writes the file',
              "echo x \\\\>| gauntlet/config/gauntlet.properties"),
             # an escaped > is a character: the | after it is a pipe, the & after it ends the command
@@ -7474,6 +7666,9 @@ def guard_tests(repo):
              "ls \\>| head"),
             ('reviewer', 'stderr restored from a saved descriptor (review of efa4c50)',
              'exec {saved_stderr}>&2; ls 2>/dev/null; exec 2>&"$saved_stderr"'),
+            # after a descriptor other than 1 bash takes no file name: a word that is no number is an error there
+            ('reviewer', '2>& with a variable writes no file',
+             'f=notes.txt; ls 2>&"$f"'),
             ('reviewer', 'stderr onto stdout and stdout onto stderr',
              "git status 2>&1 1>&2 | head"),
             ('reviewer', 'perl -ne with readpipe in the pattern',
@@ -11016,6 +11211,9 @@ public class GherkinMutator {
                 errors.add("MUTANT ERROR    " + e.getKey() + " the value never reached a step definition (" + thrown(o)
                         + ": Cucumber could not convert it, a transformer rejected it, the glue object failed or the step"
                         + " is ambiguous), not a kill  " + what);
+            } else if (mutantVerdict(o, uses).equals("unused")) {
+                errors.add("MUTANT ERROR    " + e.getKey() + " failed, but no step uses <" + f[4] + "> (the scenario title"
+                        + " at most) - the changed value did not cause it, not a kill  " + what);
             } else if (mutantVerdict(o, uses).equals("early")) {
                 errors.add("MUTANT ERROR    " + e.getKey() + " failed on line " + o.line() + ", before the first step that"
                         + " uses <" + f[4] + "> (line " + uses + ") - the changed value did not cause it, not a"
@@ -11251,10 +11449,12 @@ public class GherkinMutator {
 
     /** The verdict one attempt of a mutant gives: "killed" (a failure thrown by a step definition on or after the
      *  first step that uses the changed value, or an undefined step), "early" (thrown by a step before that one),
-     *  or its kind - "passed" (survived), "aborted", "error", "rejected". */
+     *  "unused" (a failure, while no step uses the changed column: the value cannot have caused it), or its kind -
+     *  "passed" (survived), "aborted", "error", "rejected". firstUse is -1 when the manifest does not say. */
     static String mutantVerdict(Outcome o, int firstUse) {
         return switch (o.kind()) {
-            case "failed" -> firstUse > 0 && o.line() > 0 && o.line() < firstUse ? "early" : "killed";
+            case "failed" -> firstUse == 0 ? "unused"
+                    : firstUse > 0 && o.line() > 0 && o.line() < firstUse ? "early" : "killed";
             case "undefined" -> "killed";
             default -> o.kind();
         };
@@ -11548,9 +11748,11 @@ public class GherkinMutator {
         return in.readNBytes(n);
     }
 
-    /** The manifest's line of the first step that uses the mutated column; 0 when unknown (an older manifest). */
+    /** The manifest's line of the first step that uses the mutated column; 0 when no step uses it (generate writes 0
+     *  then), -1 when the manifest does not say (an older one): a failure is then a kill, as it was. Reading both as 0
+     *  counted any failure of a mutant of an unused column as a kill (review of 7061885). */
     static int firstUseLine(String[] manifestRow) {
-        return manifestRow.length > 7 && manifestRow[7].matches("\\d+") ? Integer.parseInt(manifestRow[7]) : 0;
+        return manifestRow.length > 7 && manifestRow[7].matches("\\d+") ? Integer.parseInt(manifestRow[7]) : -1;
     }
 
     /** Cucumber reports a step without a matching definition with this specific exception. */
@@ -11762,12 +11964,15 @@ public class IntegrityCheck {
     static final Pattern CONTROL = Pattern.compile(
             "(?:if|for|while|switch|catch|synchronized|when)\\(.*\\)|else|try|finally|do|when");
     /**
-     * A condition on the task's name ({@code if (name == 'integrationTest')}, {@code when (name)}, {@code it.name},
-     * {@code getName()}): it chooses which of the Test tasks around it the statement configures, so the block is not
-     * looked through - {@code tasks.withType(Test) { if (name == 'integrationTest') { include '**}{@code /*IT*' } }}
-     * configures integrationTest only.
+     * A name in a condition: {@code name}, {@code getName()}, {@code it.name} (group 1 is the receiver). Only the
+     * task's own name chooses which of the Test tasks around it a statement configures (see selectsTask);
+     * {@code project.name}, {@code file('x').name} or {@code a.b.name} is some other name.
      */
-    static final Pattern NAME_CONDITION = Pattern.compile("(?<![\\w$])(?:[A-Za-z_$][\\w$]*\\.)?(?:name|getName\\(\\))(?![\\w$])");
+    static final Pattern NAME_CONDITION = Pattern.compile(
+            "(?<![\\w$.])(?:([A-Za-z_$][\\w$]*)\\s*\\??\\.\\s*)?(?:name|getName\\(\\))(?![\\w$(])");
+    /** A loop variable or a catch parameter called name: {@code for (name in [...])} declares a name, it tests none. */
+    static final Pattern NAME_DECLARED = Pattern.compile("for\\s*\\(\\s*(?:[\\w$.<>\\[\\],?\\s]*\\s)?name\\s*(?::|in(?![\\w$]))"
+            + "|catch\\s*\\(\\s*(?:[\\w$.|\\s]*\\s)?name\\s*\\)");
     /**
      * A name with its arguments: the suite in {@code suites { integrationTest(JvmTestSuite) { } }}, the task after
      * the keyword in {@code task smokeTest(type: Test) { }}.
@@ -12219,19 +12424,25 @@ public class IntegrityCheck {
         /**
          * True when the property that ends at {@code k} is written - assigned ({@code =}, {@code +=}), added to
          * ({@code <<}) or changed by a call ({@code .add}, {@code .addAll}, {@code .clear}, {@code .remove},
-         * {@code .removeAll}, {@code .removeIf}, {@code .retainAll}) - and not only read.
+         * {@code .removeAll}, {@code .removeIf}, {@code .retainAll}) - and not only read. Groovy takes the operator
+         * and the call from the next line as well: {@code excludes\n    = ['x']}, {@code excludes\n    .add('x')}.
          */
         boolean written(int k) {
-            while (k < code.length() && (code.charAt(k) == ' ' || code.charAt(k) == '\t')) {
+            k = skipBlanks(k);
+            return k < code.length() && !literal.get(k) && (ASSIGNED.matcher(code).region(k, code.length()).lookingAt()
+                    || MUTATED.matcher(code).region(k, code.length()).lookingAt());
+        }
+
+        /**
+         * The first offset from {@code k} on that is no white space: comments are blank in {@code code} already,
+         * and a Groovy backslash at the end of a line is white space too.
+         */
+        int skipBlanks(int k) {
+            while (k < code.length() && !literal.get(k) && (Character.isWhitespace(code.charAt(k))
+                    || code.charAt(k) == '\\' && k + 1 < code.length() && code.charAt(k + 1) == '\n')) {
                 k++;
             }
-            if (k < code.length() && !literal.get(k) && ASSIGNED.matcher(code).region(k, code.length()).lookingAt()) {
-                return true;
-            }
-            while (k < code.length() && Character.isWhitespace(code.charAt(k))) {
-                k++;                                       // a call may go on in the next line: excludes\n    .add('x')
-            }
-            return k < code.length() && !literal.get(k) && MUTATED.matcher(code).region(k, code.length()).lookingAt();
+            return k;
         }
 
         /** True when the patterns at {@code at} are the argument of Kotlin's with: {@code with(test.excludes) { }}. */
@@ -12248,9 +12459,7 @@ public class IntegrityCheck {
 
         /** The offset behind the ']' that closes a subscript whose key ends at {@code k}: test['excludes'] = [...]. */
         int behindBracket(int k) {
-            while (k < code.length() && (code.charAt(k) == ' ' || code.charAt(k) == '\t')) {
-                k++;
-            }
+            k = skipBlanks(k);                             // a line break inside [ ] is no token: test['excludes'\n]
             return k < code.length() && code.charAt(k) == ']' && !literal.get(k) ? k + 1 : k;
         }
 
@@ -12297,20 +12506,63 @@ public class IntegrityCheck {
 
         /**
          * The block a call in the block at {@code brace} configures: an inner block ({@code filter},
-         * {@code doFirst}) and a control block ({@code if (ci) { }}, {@code else}, {@code for}) are looked through.
+         * {@code doFirst}) and a control block ({@code if (ci) { }}, {@code else}, {@code for}) are looked through -
+         * up to a condition that chooses among the Test tasks of a block of several (see selectsTask), which is not.
          */
         int ownBrace(int brace) {
-            while (brace >= 0) {
-                String chain = chain(chainStart(brace), brace);
-                // the condition as written: chain() drops the blanks, and "name in [...]" would read "namein[...]"
-                boolean control = CONTROL.matcher(chain).matches()
-                        && !NAME_CONDITION.matcher(code.substring(chainStart(brace), brace)).find();
-                if (!TEST_INNER.matcher(chain).matches() && !control) {
-                    return brace;
+            List<Integer> controls = new ArrayList<>();
+            int owner = brace;
+            for (; owner >= 0; owner = enclosingBrace(owner)) {
+                String chain = chain(chainStart(owner), owner);
+                if (CONTROL.matcher(chain).matches()) {
+                    controls.add(owner);
+                } else if (!TEST_INNER.matcher(chain).matches()) {
+                    break;
                 }
-                brace = enclosingBrace(brace);
             }
-            return brace;
+            Block several = controls.isEmpty() || owner < 0 ? null : block(owner, Source::severalTests);
+            for (int control : controls) {
+                if (several != null && selectsTask(control, several)) {
+                    return control;
+                }
+            }
+            return owner;
+        }
+
+        /**
+         * True when the condition of the control block at {@code control} chooses which of the Test tasks of the
+         * block {@code several} a statement configures: {@code tasks.withType(Test) { if (name == 'integrationTest')
+         * { include '**}{@code /*IT*' } }} configures integrationTest only. That takes the task's own name: bare, or
+         * behind it, the block's parameter, Groovy's delegate or Kotlin's this - a Groovy closure's this is the
+         * script, and this.name the project's. A block of one named task is never several - its one name chooses
+         * nothing, {@code test { if (name == 'test') { } }} is looked through - and project.name, a string that holds
+         * 'name', a loop variable or a catch parameter called name choose no task.
+         */
+        boolean selectsTask(int control, Block several) {
+            int start = chainStart(control);
+            // the condition as written: chain() drops the blanks, and "name in [...]" would read "namein[...]"
+            if (NAME_DECLARED.matcher(code).region(start, control).lookingAt()) {
+                return false;
+            }
+            String self = lang == Lang.KOTLIN ? "this" : "delegate";
+            Matcher name = NAME_CONDITION.matcher(code).region(start, control);
+            while (name.find()) {
+                String receiver = name.group(1);
+                if (!literal.get(name.start()) && (receiver == null || receiver.equals("it") || receiver.equals(self)
+                        || receiver.equals(several.parameter()))) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /** True when the chain names several Test tasks: {@code tasks.withType(Test)} or the testTask of suites. */
+        static boolean severalTests(String chain) {
+            chain = PROVIDED.matcher(chain).replaceFirst("");
+            Matcher type = TEST_TYPE.matcher(chain);
+            Matcher last = LAST_ID.matcher(chain);
+            return type.find() && chain.startsWith("withType", type.start())
+                    || last.find() && last.group(1).equals("testTask");
         }
 
         /**

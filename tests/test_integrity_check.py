@@ -230,7 +230,9 @@ class PackagingTasks(IntegrityCase):
 
 class TestSelection(IntegrityCase):
     """B2 knows every way Gradle narrows the tests a Test task runs. exclude and include of a Test task count where
-    they configure a Test task the gauntlet runs; for jar, a copy, a source set or a dependency they are no finding."""
+    they configure a Test task the gauntlet runs, and the patterns only where they are written; for jar, a copy, a
+    source set or a dependency they are no finding. The other selection names count everywhere but in a Test task
+    the gauntlet does not run, named as such - a task of its own, a suite other than test."""
 
     B2 = {
         "exclude in the test block": "test { exclude '**/OrdersTest*' }",
@@ -264,6 +266,21 @@ class TestSelection(IntegrityCase):
         "JUnit 4 categories": "test { useJUnit { excludeCategories 'a.Slow' } }",
         "TestNG groups": "test { useTestNG { excludeGroups 'slow' } }",
         "test name patterns": "test { setTestNameIncludePatterns(['*Fast*']) }",
+        "every JVM test suite": "testing { suites { configureEach { targets { all { testTask.configure { exclude '**/X*' } } } } } }",
+        "engines behind the task": "test.useJUnitPlatform { includeEngines 'junit-jupiter' }",
+        "a pattern of the task's filter": "test.filter.includePatterns = ['*Fast*']",
+        "the test task's filter inside another task": "tasks.register('smokeTest', Test) { test.filter.includePatterns = ['*Fast*'] }",
+        "engines under a condition": "test { if (true) { useJUnitPlatform { includeEngines 'junit-jupiter' } } }",
+        "the patterns added to": "test.excludes.add('**/OrdersTest*')",
+        "the patterns added to with <<": "test { excludes << '**/OrdersTest*' }",
+        "engines in a block that names no declared task": "fooTest { useJUnitPlatform { includeEngines 'junit-jupiter' } }",
+        "empty parentheses before the block": "tasks.withType(Test).configureEach() { exclude '**/OrdersTest*' }",
+        "configure with empty parentheses": "tasks.named('test').configure() { exclude '**/OrdersTest*' }",
+        "doFirst with empty parentheses": "test { doFirst() { include '**/*Fast*' } }",
+        "an inner block behind the task": "test.doFirst { setExcludes(['**/OrdersTest*']) }",
+        "under a condition": "test {\n    if (!project.hasProperty('all')) {\n        exclude '**/OrdersTest*'\n    }\n}",
+        "in an else branch": "test {\n    if (project.hasProperty('all')) {\n        println 'all'\n    } else {\n"
+                             "        exclude '**/OrdersTest*'\n    }\n}",
     }
     FREE = {
         "jar": "jar { exclude 'META-INF/*.SF' }",
@@ -283,6 +300,22 @@ class TestSelection(IntegrityCase):
         "a method reference": "def m = test.&exclude",
         "a comment": "// test { exclude '**/OrdersTest*' }",
         "included builds in settings": "includeBuild('../lib')",
+        "a JVM test suite the gauntlet does not run":
+            "testing { suites { componentTest(JvmTestSuite) { targets { all { testTask.configure { exclude '**/X*' } } } } } }",
+        "a suite reached by its path": "testing.suites.integrationTest.targets.all { testTask.configure { exclude '**/X*' } }",
+        "engines of a task the gauntlet does not run":
+            "tasks.register('smokeTest', Test) { useJUnitPlatform { includeEngines 'junit-jupiter' } }",
+        "categories of a declared task": "task integrationTest(type: Test) { useJUnit { includeCategories 'a.Slow' } }",
+        "filter patterns of a registered task": "tasks.register('integrationTest', Test) { filter { includePatterns = ['*IT'] } }",
+        "the patterns read for a log line":
+            "test.doFirst { logger.lifecycle(\"includes=${test.includes} excludes=${test.excludes}\") }",
+        "the patterns read in the test block": "test { doFirst { if (excludes.isEmpty()) { println 'all tests' } } }",
+        "the patterns copied into another task": "tasks.register('fastTest', Test) { includes = test.includes }",
+        "a task the script declares, configured by its name":
+            "tasks.register('smokeTest', Test)\nsmokeTest { useJUnitPlatform { includeEngines 'junit-jupiter' } }",
+        "jar under a condition": "jar { if (true) { exclude 'META-INF/*.SF' } }",
+        "jar with empty parentheses": "tasks.withType(Jar).configureEach() { exclude 'META-INF/*.SF' }",
+        "an inner block behind jar": "jar.doFirst { exclude 'META-INF/*.SF' }",
     }
     KOTLIN_B2 = {
         "the test accessor": "tasks.test { exclude(\"**/OrdersTest*\") }",
@@ -293,11 +326,22 @@ class TestSelection(IntegrityCase):
         "on a provided task": "tasks.test.get().exclude(\"**/OrdersTest*\")",
         "safe call": "tasks.findByName(\"test\")?.exclude(\"**/OrdersTest*\")",
         "the excludes property": "tasks.test { excludes += \"**/OrdersTest*\" }",
+        "the test suite by its delegate": "testing { suites { val test by getting(JvmTestSuite::class) "
+                                          "{ targets { all { testTask.configure { exclude(\"**/X*\") } } } } } }",
+        "the patterns added to": "tasks.test { excludes.add(\"**/OrdersTest*\") }",
+        "empty parentheses before the block": "tasks.withType<Test>().configureEach() { exclude(\"**/OrdersTest*\") }",
+        "under a condition": "tasks.test { if (!project.hasProperty(\"all\")) { exclude(\"**/OrdersTest*\") } }",
     }
     KOTLIN_FREE = {
         "the jar accessor": "tasks.jar { exclude(\"META-INF/*.SF\") }",
         "a dependency of every configuration": "configurations.all { exclude(group = \"commons-logging\") }",
         "a test dependency": "dependencies { testImplementation(\"junit:junit:4.13.2\") { exclude(group = \"org.hamcrest\") } }",
+        "a registered suite": "testing { suites { register<JvmTestSuite>(\"componentTest\") "
+                              "{ targets { all { testTask.configure { exclude(\"**/X*\") } } } } } }",
+        "a suite by its delegate": "testing { suites { val integrationTest by registering(JvmTestSuite::class) "
+                                   "{ targets { all { testTask.configure { exclude(\"**/X*\") } } } } } }",
+        "engines of a registered task": "tasks.register<Test>(\"smokeTest\") { useJUnitPlatform { includeEngines(\"junit-jupiter\") } }",
+        "another task by its delegate": "val integrationTest by tasks.getting(Test::class) { exclude(\"**/X*\") }",
     }
 
     def test_every_filter_of_a_test_task_is_b2(self):

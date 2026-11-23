@@ -544,6 +544,16 @@ ArchUnit-тест, шаблоны, установку и документаци�
     - `tools/IntegrityCheck.java`: B2 видит весь выбор тестов Gradle — `exclude`/`include` задачи `Test`, которую
       гоняет гейт, шаблоны `filter`, `includeTest`, `includeEngines`, сеттеры тегов, категории JUnit 4, группы
       TestNG. Те же слова у `jar`, копирования, source set и зависимостей — не находка.
+  - Ревью головы `efa4c50` (Codex, Kimi, Grok, Qwen), по тому же правилу остановки:
+    - `gauntlet.gradle`: `gherkinMutantsRun` — один JVM, по одному сценарию, в порядке имён, что бы ни задал проект
+      для своей приёмки (параллельный Cucumber ставил оба контроля раньше мутанта); инкрементального анализа PIT нет
+      (хук hardener'а брал устаревшие вердикты).
+    - `tools/GherkinMutator.java`: номер строки кадра шага читается и тогда, когда в тексте шага перевод строки.
+    - `hooks/stop_gate.py`, `hooks/guard.py`: `module=./core`, `core/.` и `.` читаются как в CI.
+    - `hooks/guard.py`: `>&` с переменной — дескриптор (регресс `efa4c50`).
+    - `tools/IntegrityCheck.java`: регрессы B2 `efa4c50` сняты (независимые `smokeTest`, `componentTest`, чтение
+      `includes`); видны `configureEach() { }`, `test.doFirst { }`, `exclude` внутри `if` блока `test`. Чего B2 не
+      видит, записано в `README.md`, раздел 9.
   - Роли: `hardener` чинит красный контроль в тестовом коде (`@Before`), правка фичи — вопрос человеку.
 - `.claude/agents/specifier.md`, `hardener.md`, `gauntlet/CLAUDE.md`: сценарий обязан исполняться сам по себе;
   красный контроль — зависимость сценария от соседнего или от стенда, а не слабое step-определение.
@@ -554,9 +564,9 @@ ArchUnit-тест, шаблоны, установку и документаци�
   `INSTALL.md`, `config/gauntlet.properties` — описание синхронизировано.
 - Проверки: `python3 tests/run.py` в репозитории набора (распакованный бандл): самопроверка хуков 2629/2629,
   инструменты, установщик, shell-шаги CI, побайтная пересборка; реальные Gradle 8.14.3/JDK 21 и 25, Cucumber
-  7.23.0 и 8.0.1 — полный `gauntlet` на примере (9/9 Gherkin-мутантов, 6 контролей, PIT 2/2) и 43 сценария находок;
+  7.23.0 и 8.0.1 — полный `gauntlet` на примере (9/9 Gherkin-мутантов, 6 контролей, PIT 2/2) и 47 сценариев находок;
   регрессионный набор репозитория прошёл в GitHub Actions (`.github/workflows/kit-tests.yml`, ubuntu-24.04,
-  243 теста); workflow самого набора (`gauntlet.yml`) там не исполняется: его шаги проверены локально как shell.
+  257 тестов); workflow самого набора (`gauntlet.yml`) там не исполняется: его шаги проверены локально как shell.
 
 ## Как распаковать (Claude выполняет это на шаге 2 протокола `start`)
 
@@ -591,7 +601,7 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 - `CLAUDE.md` (279 байт)
 - `gauntlet/CLAUDE.md` (65401 байт)
 - `gauntlet/INSTALL.md` (16010 байт)
-- `gauntlet/README.md` (81322 байт)
+- `gauntlet/README.md` (84974 байт)
 - `gauntlet/archtest/gauntlet/architecture/ArchitectureTest.java` (7999 байт)
 - `gauntlet/config/architecture.properties` (1420 байт)
 - `gauntlet/config/checkstyle.xml` (4593 байт)
@@ -600,18 +610,18 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 - `gauntlet/config/integrity-allowlist.txt` (445 байт)
 - `gauntlet/config/pit-runerror-allowlist.txt` (1485 байт)
 - `gauntlet/config/pmd-ruleset.xml` (11398 байт)
-- `gauntlet/gauntlet.gradle` (66644 байт)
-- `gauntlet/hooks/guard.py` (109438 байт)
+- `gauntlet/gauntlet.gradle` (67759 байт)
+- `gauntlet/hooks/guard.py` (110040 байт)
 - `gauntlet/hooks/selftest.py` (135116 байт)
 - `gauntlet/hooks/session_start.sh` (3116 байт)
-- `gauntlet/hooks/stop_gate.py` (21392 байт)
+- `gauntlet/hooks/stop_gate.py` (22315 байт)
 - `gauntlet/install.sh` (12194 байт)
 - `gauntlet/templates/acceptanceTest/java/com/example/service/acceptance/CucumberSpringConfiguration.java` (615 байт)
 - `gauntlet/templates/acceptanceTest/resources/features/example_discount.feature` (1258 байт)
 - `gauntlet/tools/CrapGate.java` (32267 байт)
 - `gauntlet/tools/DryGate.java` (7694 байт)
-- `gauntlet/tools/GherkinMutator.java` (76502 байт)
-- `gauntlet/tools/IntegrityCheck.java` (56941 байт)
+- `gauntlet/tools/GherkinMutator.java` (76870 байт)
+- `gauntlet/tools/IntegrityCheck.java` (70812 байт)
 - `gauntlet/tools/PitSummary.java` (11633 байт)
 
 ## Файлы
@@ -1865,9 +1875,9 @@ Auto-fix (кнопка в CI status bar сессии): на упавший CI и
 | команда, которую guard читал иначе, чем оболочка: апостроф в комментарии или в теле heredoc (`# don't forget` и следующей строкой `git push --force`), перенос строки через `\` (`cp src/A.java \` + `gauntlet/config/`), `<<` в строке или в арифметике, программа через heredoc, here-string или pipe (`bash <<EOF`, `python3 - <<EOF`, `bash <<< '…'`, `echo '…' \| python3`), подстановка в теле heredoc, `find … -exec sed -i` | до правил команда читается одним проходом: комментарии убираются, строки с `\` склеиваются, тело heredoc выносится из командной строки и судится как программа того, кто его читает (для `cat` и `tee` это данные), шаблон `case` не закрывает подоболочку; чтение сверено с настоящим bash; скрипт `sed`, программа `awk` и условия `find` — не пути, а `find` пишет, когда пишет команда его `-exec` |
 | `cd` в каталог, который хук не вычислял (`cd "$(git rev-parse --show-toplevel)" && echo … >> gauntlet/config/gauntlet.properties`, `cd "$CLAUDE_PROJECT_DIR"`, `cd -`, `popd`), и перенаправление, принятое за аргумент (`git push origin 2>&1` на базовой ветке — «refspec» `2>`; `echo '…' \| bash 2>&1`) | каталог после `cd` вычисляется для `~`, `$HOME`, `$PWD`, `$CLAUDE_PROJECT_DIR` и корня git; после `cd -`, `popd` и неизвестной цели команда судится по всем каталогам, где она уже была, и по корню проекта; перенаправления и here-string не входят в аргументы команды |
 | цель перенаправления, склеенная из кусков или собранная глобом (`> 'gauntlet'/config/…`, `> gaunt\let/…`, `> "$CLAUDE_PROJECT_DIR"/gauntlet/…`, `> gauntle?/config/…`), запись через `>&файл` и `>\|` | цель судится как слово, которое из неё делает bash: кавычки и `\` сняты, куски склеены, известные хуку переменные раскрыты, глоб сопоставлен с файлами; `>&` с файлом и `>\|` — запись, `>&2` и `2>&1` — дескриптор; экранированный `\>` — символ, и `\|` и `&` после него — конвейер и конец команды; сверено с настоящим bash |
-| не запускать падающий тест фильтром задачи `Test` (`test { exclude '**/OrdersTest*' }`, `filter { includePatterns = … }`, `includeEngines`, категории JUnit 4, группы TestNG) | `integrityCheck` B2 знает весь выбор тестов Gradle. `exclude` и `include` — находка там, где они настраивают задачу `Test`, которую гоняет гейт (`test`, `archTest`, `acceptanceTest`, `gherkinMutantsRun`, `withType(Test)`); те же слова у `jar`, копирования, source set и зависимостей — нет |
+| не запускать падающий тест фильтром задачи `Test` (`test { exclude '**/OrdersTest*' }`, `test { if (ci) { exclude … } }`, `filter { includePatterns = … }`, `includeEngines`, категории JUnit 4, группы TestNG) | `integrityCheck` B2 знает имена выбора тестов Gradle и узнаёт задачу по тексту скрипта. `exclude` и `include` — находка там, где они настраивают задачу `Test`, которую гоняет гейт (`test`, `archTest`, `acceptanceTest`, `gherkinMutantsRun`, `withType(Test)`), в том числе внутри `filter`, `doFirst`, `if`; `includes`/`excludes` — когда их пишут. Остальные имена — находка везде, кроме задачи `Test`, которую скрипт называет и гейт не запускает. Те же слова у `jar`, копирования, source set и зависимостей — не находка; чего B2 не видит — раздел 9 |
 | step-определение игнорирует параметр | `gherkinMutation` |
-| мутант «убит» не изменённым значением, а сломанным стендом: упала фикстура, сценарий зависит от соседнего, строку нельзя прогнать дважды на одном стенде, значение отверг сам Cucumber | `gherkinMutation`: каждая мутируемая строка «Примеров» прогоняется без изменений дважды — до мутантов (`cN`) и после них (`zN`), оба контроля обязаны пройти; kill — только падение, брошенное step-определением, на первом шаге, который использует мутированную колонку, или позже. Падение раньше этого шага, значение, которое Cucumber не смог конвертировать или которое отверг transformer (`@ParameterType` и т. п.), неудавшийся glue-объект, неоднозначный шаг, хук или фикстура — ошибка, а не kill |
+| мутант «убит» не изменённым значением, а сломанным стендом: упала фикстура, сценарий зависит от соседнего, строку нельзя прогнать дважды на одном стенде, параллельный прогон проекта поставил оба контроля раньше мутанта, значение отверг сам Cucumber | `gherkinMutation`: каждая мутируемая строка «Примеров» прогоняется без изменений дважды — до мутантов (`cN`) и после них (`zN`), оба контроля обязаны пройти; мутанты и контроли идут в одном JVM, по одному сценарию, в порядке имён файлов, как бы проект ни запускал свою приёмку (параллельный Cucumber в `junit-platform.properties` или в `tasks.withType(Test)`, `cucumber.execution.order`, `maxParallelForks`, `forkEvery`); kill — только падение, брошенное step-определением, на первом шаге, который использует мутированную колонку, или позже. Падение раньше этого шага, значение, которое Cucumber не смог конвертировать или которое отверг transformer (`@ParameterType` и т. п.), неудавшийся glue-объект, неоднозначный шаг, хук или фикстура — ошибка, а не kill |
 | область `changed` молча не увидела изменённый класс (кодировка исходников, второй корень main source set, необычное объявление типа) и гейт прошёл по пустому множеству | область строится по всем корням main source set, и Checkstyle, PMD, CPD получают их все; исходник читается как его читает javac (Unicode-escape, одиночный CR, `options.encoding` прежде `-encoding`); `gauntletScope` падает на изменённом исходнике, не читаемом в этой кодировке; перед PIT и CRAP каждый выведенный тип обязан существовать как класс, исходник с кодом обязан дать тип, а класс, чей атрибут `SourceFile` называет изменённый исходник, — быть среди выведенных |
 | имя с разделителем списка: изменённая `Скидка, рубли.feature` или `Ledger,Copy.java`, имя с кавычкой или переводом строки (git берёт его в кавычки), проект в каталоге `Acme, Inc` — путь распадался на имена, которых нет, и гейт проходил по пустому множеству (0 мутантов, «PMD: OK», «DRY gate: OK», PIT «No mutations found») | пути изменённых файлов читаются из `git … -z`; списки путей уходят инструментам набора файлом, где каждый путь кончается символом NUL (`--only-file`), корни исходников — по одному (`--sources`), classpath glue — тем же файлом-списком (`--glue-file`); путь из списка, который не называет файл, — ошибка, а не пустой прогон; PMD и CPD получают исходники позиционно после `--`, правила — путём от рабочего каталога; Cucumber — каталог фич относительно каталога проекта; PIT, который режет свои пути по запятой, в таком каталоге не запускается, а называет причину |
 | спрятать нарушение от `integrityCheck` за комментарием, строкой или именем параметра (`{ $/* … */ test -> /$`, вложенный комментарий Kotlin, `// tasks.named('jar') {`, `tasks.test.enabled = false` в блоке с параметром `test`), `@org.junit.jupiter.api.Disabled`, тестовое дерево в другой кодировке | `integrityCheck` читает скрипт и исходник как компилятор Groovy, Kotlin или javac: комментарии — не код, скобка в строке — не скобка, блок — тот, что действительно открыт; освобождение B1 — только когда получатель ровно параметр блока; аннотации с пакетом; каждое дерево исходников — в кодировке своей задачи компиляции, нечитаемый исходник — находка E1 |
@@ -2122,6 +2132,19 @@ protection базовой ветки и то, что любая попытка �
   - `integrityCheck`. `test { exclude '**/OrdersTest*' }` не был находкой B2, как и остальной выбор тестов Gradle:
     шаблоны `filter`, `includeEngines`, категории JUnit 4, группы TestNG.
 
+  Ревью головы `efa4c50` нашло ещё девять дефектов набора, исправлены все:
+  - `gherkinMutation`. Параллельный Cucumber проекта (или `cucumber.execution.order=random`) ставил оба контроля
+    строки раньше мутанта, и изношенный стенд давал kill. Прогон мутантов теперь в одном JVM, по одному сценарию, в
+    порядке имён; приёмка проекта сохраняет свой режим.
+  - `gherkinMutation`. Значение с переводом строки в тексте шага прятало номер строки кадра, и падение раньше
+    первого использования колонки считалось kill.
+  - Хуки. С `module=./core` Stop-хук не запускал Gradle, а guard не защищал спецификацию модуля от main. Хуки
+    читают `module`, как CI.
+  - PIT. Инкрементальный анализ держал устаревшие вердикты, и хук hardener'а пропускал выжившего. Анализ выключен.
+  - `integrityCheck`. Новая часть B2 блокировала независимые `smokeTest` и `componentTest` и чтение `includes`;
+    `exclude` внутри `if` в блоке `test` и `configureEach() { }` не была находкой.
+  - guard. Ревьюеру отказывалось в `2>&"$saved_stderr"`.
+
   Регрессии инструментов, установщика и CI лежат в `tests/` репозитория набора и гоняются по распакованному
   бандлу.
 - `install.sh` на демо-проекте: чистая установка; слияние с существующим `.claude/settings.json`
@@ -2144,6 +2167,14 @@ CI на GitHub. Оттуда — правки ревизии 3: RUN_ERROR в `mu
 следов внешнего контура» в коде и документах, ревизия источников документации по фактической доступности.
 
 ## 9. Ограничения
+- `integrityCheck` B2 узнаёт задачу по тексту скрипта и не видит фильтр:
+  - через переменную или псевдоним (`def t = tasks.test; t.exclude …`, `def e = test.excludes; e << …`);
+  - в `configure(test) { }` и `with(test) { }`;
+  - по ключу контейнера (`tasks['test'].exclude`, `tasks.getAt('test')`) и в Kotlin через приведение
+    `(tasks["test"] as Test)`;
+  - в коллекции с предикатом (`tasks.matching { it.name == 'test' }.all { … }`, `tasks.findAll { … }.each { … }`).
+
+  Такой фильтр виден в diff скрипта сборки, который читает человек.
 - Glue (step-классы) — только в `src/acceptanceTest/java`. Правку glue в отдельном модуле или в общем source set
   шагов область `changed` не видит: `gherkinMutation` проверит пустое множество.
 - Transformer (`@ParameterType` и т. п.) читается из базовой копии класса. В multi-release JAR, где аннотация есть
@@ -2157,8 +2188,10 @@ CI на GitHub. Оттуда — правки ревизии 3: RUN_ERROR в `mu
   контура стоит добавить SAST (SpotBugs+FindSecBugs или Semgrep) и проверку зависимостей.
 - Хуки читаются только в сессии с одним репозиторием; в сессии с несколькими репозиториями и в тредах
   Projects они не работают. Одна сессия — один сервис.
-- Облачная VM: ~4 vCPU, 16 ГБ, 30 ГБ; PIT на Spring-коде бывает медленным — помогают `scope=changed`,
-  инкрементальный анализ и `@Tag("no-mutate")` для тяжёлых тестов.
+- Облачная VM: ~4 vCPU, 16 ГБ, 30 ГБ; PIT на Spring-коде бывает медленным — помогают `scope=changed` и
+  `@Tag("no-mutate")` для тяжёлых тестов. Инкрементального анализа PIT нет: его история оставляла тесту,
+  ослабленному через вспомогательный класс или тестовый ресурс, прежних убитых мутантов, и хук hardener'а
+  пропускал выжившего; каждый прогон заново мутирует все изменённые классы.
 - `pit.testStrengthThreshold=100` будет упираться в эквивалентных мутантов: агент остановится и покажет
   мутанта, решение за вами.
 - Внутренние зависимости (общая библиотека из корпоративного Nexus) из облака недоступны: библиотека
@@ -3801,7 +3834,11 @@ plugins.withId('info.solidsoft.pitest') {
         mutators = listSetting('pit.mutators', 'DEFAULTS') as Set
         outputFormats = ['XML', 'HTML'] as Set
         timestampedReports = false
-        enableDefaultIncrementalAnalysis = true
+        // No history (build/pitHistory.txt): PIT's incremental analysis keeps a KILLED verdict while the mutated class
+        // and the killing test's class are unchanged, and a SURVIVED one while the covering test classes are. A test
+        // weakened through a helper class or a test resource kept its kills, and the hardener's SubagentStop hook let
+        // the survivor through; a test sharpened that way kept its survivor. Every run judges the tests as they are.
+        enableDefaultIncrementalAnalysis = false
         excludedGroups = listSetting('pit.excludedGroups', 'no-mutate') as Set
         // nested classes too, as JaCoCo (jacocoExcludes) and CrapGate (outer class name) already do
         excludedClasses = excludedClassGlobs.collectMany { [it, it + '$*'] } as Set
@@ -3928,6 +3965,14 @@ tasks.register('gherkinMutantsRun', Test) {
     doFirst {
         // failing scenarios are what this run is for: a project-wide failFast would stop it after the first kill
         failFast = false
+        // The controls of a row run before its mutants and after them (GherkinMutator generate): one JVM, one scenario
+        // at a time, the files in the order of their names - whatever the project chose for its own acceptance run in
+        // junit-platform.properties (a system property wins over it) or in tasks.withType(Test). In parallel both
+        // controls ran first, and a stand that wears out (a quota) failed the mutant instead: a kill.
+        maxParallelForks = 1
+        forkEvery = 0
+        systemProperty 'cucumber.execution.parallel.enabled', 'false'
+        systemProperty 'cucumber.execution.order', 'lexical'
         // Gradle 8.14 lists the report directory without creating it: recreate it after the wipe
         mutantResults.deleteDir()
         mutantResults.mkdirs()
@@ -4245,6 +4290,18 @@ def features_rel_of(value):
     return os.path.normpath(value).replace(os.sep, "/").strip("/")
 
 
+def module_dirs_of(value):
+    """module as CI reads it: comma-separated build directories, every entry stripped of blanks and slashes and
+    read as a path - ./core, core/. and core/ are core, . and ./ the build at the repository root. As a text
+    prefix ./core named no path: the main agent could write the module's spec, the specifier and hardener nothing."""
+    dirs = []
+    for entry in (value or "").split(","):
+        d = os.path.normpath(entry.strip()).replace(os.sep, "/").strip("/") if entry.strip() else ""
+        if d and d not in dirs:
+            dirs.append(d)
+    return [] if dirs == ["."] else dirs
+
+
 class Context:
     """Where the specification lives, which branch is the base, and whether the spec is frozen."""
 
@@ -4252,8 +4309,8 @@ class Context:
         self.project = project
         props = read_properties(os.path.join(project, PROPERTIES))
         # module = the Gradle build directories inside a monorepo, comma-separated ("" = the repository root)
-        self.modules = [m.strip().strip("/") for m in props.get("module", "").split(",") if m.strip()]
-        prefixes = [m + "/" for m in self.modules] or [""]
+        self.modules = module_dirs_of(props.get("module"))
+        prefixes = ["" if m == "." else m + "/" for m in self.modules] or [""]
         features_rel = features_rel_of(props.get("acceptance.features")) + "/"
         self.features_dirs = tuple(pfx + features_rel for pfx in prefixes)
         self.test_code = tuple(pfx + p for pfx in prefixes for p in TEST_CODE)
@@ -8682,13 +8739,30 @@ def properties():
     return props
 
 
+def module_dirs(value):
+    """The module list as CI reads it: comma-separated, every entry stripped of blanks and slashes and read as a
+    path - ./core, core/. and core/ are core, . and ./ the build at the repository root. Git names a changed
+    path without ./, so an entry kept as written named no path and its build was never run."""
+    dirs = []
+    for entry in value.split(","):
+        d = os.path.normpath(entry.strip()).replace(os.sep, "/").strip("/") if entry.strip() else ""
+        if d and d not in dirs:
+            dirs.append(d)
+    return [] if dirs == ["."] else dirs
+
+
+def under(module, rel):
+    """A path inside a module as git names it ('.' = the build at the repository root: no prefix)."""
+    return rel if module == "." else module + "/" + rel
+
+
 def configure_module():
     """Point every path at the modules' build directories when the build is not at the repository root."""
     global MODULES, WATCHED, REPORT_DIRS
-    MODULES = [m.strip().strip("/") for m in properties().get("module", "").split(",") if m.strip()]
+    MODULES = module_dirs(properties().get("module", ""))
     if MODULES:
-        WATCHED = [os.path.join(m, p) for m in MODULES for p in BUILD_FILES] + ["gauntlet"]
-        REPORT_DIRS = [os.path.join(m, p) for m in MODULES for p in REPORT_DIRS]
+        WATCHED = [under(m, p) for m in MODULES for p in BUILD_FILES] + ["gauntlet"]
+        REPORT_DIRS = [under(m, p) for m in MODULES for p in REPORT_DIRS]
 
 
 def affected_modules(changed):
@@ -8701,7 +8775,9 @@ def affected_modules(changed):
     for p in changed:
         # Longest (most specific) prefix wins: with module=core,core/adapter a change inside core/adapter
         # belongs to the nested build, not the parent core - the first match depended on module order.
-        owner = max((m for m in MODULES if p.startswith(m + "/")), key=len, default=None)
+        # A root build listed beside modules ('.') owns what no module owns, except the gauntlet's own files.
+        owner = max((m for m in MODULES if p.startswith(m + "/") or (m == "." and not p.startswith("gauntlet/"))),
+                    key=lambda m: 0 if m == "." else len(m), default=None)
         if owner:
             touched.add(owner)
         elif p.startswith("gauntlet/config/"):
@@ -8719,7 +8795,7 @@ def features_dirs():
     # as gauntlet.gradle reads it: an empty value is the default, "./src/.../features/" is "src/.../features"
     value = properties().get("acceptance.features", "").strip() or DEFAULT_FEATURES
     rel = os.path.normpath(value).replace(os.sep, "/").strip("/")
-    return [os.path.join(m, rel) for m in MODULES] if MODULES else [rel]
+    return [under(m, rel) for m in MODULES] if MODULES else [rel]
 
 
 def specs_pending_approval(features):
@@ -11189,8 +11265,8 @@ public class GherkinMutator {
         if (before.contains(RUNNER) || glue != null && glue.isTransformer(lastFrame(before))) {
             return new Outcome("rejected", type);
         }
-        Matcher line = STEP_LINE.matcher(trace.substring(step));
-        return new Outcome("failed", type, line.find() ? Integer.parseInt(line.group(1)) : -1);
+        Matcher line = STEP_LINE.matcher(trace);
+        return new Outcome("failed", type, line.find(step) ? Integer.parseInt(line.group(1)) : -1);
     }
 
     /** The stack trace of one failed attempt: the text of {@code <failure>}/{@code <error>}; a flaky or rerun
@@ -11206,8 +11282,11 @@ public class GherkinMutator {
 
     /** Frames of Cucumber's own runner: in a step's stack they are cut away, unless no step definition ran. */
     static final String RUNNER = "io.cucumber.core.runner.";
-    /** The line of the step frame: "✽.<step text>(file:///.../m1.feature:12)" - the text may hold colons. */
-    static final Pattern STEP_LINE = Pattern.compile("^✽\\.[^\\n]*:(\\d+)\\)");
+    /** The line of the step frame "✽.<step text>(file:///.../m1.feature:12)": the first ".feature:<line>)" after "✽."
+     *  that ends a line of the trace. The step text is the step as it ran - an Examples value brings its colons,
+     *  parentheses and line breaks into it ("line1\nline2") -, so the frame ends at its location, not at the end of
+     *  the line it starts on; what follows the frame varies ("Caused by:", "Suppressed:", Gradle's "Cause 1:"). */
+    static final Pattern STEP_LINE = Pattern.compile("\\.feature:(\\d{1,9})\\)(?=[ \\t]*(?:\\R|\\z))");
     /** A stack frame line "at [loader/[module]/]pkg.Class.method(File.java:12)". The location is its last parenthesized
      *  part: a JVM name can hold spaces and parentheses (Kotlin `the total (EUR) is`, a Groovy "string" method). */
     static final Pattern FRAME = Pattern.compile("(?m)^\\s*at ([^\\n]*\\))");
@@ -11542,6 +11621,7 @@ import java.util.Arrays;
 import java.util.BitSet;
 import java.util.Comparator;
 import java.util.Deque;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Predicate;
@@ -11628,6 +11708,10 @@ public class IntegrityCheck {
      */
     static final String TEST_PATTERNS = "(?<![\\w$])(?:exclude|include|excludes|includes|setExcludes|setIncludes)(?![\\w$])";
     static final Pattern TEST_PATTERN = Pattern.compile(TEST_PATTERNS);
+    /** What writes the patterns behind {@code includes}/{@code excludes}: an assignment, {@code <<}, a changing call. */
+    static final Pattern ASSIGNED = Pattern.compile("(?:[-+*/%&|^?]|<<|>>>?|\\*\\*)?=(?![=~])|<<");
+    static final Pattern MUTATED = Pattern.compile("(?:\\?|!!)?\\.\\s*(?:add|addAll|clear|remove|removeAll|removeIf|retainAll"
+            + "|leftShift)(?![\\w$])");
     /** The Test tasks the gauntlet runs; testTask is the Test task of a JVM test suite (testing.suites.test). */
     static final Pattern GATE_TEST = Pattern.compile("test|archTest|acceptanceTest|gherkinMutantsRun|testTask");
     /**
@@ -11639,11 +11723,55 @@ public class IntegrityCheck {
             + "|(?:getting|existing)\\((?:[\\w$]+\\.)*Test::class(?:\\.java)?(?:,[^()]*)?\\))$");
     /** The task behind a provider: {@code tasks.named("test").get()}. */
     static final Pattern PROVIDED = Pattern.compile("(?:\\?|!!)?\\.get\\(\\)$");
-    /** Blocks whose bare calls still reach the Test task they sit in: {@code test { filter { exclude 'x' } }}. */
-    static final Pattern TEST_INNER = Pattern.compile("filter|useJUnitPlatform|useJUnit|useTestNG|doFirst|doLast");
+    /**
+     * Blocks whose bare calls still reach the Test task they sit in: {@code test { filter { exclude 'x' } }}, with
+     * empty parentheses too ({@code doFirst() { }}). Behind a receiver they configure the task it names:
+     * {@code test.doFirst { setExcludes([...]) }}.
+     */
+    static final String TEST_INNERS = "(?:filter|useJUnitPlatform|useJUnit|useTestNG|options|doFirst|doLast)(?:\\(\\))?";
+    static final Pattern TEST_INNER = Pattern.compile(TEST_INNERS);
+    static final Pattern TEST_INNER_OF = Pattern.compile("(.+)\\." + TEST_INNERS);
+    /** Control blocks run in the block around them: {@code test { if (ci) { exclude 'x' } }} configures test. */
+    static final Pattern CONTROL = Pattern.compile(
+            "(?:if|for|while|switch|catch|synchronized|when)\\(.*\\)|else|try|finally|do|when");
+    /**
+     * A name with its arguments: the suite in {@code suites { integrationTest(JvmTestSuite) { } }}, the task after
+     * the keyword in {@code task smokeTest(type: Test) { }}.
+     */
+    static final Pattern DECLARED = Pattern.compile("^([A-Za-z_$][\\w$]*)(?:\\(.*\\))?$");
+    /** Kotlin's delegated task or suite, named by its val: {@code val smokeTest by tasks.registering(Test::class)}. */
+    static final Pattern DELEGATED = Pattern.compile("(?:^|(?<![\\w$])tasks\\.)(?:registering|creating|getting|existing)"
+            + "(?:<[\\w$.]+>)?(?:\\([^()]*\\))?$");
+    static final Pattern VAL_BY = Pattern.compile("(?<![\\w$])va[lr]\\s+([A-Za-z_$][\\w$]*)(?:\\s*:[^=\\n]*?)?\\s+by\\s*$");
+    /** The JVM test suites ({@code testing { suites { } }}) and a suite on the way: {@code testing.suites.integrationTest}. */
+    static final Pattern SUITES = Pattern.compile("(?:testing\\.)?suites");
+    static final Pattern SUITE_PATH = Pattern.compile("(?<![\\w$])suites\\.(?:(?:named|getByName|register|create|maybeCreate)"
+            + "(?:<[\\w$.]+>)?\\(([\"'])([^\"'$\\\\]*)\\1|([A-Za-z_$][\\w$]*))");
+    /** Words that configure every suite, or an opaque choice of them, and not one by its name. */
+    static final Pattern EVERY_SUITE = Pattern.compile("configureEach|configure|all|each|forEach|withType|matching|findAll");
+    /** The test selection names B2 reported before 4.3: still a finding wherever they stand. */
+    static final Pattern SELECTION_ANYWHERE = Pattern.compile(
+            "(?:exclude|include)TestsMatching|(?:exclude|include)Tags|excludeEngines|failOnNoDiscoveredTests");
+    /** What a selection call may hang on and still configure its block's task: {@code filter.includePatterns = [...]}. */
+    static final Pattern OWN_SELECTION = Pattern.compile("(?:(?:it|this|delegate)\\.)?(?:filter|options)|it|this|delegate");
+    /** A task by its accessor on the container: {@code tasks.smokeTest}. */
+    static final Pattern TASKS_ACCESSOR = Pattern.compile("(?<![\\w$])tasks\\.([A-Za-z_$][\\w$]*)$");
+    /** A task the script declares: after the keyword ({@code task smokeTest(type: Test)}) or {@code task('smokeTest', type: Test)}. */
+    static final Pattern TASK_KEYWORD = Pattern.compile("(?<![\\w$.])task\\s+$");
+    static final Pattern DECLARED_CALL = Pattern.compile("(?<![\\w$.])task(?:<[\\w$.]+>)?\\(([\"'])([^\"'$\\\\]*)\\1[^()]*\\)$");
+    /**
+     * Where a script declares a task or a JVM test suite by name - what a bare {@code smokeTest { }} then names:
+     * {@code task smokeTest(type: Test)}, {@code register('smokeTest', Test)}, {@code val smokeTest by tasks.registering},
+     * {@code integrationTest(JvmTestSuite)}.
+     */
+    static final Pattern DECLARATION = Pattern.compile("(?<![\\w$.])task\\s+([A-Za-z_$][\\w$]*)"
+            + "|(?<![\\w$])(?:register|create|maybeCreate|task)(?:<[\\w$.]+>)?\\(\\s*([\"'])([A-Za-z_$][\\w$]*)\\2"
+            + "|(?<![\\w$])va[lr]\\s+([A-Za-z_$][\\w$]*)[^=\\n]*?\\s+by\\s+(?:tasks\\.)?(?:registering|creating)"
+            + "|(?<![\\w$.])([A-Za-z_$][\\w$]*)\\s*\\(\\s*JvmTestSuite\\s*\\)");
+    static final Pattern NAME = Pattern.compile("[A-Za-z_$][\\w$]*");
     /** What may stand between the tasks and their block: {@code tasks.withType(Jar).matching { }.configureEach { }}. */
     static final Pattern CONFIGURER = Pattern.compile(
-            "(?:(?:\\?|!!)?\\.matching\\{\\})*(?:(?:\\?|!!)?\\.(configure|configureEach|all|each|forEach))?$");
+            "(?:(?:\\?|!!)?\\.matching\\{\\})*(?:(?:\\?|!!)?\\.(configure|configureEach|all|each|forEach)(?:\\(\\))?)?$");
     /** Single named parameter of a task-configuration closure: {@code jar { t -> }} / {@code jar { Task t -> }}. */
     static final Pattern CLOSURE_PARAM = Pattern.compile("^\\s*(?:final\\s+)?"
             + "(?:[\\p{javaJavaIdentifierStart}][\\p{javaJavaIdentifierPart}$.]*(?:\\s*<[^>]*>)?(?:\\[\\])?\\s+)?"
@@ -11921,6 +12049,7 @@ public class IntegrityCheck {
         final String text;
         final String code;
         final BitSet literal;
+        Set<String> declared;
 
         Source(String path, Lang lang, String content) {
             this.path = path;
@@ -11975,6 +12104,9 @@ public class IntegrityCheck {
             if (r.id().equals("B2") && TEST_PATTERN.matcher(m.group()).matches()) {
                 return filtersGateTests(m.start(), m.end());
             }
+            if (r.id().equals("B2") && !SELECTION_ANYWHERE.matcher(m.group()).matches()) {
+                return !selectsOtherTests(m.start());      // includeEngines in tasks.register('smokeTest', Test) { }
+            }
             // Only "enabled = false" for a packaging/doc task is exempt - ignoreFailures or onlyIf never are.
             return !(r.id().equals("B1") && DISABLED.matcher(m.group()).matches() && switchesOffOwnTask(m.start()));
         }
@@ -11987,8 +12119,10 @@ public class IntegrityCheck {
          * else: {@code jar { exclude }}, {@code configurations.all { exclude group: }},
          * {@code sourceSets.main.java.exclude}, a named argument ({@code fileTree(dir: d, include: '*.jar')}), the
          * coverage exclusions of {@code test { jacoco { excludes = [...] } }}, or a string that only mentions them.
+         * The patterns read ({@code logger.info("${test.includes}")}) narrow nothing either: only written they count.
          */
         boolean filtersGateTests(int at, int end) {
+            boolean property = code.startsWith("excludes", at) || code.startsWith("includes", at);
             boolean quoted = literal.get(at);
             if (quoted) {                                  // Groovy calls a method by a string: test."exclude"('x')
                 char quote = at > 0 ? code.charAt(at - 1) : ' ';
@@ -12009,6 +12143,9 @@ public class IntegrityCheck {
             Block block = testBlock(enclosingBrace(at));
             int dot = back(at, true);
             char before = dot == 0 || literal.get(dot - 1) ? ' ' : code.charAt(dot - 1);
+            if (property && !written(before == '[' && quoted ? behindBracket(end) : end)) {
+                return false;                              // read for a log line or a copy: no filter
+            }
             if (before != '.' && !(before == '[' && quoted)) {
                 // a bare call configures the block's task; test.&exclude and Test::exclude only name the method
                 return "@&:".indexOf(before) < 0 && block != null && !block.each() && !quoted;
@@ -12031,7 +12168,33 @@ public class IntegrityCheck {
                     return !block.each();
                 }
             }
-            return namesGateTest(receiver, LAST_ID);
+            return namesGateTest(receiver, LAST_ID) && !otherSuiteTask(receiver, enclosingBrace(receiverEnd));
+        }
+
+        /**
+         * True when the property that ends at {@code k} is written - assigned ({@code =}, {@code +=}), added to
+         * ({@code <<}) or changed by a call ({@code .add}, {@code .addAll}, {@code .clear}, {@code .remove},
+         * {@code .removeAll}, {@code .removeIf}, {@code .retainAll}) - and not only read.
+         */
+        boolean written(int k) {
+            while (k < code.length() && (code.charAt(k) == ' ' || code.charAt(k) == '\t')) {
+                k++;
+            }
+            if (k < code.length() && !literal.get(k) && ASSIGNED.matcher(code).region(k, code.length()).lookingAt()) {
+                return true;
+            }
+            while (k < code.length() && Character.isWhitespace(code.charAt(k))) {
+                k++;                                       // a call may go on in the next line: excludes\n    .add('x')
+            }
+            return k < code.length() && !literal.get(k) && MUTATED.matcher(code).region(k, code.length()).lookingAt();
+        }
+
+        /** The offset behind the ']' that closes a subscript whose key ends at {@code k}: test['excludes'] = [...]. */
+        int behindBracket(int k) {
+            while (k < code.length() && (code.charAt(k) == ' ' || code.charAt(k) == '\t')) {
+                k++;
+            }
+            return k < code.length() && code.charAt(k) == ']' && !literal.get(k) ? k + 1 : k;
         }
 
         /**
@@ -12040,10 +12203,155 @@ public class IntegrityCheck {
          * is looked through; any other block is the one the call belongs to.
          */
         Block testBlock(int brace) {
-            while (brace >= 0 && TEST_INNER.matcher(chain(chainStart(brace), brace)).matches()) {
+            int owner = ownBrace(brace);
+            return owner < 0 ? null : block(owner, chain -> namesGateTest(chain, OWN_TASK) && !namesOtherTest(chain, owner)
+                    || innerOfGateTest(chain, owner));
+        }
+
+        /** True when the chain is an inner block behind a receiver that names a gate task: test.doFirst, tasks.test.filter. */
+        boolean innerOfGateTest(String chain, int brace) {
+            Matcher inner = TEST_INNER_OF.matcher(chain);
+            return inner.matches() && namesGateTest(inner.group(1), LAST_ID) && !otherSuiteTask(inner.group(1), brace);
+        }
+
+        /**
+         * True when the test selection at {@code at} (includeEngines, a filter pattern, a JUnit 4 category) sits in
+         * the block of a Test task the gauntlet does not run, named as such: {@code tasks.register('smokeTest', Test)
+         * { useJUnitPlatform { includeEngines 'junit-jupiter' } }}, {@code task integrationTest(type: Test)},
+         * {@code tasks.named('integrationTest')}, the testTask of a suite other than test. These names mean nothing
+         * but test selection, so anything else - a gate task, every Test task, a receiver or a block that names no
+         * such task - stays a finding.
+         */
+        boolean selectsOtherTests(int at) {
+            int name = at;
+            if (literal.get(at) && at > 0 && !literal.get(at - 1) && "\"'`".indexOf(code.charAt(at - 1)) >= 0) {
+                name = at - 1;                             // test.filter."includePatterns": the receiver decides
+            }
+            int dot = back(name, true);
+            if (dot > 0 && !literal.get(dot - 1) && (code.charAt(dot - 1) == '.' || code.charAt(dot - 1) == '[')) {
+                int end = back(dot - 1, true);
+                if (!OWN_SELECTION.matcher(chain(chainStart(end), end)).matches()) {
+                    return false;                          // smokeTest.filter.includePatterns: not a block of its own
+                }
+            }
+            int owner = ownBrace(enclosingBrace(at));
+            return owner >= 0 && block(owner, chain -> namesOtherTest(chain, owner)) != null;
+        }
+
+        /**
+         * The block a call in the block at {@code brace} configures: an inner block ({@code filter},
+         * {@code doFirst}) and a control block ({@code if (ci) { }}, {@code else}, {@code for}) are looked through.
+         */
+        int ownBrace(int brace) {
+            while (brace >= 0) {
+                String chain = chain(chainStart(brace), brace);
+                if (!TEST_INNER.matcher(chain).matches() && !CONTROL.matcher(chain).matches()) {
+                    return brace;
+                }
                 brace = enclosingBrace(brace);
             }
-            return brace < 0 ? null : block(brace, chain -> namesGateTest(chain, OWN_TASK));
+            return brace;
+        }
+
+        /**
+         * True when the chain in front of the block at {@code brace} names one Test task the gauntlet does not run:
+         * {@code tasks.register('smokeTest', Test)}, {@code tasks.named('integrationTest')}, {@code tasks.smokeTest},
+         * {@code task smokeTest(type: Test)}, {@code task('smokeTest', type: Test)}, Kotlin's
+         * {@code val integrationTest by tasks.registering(Test::class)}, a bare {@code smokeTest} that this script
+         * declares as a task or suite, or the testTask of a suite other than test.
+         */
+        boolean namesOtherTest(String chain, int brace) {
+            int start = chainStart(brace);
+            String ahead = code.substring(Math.max(0, start - 200), start);
+            Matcher call = TASK_CALL.matcher(chain);
+            Matcher declared = DECLARED.matcher(chain);
+            Matcher declaredCall = DECLARED_CALL.matcher(chain);
+            Matcher accessor = TASKS_ACCESSOR.matcher(chain);
+            String name;
+            if (chain.equals("testTask")) {
+                return otherSuite(brace);
+            } else if (call.find()) {
+                name = call.group(3);                      // null: withType(T) names no one task
+            } else if (TASK_KEYWORD.matcher(ahead).find() && declared.matches()) {
+                name = declared.group(1);
+            } else if (declaredCall.find()) {
+                name = declaredCall.group(2);
+            } else if (DELEGATED.matcher(chain).find()) {
+                Matcher val = VAL_BY.matcher(ahead);
+                name = val.find() ? val.group(1) : null;
+            } else if (accessor.find()) {
+                name = accessor.group(1);
+            } else if (NAME.matcher(chain).matches() && declared().contains(chain)) {
+                name = chain;                              // smokeTest { }: a task this script declares
+            } else {
+                return false;
+            }
+            return name != null && !GATE_TEST.matcher(name).matches();
+        }
+
+        /** The tasks and JVM test suites this script declares by name. */
+        Set<String> declared() {
+            if (declared == null) {
+                declared = new HashSet<>();
+                Matcher m = DECLARATION.matcher(code);
+                while (m.find()) {
+                    for (int group : new int[] {1, 3, 4, 5}) {
+                        if (m.group(group) != null && !literal.get(m.start())) {
+                            declared.add(m.group(group));
+                        }
+                    }
+                }
+            }
+            return declared;
+        }
+
+        /** True when the chain is the testTask of a JVM test suite (or its task) and that suite is not test. */
+        boolean otherSuiteTask(String chain, int brace) {
+            Matcher name = LAST_ID.matcher(PROVIDED.matcher(chain).replaceFirst(""));
+            return name.find() && name.group(1).equals("testTask") && otherSuite(brace);
+        }
+
+        /**
+         * True when the block at {@code brace} sits in a JVM test suite other than test, named as such:
+         * {@code suites { integrationTest(JvmTestSuite) { } }}, {@code testing.suites.integrationTest.targets.all { }},
+         * {@code suites.named('integrationTest')}, Kotlin's {@code val integrationTest by registering(JvmTestSuite::class)}.
+         * Every suite ({@code configureEach}, {@code withType(JvmTestSuite)}), or none that is known, is no other suite.
+         */
+        boolean otherSuite(int brace) {
+            for (int b = brace; b >= 0; b = enclosingBrace(b)) {
+                String chain = chain(chainStart(b), b);
+                Matcher path = SUITE_PATH.matcher(chain);
+                if (path.find()) {
+                    return isOtherSuite(path.group(2) != null ? path.group(2) : path.group(3));
+                }
+                int outer = enclosingBrace(b);
+                if (outer >= 0 && SUITES.matcher(chain(chainStart(outer), outer)).matches()) {
+                    return isOtherSuite(suiteName(chain, b));
+                }
+            }
+            return false;
+        }
+
+        /** The name a block in {@code suites { }} gives its suite: test, integrationTest(JvmTestSuite), register('x'). */
+        String suiteName(String chain, int brace) {
+            Matcher call = TASK_CALL.matcher(chain);
+            if (call.find()) {
+                return call.group(3);
+            }
+            Matcher block = DECLARED.matcher(chain);
+            if (!block.matches()) {
+                return null;
+            }
+            if (DELEGATED.matcher(chain).find()) {
+                int start = chainStart(brace);
+                Matcher val = VAL_BY.matcher(code.substring(Math.max(0, start - 200), start));
+                return val.find() ? val.group(1) : null;
+            }
+            return block.group(1);
+        }
+
+        static boolean isOtherSuite(String name) {
+            return name != null && !name.equals("test") && !EVERY_SUITE.matcher(name).matches();
         }
 
         int lineOf(int offset) {

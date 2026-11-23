@@ -612,10 +612,28 @@
       к нему (glue вне `src/acceptanceTest/java`), C4 (кодировку называет `options.encoding`), awk и функции
       модулей perl, перебор perl. Не исправлены как не влияющие на вердикт в документированной конфигурации:
       C2, C5, C6, C7, предложение Grok. Самопроверка хуков: 2536 → 2623.
-    - **Ревью головы `efa4c50`.** Регресс `efa4c50` в guard: `>&` с переменной (`2>&"$saved_stderr"` —
-      восстановление stderr из сохранённого дескриптора) судился как запись файла, и ревьюеру отказывалось. Теперь
-      `>&` со словом, которое хук не может вычислить, — дескриптор; `>& "$CLAUDE_PROJECT_DIR"/…` по-прежнему путь.
-      Самопроверка хуков: 2623 → 2629.
+    - **Ревью головы `efa4c50` (Codex, Kimi, Grok, Qwen; 12 находок).** Решение — по правилу остановки; у каждого
+      исправления регрессия падает на `efa4c50`.
+      - guard (регресс `efa4c50`): `>&` с переменной (`2>&"$saved_stderr"`) судился как запись файла, и ревьюеру
+        отказывалось. Теперь `>&` со словом, которое хук не может вычислить, — дескриптор.
+      - `gherkinMutation` (Codex 1): параллельный Cucumber проекта или `cucumber.execution.order=random` ставили оба
+        контроля строки раньше мутанта, и изношенный стенд давал kill. `gherkinMutantsRun` идёт в одном JVM, по
+        одному сценарию, в порядке имён; приёмка проекта сохраняет свой режим.
+      - `gherkinMutation` (Codex 2): перевод строки в тексте шага прятал номер строки кадра Cucumber, и падение
+        раньше первого использования колонки считалось kill.
+      - Хуки (Codex 3, шире заявленного): с `module=./core` Stop-хук не запускал Gradle, guard не защищал
+        спецификацию модуля от main и отказывал specifier'у и hardener'у. Хуки читают `module`, как CI.
+      - `IntegrityCheck` B2 (регрессы `efa4c50`: Codex 4, Codex P3, Grok G3): новые имена выбора тестов блокировали
+        независимые `smokeTest` и `componentTest`, чтение `includes` и `testTask` любого набора — находка. Теперь
+        находка везде, кроме задачи `Test`, которую скрипт называет и гейт не запускает; `includes`/`excludes` — когда
+        их пишут; `testTask` — в наборе `test`. Заодно (Grok G1) видны `configureEach() { }`, `test.doFirst { }` и
+        `exclude` внутри `if`/`else`/`for` блока `test`.
+      - PIT (Codex 5): инкрементальный анализ держал устаревшие вердикты, и хук hardener'а пропускал выжившего. Анализ
+        выключен.
+      - Регрессионный набор (Kimi): сценарии идут без кэша сборки и кэша конфигурации машины.
+
+      Записаны в ограничения B2: подписка `tasks['test']`, предикаты `matching { }`/`findAll { }`, переменные и
+      псевдонимы. Самопроверка хуков: 2623 → 2629.
     - **Роли и процесс.** `specifier`: сценарий обязан исполняться сам по себе; `hardener` и `gauntlet/CLAUDE.md`:
       красный контроль — это зависимость сценария от соседнего или от стенда, а не слабое step-определение.
     - **Регрессионный набор в репозитории.** Третий раунд ревью советовал «сохранить небольшой Gradle-проект в
@@ -623,7 +641,7 @@
       20/20» жили в разовых стендах исполнителей. Теперь `python3 tests/run.py` распаковывает бандл скриптом из его
       шапки и проверяет манифест, побайтную пересборку сборщиком из раздела 8.4, единство ревизии в документах,
       хуки, три инструмента с собственным вердиктом (`CrapGate`, `IntegrityCheck`, `GherkinMutator`; `DryGate` и
-      `PitSummary` — только сценарием полного `gauntlet` на Gradle), установщик и shell-шаги CI; `--gradle` добавляет сорок три сценария на
+      `PitSummary` — только сценарием полного `gauntlet` на Gradle), установщик и shell-шаги CI; `--gradle` добавляет сорок семь сценариев на
       настоящем Gradle, включая оба ложнозелёных случая выше. В CI репозитория его запускает
       `.github/workflows/kit-tests.yml` (pull request и push в `main`, `--gradle`).
 
@@ -696,20 +714,20 @@ Gherkin-мутаций в таблице и абзац о приёмочном �
 | `.github/workflows/gauntlet.yml` | 1978 | 7658 |
 | `gauntlet/CLAUDE.md` | 63625 | 65401 |
 | `gauntlet/INSTALL.md` | 11426 | 16010 |
-| `gauntlet/README.md` | 29851 | 81322 |
+| `gauntlet/README.md` | 29851 | 84974 |
 | `gauntlet/archtest/gauntlet/architecture/ArchitectureTest.java` | 7906 | 7999 |
 | `gauntlet/config/crap-allowlist.txt` | 448 | 924 |
 | `gauntlet/config/gauntlet.properties` | 5921 | 6709 |
-| `gauntlet/gauntlet.gradle` | 32451 | 66644 |
-| `gauntlet/hooks/guard.py` | 26740 | 109438 |
+| `gauntlet/gauntlet.gradle` | 32451 | 67759 |
+| `gauntlet/hooks/guard.py` | 26740 | 110040 |
 | `gauntlet/hooks/selftest.py` | 41192 | 135116 |
-| `gauntlet/hooks/stop_gate.py` | 16669 | 21392 |
+| `gauntlet/hooks/stop_gate.py` | 16669 | 22315 |
 | `gauntlet/install.sh` | 4933 | 12194 |
 | `gauntlet/templates/acceptanceTest/resources/features/example_discount.feature` | 928 | 1258 |
 | `gauntlet/tools/CrapGate.java` | 12638 | 32267 |
 | `gauntlet/tools/DryGate.java` | 6538 | 7694 |
-| `gauntlet/tools/GherkinMutator.java` | 35990 | 76502 |
-| `gauntlet/tools/IntegrityCheck.java` | 15688 | 56941 |
+| `gauntlet/tools/GherkinMutator.java` | 35990 | 76870 |
+| `gauntlet/tools/IntegrityCheck.java` | 15688 | 70812 |
 | `gauntlet/tools/PitSummary.java` | 11401 | 11633 |
 
 Остальные 8 файлов не правились; их размеры не изменились. Во втором раунде Codex (F1–F14) изменены 9 файлов:
@@ -726,7 +744,7 @@ Gherkin-мутаций в таблице и абзац о приёмочном �
   `core/` + `adapter/`); в том числе из распакованной копии пересобранного бандла.
 - `python3 tests/run.py --gradle` — регрессионный набор дистрибутива по бандлу, распакованному скриптом из его
   шапки: манифест и побайтная пересборка сборщиком из раздела 8.4, единство ревизии и таблицы размеров, хуки,
-  `CrapGate`, `IntegrityCheck`, `GherkinMutator`, установщик, shell-шаги CI и сорок три сценария на настоящем
+  `CrapGate`, `IntegrityCheck`, `GherkinMutator`, установщик, shell-шаги CI и сорок семь сценариев на настоящем
   Gradle 8.14.3 (JDK 21 и 25, Cucumber 7.23.0): полный `gauntlet` на примере — 29 задач, PIT 2/2, 9/9
   Gherkin-мутантов и 6 контролей; строка, которую нельзя повторить на одном стенде, и enum, который Cucumber
   не конвертирует, — ошибки, а не kill; второй корень main source set, одиночный CR, `options.encoding` против
@@ -737,9 +755,10 @@ Gherkin-мутаций в таблице и абзац о приёмочном �
   launcher, прочитанный init-скриптом, и launcher, зафиксированный раньше набора; удалённый glue-файл;
   повторные попытки test-retry в обоих видах отчёта; transformer'ы в glue; пути с запятой и кавычкой; результат
   прежней JVM гейта и прежней политики архитектуры; настройки компилятора проекта; гейт ниже 17; каталог фич с
-  `./` и `/`; на парах JDK 21/25, 17/21 и 8/21. Отдельно Cucumber 8.0.1 с JUnit 6.1.2 — 9/9 kill, 3 контроля. Тот же набор
+  `./` и `/`; контроли при параллельном Cucumber; многострочный шаг; хук hardener'а после правки тестовых данных; на
+  парах JDK 21/25, 17/21 и 8/21. Отдельно Cucumber 8.0.1 с JUnit 6.1.2 — 9/9 kill, 3 контроля. Тот же набор
   регрессионный набор репозитория прошёл в GitHub Actions (`.github/workflows/kit-tests.yml`, ubuntu-24.04,
-  248 тестов); workflow самого набора (`gauntlet.yml`) там не исполняется: его шаги проверены локально как shell.
+  257 тестов); workflow самого набора (`gauntlet.yml`) там не исполняется: его шаги проверены локально как shell.
 - Компиляция всех single-file инструментов (`javac`): `CrapGate`, `DryGate`, `GherkinMutator`,
   `IntegrityCheck`, `PitSummary` — без ошибок.
 - Целевые регрессии: allowlist `CrapGate` (ключ `Class#method` цел), опенер `IntegrityCheck` (10 случаев),

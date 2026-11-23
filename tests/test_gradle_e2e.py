@@ -5,6 +5,7 @@ Central plus the Gradle plugin portal. Every scenario here is a defect that a re
 reviews missed - reproduced against a real build rather than a stub.
 """
 import glob
+import json
 import os
 import re
 import shutil
@@ -117,6 +118,40 @@ public class AccountSteps {
     }
 }
 """
+CREDIT_STEPS = """package com.example.service.acceptance;
+
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import io.cucumber.java.en.When;
+import java.util.concurrent.atomic.AtomicInteger;
+
+public class CreditSteps {
+    // the stand's quota: two purchases, the third one is refused
+    private static final AtomicInteger PURCHASES = new AtomicInteger();
+
+    @When("{int} credits are spent")
+    public void spend(int credits) {
+        System.out.println("purchase on " + Thread.currentThread().getName());
+        assertTrue(PURCHASES.incrementAndGet() <= 2, "quota exceeded");
+    }
+}
+"""
+PURCHASE_STEPS = """package com.example.service.acceptance;
+
+import io.cucumber.java.en.Then;
+
+public class PurchaseSteps {
+    @Then("the purchase is accepted")
+    public void accepted() {
+    }
+}
+"""
+CREDITS = ("Feature: Credits\n\n  Scenario Outline: Credits are spent within the quota\n"
+           "    When <credits> credits are spent\n    Then the purchase is accepted\n\n"
+           "    Examples:\n      | credits |\n      | 3       |\n")
+PARALLEL = {"cucumber.execution.parallel.enabled": "true", "cucumber.execution.parallel.config.strategy": "fixed",
+            "cucumber.execution.parallel.config.fixed.parallelism": "2",
+            "cucumber.execution.parallel.config.fixed.max-pool-size": "2"}
 ORDER_STEPS = """package com.example.service.acceptance;
 
 import io.cucumber.java.en.Given;
@@ -381,7 +416,14 @@ class GradleCase(unittest.TestCase):
     def gradle(self, *args, env=None):
         environment = kit.java_env()
         environment.update(env or {})
-        return kit.run(["gradle", *args, "--console=plain"], cwd=self.lab, env=environment)
+        # A scenario proves what the gates do when they run. A build cache the machine enables (org.gradle.caching=true
+        # in ~/.gradle/gradle.properties) hands a task the outputs of an earlier run of the same scenario instead:
+        # pitest came FROM-CACHE, printed no ">> Generated" and skipped the kit's doFirst checks (review of efa4c50).
+        # Only a scenario about the build cache asks for it, with a cache directory of its own. The configuration
+        # cache likewise (org.gradle.configuration-cache=true): it refuses the afterTask listener of REPORT_JVM.
+        cache = [] if "--build-cache" in args else ["--no-build-cache"]
+        cache += [] if "--configuration-cache" in args else ["--no-configuration-cache"]
+        return kit.run(["gradle", *args, *cache, "--console=plain"], cwd=self.lab, env=environment)
 
     def assert_build(self, result, ok):
         self.assertIn("BUILD SUCCESSFUL" if ok else "BUILD FAILED", result.out, result.out[-4000:])
@@ -665,8 +707,8 @@ class PathLists(GradleCase):
 
 
 class GherkinHarness(GradleCase):
-    """Failures the changed value did not cause are no kills: a row that cannot be repeated in one run, a value
-    Cucumber rejected before the step definition saw it."""
+    """Failures the changed value did not cause are no kills: a row that cannot be repeated in one run, a stand that
+    fails in a step before the one that uses the value, a value Cucumber rejected before the step definition saw it."""
 
     def test_a_row_that_cannot_run_twice_on_one_stand_kills_nothing(self):
         # every scenario shares one account store (as a cached Spring context shares a database); the Then step is
@@ -682,6 +724,87 @@ class GherkinHarness(GradleCase):
         self.assertIn("2 mutant(s) - 0 killed, 0 survived, 2 error(s); 2 control(s) - 1 passed", r.out)
         self.assertIn("before the first step that uses <amount>", r.out)
         self.assertRegex(r.out, r"MUTANT ERROR +z1 control \(unmutated scenario, after the mutants\) failed in a step")
+
+    def test_the_controls_run_before_and_after_the_mutants_whatever_the_project_s_own_acceptance_run_does(self):
+        # the project runs its scenarios in parallel - set in junit-platform.properties, or as system properties of
+        # every Test task written after the kit: both controls ran first, the stand's quota failed the mutant - a
+        # "kill" of a step that ignores <credits> - and the gate passed (review of efa4c50). Its forks each ran
+        # every scenario once more.
+        self.project(example=False)
+        self.file(GLUE + "CreditSteps.java", CREDIT_STEPS)
+        self.file(GLUE + "PurchaseSteps.java", PURCHASE_STEPS)
+        self.file(FEATURES + "credits.feature", CREDITS)
+        build = os.path.join(self.lab, "build.gradle")
+        plain = kit.read(build)
+
+        def results(task):
+            return "".join(kit.read(p) for p in glob.glob(os.path.join(self.lab, "build", task, "*.xml")))
+
+        tasks = ("tasks.withType(Test).configureEach {\n    maxParallelForks = 2\n    forkEvery = 1\n"
+                 + "".join(f"    systemProperty '{key}', '{value}'\n" for key, value in PARALLEL.items()) + "}\n")
+        for where in ("tasks.withType(Test)", "junit-platform.properties"):
+            with self.subTest(where):
+                if where == "tasks.withType(Test)":
+                    kit.write(build, plain + tasks)
+                else:
+                    kit.write(build, plain)
+                    self.file("src/acceptanceTest/resources/junit-platform.properties",
+                              "".join(f"{key}={value}\n" for key, value in PARALLEL.items()))
+                self.commit(where)
+                r = self.gradle("gherkinMutation", "-Pgauntlet.scope=all")
+                self.assert_build(r, False)
+                self.assertIn("1 mutant(s) - 0 killed, 1 survived, 0 error(s); 2 control(s) - 1 passed", r.out)
+                self.assertRegex(r.out, r"MUTANT ERROR +z1 control \(unmutated scenario, after the mutants\) failed")
+                mutant_run = results("gherkin-mutation/results")
+                self.assertEqual(3, mutant_run.count("<testcase "), "c1, m1 and z1 once each, one at a time")
+                self.assertNotIn("purchase on ForkJoinPool-", mutant_run)
+                # the project's own acceptance run keeps its parallel mode
+                self.assertIn("purchase on ForkJoinPool-", results("test-results/acceptanceTest"))
+
+    def test_a_stand_failure_in_a_step_whose_text_holds_a_line_break_kills_nothing(self):
+        # the address cell holds \n, so the Given's text - and Cucumber's step frame - holds a line break. The stand
+        # is down while the mutant of <count> runs, in that Given, before the hollow Then that first uses <count>. Read
+        # only to the end of the frame's first line, the failure named no line and counted as a kill (review of efa4c50)
+        self.project(example=False)
+        self.file(GLUE + "LabelSteps.java", """package com.example.service.acceptance;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+import io.cucumber.java.Before;
+import io.cucumber.java.Scenario;
+import io.cucumber.java.en.Given;
+import io.cucumber.java.en.Then;
+
+public class LabelSteps {
+    private String scenario;
+
+    @Before
+    public void name(Scenario current) {
+        scenario = current.getName();
+    }
+
+    @Given("the parcel goes to {string}")
+    public void address(String value) {
+        if (scenario.contains("| count: ")) {
+            throw new IllegalStateException("stand unavailable");
+        }
+        assertEquals("line1\\nline2", value);
+    }
+
+    @Then("the label shows {int} parcels")
+    public void label(int count) {
+    }
+}
+""")
+        self.file(FEATURES + "labels.feature", "Feature: Parcel labels\n\n  Scenario Outline: A parcel is labelled\n"
+                  "    Given the parcel goes to \"<address>\"\n    Then the label shows <count> parcels\n\n"
+                  "    Examples:\n      | address      | count |\n      | line1\\nline2 | 3     |\n")
+        self.commit("labels")
+        r = self.gradle("gherkinMutation", "-Pgauntlet.scope=all")
+        self.assert_build(r, False)
+        self.assertIn("2 mutant(s) - 1 killed, 0 survived, 1 error(s); 2 control(s) - 2 passed", r.out)
+        self.assertRegex(r.out, r"MUTANT ERROR +m2 failed on line 4, before the first step that uses <count> \(line 5\)"
+                         r" - the changed value did not cause it, not a kill")
 
     def test_a_value_the_step_never_receives_is_no_kill(self):
         # a dithered enum constant cannot be converted: Cucumber fails before the hollow Then step runs
@@ -1160,6 +1283,73 @@ class CiPlan(GradleCase):
                 kit.write(os.path.join(self.lab, "gauntlet/config/core/gauntlet.properties"), f"gate.java.version{separator}25\n")
                 self.assertEqual(self.planned(), {"core": ("17", "25")})
                 self.assertEqual(self.reported("core"), ("17", "25"))
+
+
+class HardenerStop(GradleCase):
+    """The hardener's loop as hardener.md has it - ./gradlew mutationGate, edit test code, again - and the SubagentStop
+    hook of .claude/settings.json that re-runs mutationGate before the hardener may finish. PIT's incremental analysis
+    kept a KILLED verdict while the mutated class and the killing test's class were unchanged, and a SURVIVED one while
+    the covering test classes were: a test changed through its test data kept its old verdict, and the hook took it
+    over from the hardener's last run (pitest UP-TO-DATE). CI starts without the history (review of efa4c50)."""
+
+    PRICES = ("package com.example.service.domain;\n\npublic class Prices {\n    public int fee(int amount) {\n"
+              "        if (amount > 0) {\n            return 5;\n        }\n        return 0;\n    }\n}\n")
+    PRICES_TEST = ("package com.example.service.domain;\n\nimport static org.junit.jupiter.api.Assertions.assertEquals;\n\n"
+                   "import org.junit.jupiter.api.Test;\n\nclass PricesTest {\n    @Test\n    void noFeeAtTheBoundary() {\n"
+                   "        assertEquals(0, new Prices().fee(TestData.boundaryAmount()));\n    }\n\n    @Test\n"
+                   "    void feeAboveTheBoundary() {\n        assertEquals(5, new Prices().fee(10));\n    }\n}\n")
+    TEST_DATA = ("package com.example.service.domain;\n\nfinal class TestData {\n    private TestData() {\n    }\n\n"
+                 "    static int boundaryAmount() {\n        return %d;\n    }\n}\n")
+
+    def prices(self, boundary):
+        """Prices.fee with its test; the test's input comes from a test-data class (not a constant javac inlines)."""
+        self.file(DOMAIN + "Prices.java", self.PRICES)
+        self.file(DOMAIN_TEST + "PricesTest.java", self.PRICES_TEST)
+        self.file(DOMAIN_TEST + "TestData.java", self.TEST_DATA % boundary)
+
+    def hook(self, event, command):
+        env = kit.java_env()
+        env["CLAUDE_PROJECT_DIR"] = self.lab
+        for name in ("GAUNTLET_GUARD", "GAUNTLET_STOP_HOOK"):
+            env.pop(name, None)
+        return kit.run(["bash", "-c", command], cwd=self.lab, env=env, input=json.dumps(dict(event, cwd=self.lab)))
+
+    def start_session(self):
+        self.project(example=False)
+        r = self.hook({"session_id": "s1", "hook_event_name": "SessionStart"},
+                      'python3 "$CLAUDE_PROJECT_DIR/gauntlet/hooks/stop_gate.py" --record-start')   # as session_start.sh
+        self.assertEqual(r.code, 0, r)
+
+    def hardener_stops(self):
+        """The hardener's SubagentStop hook, run as Claude Code runs it: the command of .claude/settings.json."""
+        settings = json.loads(kit.read(os.path.join(kit.kit(), ".claude", "settings.json")))
+        command, = [h["command"] for entry in settings["hooks"]["SubagentStop"] if entry.get("matcher") == "^hardener$"
+                    for h in entry["hooks"]]
+        return self.hook({"session_id": "s1", "hook_event_name": "SubagentStop", "agent_type": "hardener",
+                          "agent_id": "h1", "stop_hook_active": False}, command)
+
+    def test_the_survivor_a_test_data_change_leaves_stops_the_hardener(self):
+        self.start_session()
+        self.prices(boundary=0)
+        self.commit("prices")
+        self.assert_build(self.gradle("mutationGate", "--continue"), True)      # 3 killed
+        self.prices(boundary=-1)                        # the boundary test no longer sits on the boundary
+        r = self.gradle("mutationGate", "--continue")
+        self.assertIn("{KILLED=2, SURVIVED=1}", r.out)  # was {KILLED=3}: "Incremental analysis reduced ... by 3"
+        r = self.hardener_stops()
+        self.assertEqual(r.code, 2, r)
+        self.assertIn("changed conditional boundary", r.out)
+
+    def test_the_kill_a_test_data_change_makes_lets_the_hardener_go(self):
+        self.start_session()
+        self.prices(boundary=-1)
+        self.commit("prices")
+        self.assert_build(self.gradle("mutationGate", "--continue"), False)     # the boundary mutant survives
+        self.prices(boundary=0)
+        r = self.gradle("mutationGate", "--continue")
+        self.assertIn("PIT summary: 3 mutant(s) {KILLED=3}", r.out)             # was the old survivor
+        r = self.hardener_stops()
+        self.assertEqual(r.code, 0, r)
 
 
 if __name__ == "__main__":

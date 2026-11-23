@@ -418,6 +418,41 @@ class WhereItFailed(Sandbox):
                 self.assertEqual(0, code, out)
                 self.assertIn("1 killed, 0 survived, 0 error(s)", self.summary(out))
 
+    def test_a_line_break_in_the_step_text_hides_no_line(self):
+        # An Examples value with \n is part of the step text, and Cucumber 7.23.0 and 8.0.1 print it in the step frame:
+        # 'at ✽.the parcel goes to "line1<LF>line2"(file:///.../m1.feature:4)'. Read to the end of the line the frame
+        # starts on, it named no line - a stand failure before the first use of the value counted as a kill - or the
+        # ":2)" of "(floor:2)" in the value (review of efa4c50). What follows the frame differs: nothing, "Caused by:",
+        # and Gradle's "Cause 1:" for a MultipleFailuresError without suppressed exceptions.
+        uri = "file:///lab/build/gherkin-mutation/mutants/m1.feature"
+        glue = "com.example.service.acceptance.LabelSteps.address(LabelSteps.java:14)"
+        after = {"nothing": "",
+                 "a cause": "Caused by: java.io.IOException: refused\n\tat com.example.Stand.call(Stand.java:3)\n"
+                            "\t... 1 more\n",
+                 "Gradle's causes": "Cause 1: java.lang.AssertionError: count 4\n"
+                                    "\tat com.example.Stand.call(Stand.java:3)\n"}
+
+        def failed(step, line, tail):
+            trace = f"java.lang.IllegalStateException: stand unavailable\n\tat {glue}\n\tat ✽.{step}({uri}:{line})\n"
+            return (f'    <failure message="stand unavailable" type="java.lang.IllegalStateException">'
+                    f'{escape(trace + tail)}</failure>\n')
+
+        for text in ('the parcel goes to "line1\nline2"', 'the parcel goes to "Office (floor:2)\nLondon"',
+                     'the parcel goes to "line1 line2"'):
+            for name, tail in after.items():
+                with self.subTest(text=text, after=name):
+                    self.manifest_with_uses(5)
+                    write_results(self.results, [(control_name(1), PASSED), (mutant_name(1), failed(text, 4, tail))])
+                    code, out = self.run_verdict()
+                    self.assertEqual(1, code, out)
+                    self.assertIn("MUTANT ERROR    m1 failed on line 4, before the first step that uses <price>"
+                                  " (line 5)", out)
+                    write_results(self.results, [(control_name(1), PASSED), (mutant_name(1), failed(text, 6, tail))])
+                    code, out = self.run_verdict()
+                    self.assertEqual(0, code, out)      # on line 6, after the first use: a kill
+                    self.assertIn("1 killed (1 by a non-assertion exception thrown in a step), 0 survived, 0 error(s)",
+                                  self.summary(out))
+
     def test_a_control_after_the_mutants_that_fails_means_the_row_cannot_be_repeated(self):
         self.manifest_with_uses(5, controls=("c1", "z1"))
         write_results(self.results, [(control_name("c1"), PASSED), (mutant_name(1), in_step()),

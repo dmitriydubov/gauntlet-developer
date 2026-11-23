@@ -541,9 +541,10 @@ ArchUnit-тест, шаблоны, установку и документаци�
       `> gaunt\let/…`, `> gauntle?/…`, `>&файл` и `>|` писали в набор мимо хука, а команда после `\>&`
       (экранированный `>`) не проверялась.
     - `hooks/guard.py`: `readpipe` — запись perl, как `qx`.
-    - `tools/IntegrityCheck.java`: B2 видит весь выбор тестов Gradle — `exclude`/`include` задачи `Test`, которую
-      гоняет гейт, шаблоны `filter`, `includeTest`, `includeEngines`, сеттеры тегов, категории JUnit 4, группы
-      TestNG. Те же слова у `jar`, копирования, source set и зависимостей — не находка.
+    - `tools/IntegrityCheck.java`: B2 знает имена выбора тестов Gradle и узнаёт задачу по тексту скрипта —
+      `exclude`/`include` задачи `Test`, которую гоняет гейт, шаблоны `filter`, `includeTest`, `includeEngines`,
+      сеттеры тегов, категории JUnit 4, группы TestNG. Те же слова у `jar`, копирования, source set и зависимостей —
+      не находка; чего B2 не видит, записано в `README.md`, раздел 9.
   - Ревью головы `efa4c50` (Codex, Kimi, Grok, Qwen), по тому же правилу остановки:
     - `gauntlet.gradle`: `gherkinMutantsRun` — один JVM, по одному сценарию, в порядке имён, что бы ни задал проект
       для своей приёмки (параллельный Cucumber ставил оба контроля раньше мутанта); инкрементального анализа PIT нет

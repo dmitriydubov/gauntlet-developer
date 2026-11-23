@@ -547,12 +547,12 @@ ArchUnit-тест, шаблоны, установку и документаци�
   - Роли: `hardener` чинит красный контроль в тестовом коде (`@Before`), правка фичи — вопрос человеку.
 - `.claude/agents/specifier.md`, `hardener.md`, `gauntlet/CLAUDE.md`: сценарий обязан исполняться сам по себе;
   красный контроль — зависимость сценария от соседнего или от стенда, а не слабое step-определение.
-- `hooks/selftest.py`: 997 → 2623 проверки (сокращения и их разрешающие контроли, конфигурация git, `gh`,
+- `hooks/selftest.py`: 997 → 2629 проверок (сокращения и их разрешающие контроли, конфигурация git, `gh`,
   оболочки/обёртки/вложенный код для human-only, путей и ролей, чтение командной строки, каталог после `cd`,
   перенаправления, `gh api`, чтения ревьюера, `buildSrc`, вывод при таймауте, `$'…'`, код perl в кавычках,
   шаблоны perl, каталог фич с `./`, цель перенаправления как слово bash, `readpipe`). `README.md`,
   `INSTALL.md`, `config/gauntlet.properties` — описание синхронизировано.
-- Проверки: `python3 tests/run.py` в репозитории набора (распакованный бандл): самопроверка хуков 2623/2623,
+- Проверки: `python3 tests/run.py` в репозитории набора (распакованный бандл): самопроверка хуков 2629/2629,
   инструменты, установщик, shell-шаги CI, побайтная пересборка; реальные Gradle 8.14.3/JDK 21 и 25, Cucumber
   7.23.0 и 8.0.1 — полный `gauntlet` на примере (9/9 Gherkin-мутантов, 6 контролей, PIT 2/2) и 43 сценария находок;
   регрессионный набор репозитория прошёл в GitHub Actions (`.github/workflows/kit-tests.yml`, ubuntu-24.04,
@@ -591,7 +591,7 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 - `CLAUDE.md` (279 байт)
 - `gauntlet/CLAUDE.md` (65401 байт)
 - `gauntlet/INSTALL.md` (16010 байт)
-- `gauntlet/README.md` (81189 байт)
+- `gauntlet/README.md` (81322 байт)
 - `gauntlet/archtest/gauntlet/architecture/ArchitectureTest.java` (7999 байт)
 - `gauntlet/config/architecture.properties` (1420 байт)
 - `gauntlet/config/checkstyle.xml` (4593 байт)
@@ -601,8 +601,8 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 - `gauntlet/config/pit-runerror-allowlist.txt` (1485 байт)
 - `gauntlet/config/pmd-ruleset.xml` (11398 байт)
 - `gauntlet/gauntlet.gradle` (66644 байт)
-- `gauntlet/hooks/guard.py` (109308 байт)
-- `gauntlet/hooks/selftest.py` (134800 байт)
+- `gauntlet/hooks/guard.py` (109438 байт)
+- `gauntlet/hooks/selftest.py` (135116 байт)
 - `gauntlet/hooks/session_start.sh` (3116 байт)
 - `gauntlet/hooks/stop_gate.py` (21392 байт)
 - `gauntlet/install.sh` (12194 байт)
@@ -1709,7 +1709,7 @@ gauntlet/
   archtest/               ArchUnit-тест, читающий config/architecture.properties
   hooks/                  guard.py (PreToolUse), stop_gate.py (Stop; SubagentStop hardener'а — matcher в
                           .claude/settings.json), session_start.sh (SessionStart; в облаке поднимает dockerd),
-                          selftest.py (2623 проверки хуков в трёх раскладках: python3 gauntlet/hooks/selftest.py)
+                          selftest.py (2629 проверок хуков в трёх раскладках: python3 gauntlet/hooks/selftest.py)
   templates/              конфигурация Cucumber+Spring, пример фичи на русском
   claude/, ci/            только до установки: install.sh переносит их в .claude/ и .github/workflows/
 ```
@@ -1897,7 +1897,7 @@ protection базовой ветки и то, что любая попытка �
 ## 8. Что проверено в этой версии, а что нет
 
 Проверено здесь (Gradle 8.14.3, Java 21):
-- Хуки, `hooks/selftest.py`, 2623 проверки в трёх раскладках (сборка в корне; модуль `core/`; два модуля
+- Хуки, `hooks/selftest.py`, 2629 проверок в трёх раскладках (сборка в корне; модуль `core/`; два модуля
   `core/` + `adapter/` — Gradle только в изменённом модуле, красный модуль блокирует, коммит
   спецификации одного модуля замораживает фичи другого, чужая незакоммиченная работа не считается)
   на временном git-репозитории с фиктивным `origin/main`:
@@ -2060,11 +2060,12 @@ protection базовой ветки и то, что любая попытка �
   `gauntlet.log` набором; у ревьюера разрешены чтения с перенаправлением, `git branch --all`, `unzip -l`, `tar tf`,
   `tee` и `mkdir` вне проекта; источники `cp` читаются, а не пишутся; `git restore --staged` и `git reset <путь>`
   трогают только индекс; роли со своей зоной не блокируются на `2>/dev/null`. Самопроверка 997 → 2365 → 2431 → 2536
-  → 2623 (+456, +22, +35 и +29 на раскладку; файл настроек читается с разделителями `java.util.Properties` —
+  → 2623 → 2629 (+456, +22, +35, +29 и +2 на раскладку; файл настроек читается с разделителями `java.util.Properties` —
   `key: value`, `key value`; строка `$'…'` раскодируется, как в bash, а код perl в кавычках судится в том виде, как
   написан; шаблон поиска perl — данные: ``perl -ne 'print if /`/'`` читает; `acceptance.features` с `./` или `/` на
   конце замораживает тот же каталог; цель перенаправления — слово, которое из неё делает bash, `>&файл` и `>|` —
-  запись, а после экранированного `\>` `|` — конвейер и `&` — конец команды; `readpipe` — запись perl).
+  запись, а после экранированного `\>` `|` — конвейер и `&` — конец команды; `>&` с переменной, которую хук не
+  знает, — дескриптор (`2>&"$saved_stderr"`); `readpipe` — запись perl).
   Независимое ревью этой же ревизии нашло дефекты и в её собственных правках — исправлены. `IntegrityCheck`:
   вырезание комментариев выдумывало параметр замыкания (`{ $/* … */ test -> /$`, вложенный комментарий Kotlin) и
   прятало `test.enabled = false`; теперь скрипт читается лексером языка, а 437 сниппетов, сверенных с настоящим
@@ -4433,7 +4434,8 @@ def redirect_targets(segment, cwd, project):
     backslashes removed, the pieces joined, a glob matched against the files there. `> 'gauntlet'/config/x`,
     `> gaunt\\let/config/x`, `> gauntle?/config/x` and `> "$CLAUDE_PROJECT_DIR"/gauntlet/config/x` write into
     gauntlet/ like `> gauntlet/config/x` does; `>&2` and `2>&1` write no file. Any other variable stays as
-    written: what it holds is the known limit of a static reading."""
+    written: what it holds is the known limit of a static reading. After >& it is taken for the descriptor it
+    almost always is (`2>&"$saved_stderr"` restores stderr)."""
     targets = []
     for m in REDIRECT.finditer(segment):
         word = HERE_WORD.match(segment, m.end()).group(1)
@@ -4443,9 +4445,9 @@ def redirect_targets(segment, cwd, project):
             target = "".join(shlex.split(word))
         except ValueError:
             target = word
-        if m.group(1) == ">&" and FD_WORD.fullmatch(target):
-            continue
         target = expand(target, cwd, project)
+        if m.group(1) == ">&" and (FD_WORD.fullmatch(target) or unresolvable(target)):
+            continue
         if GLOB_CHARS.search(target) and not unresolvable(target):
             bases = [""] if os.path.isabs(target) else candidates(cwd, project)
             targets.extend([p for base in bases for p in glob.glob(os.path.join(base, target))] or [target])
@@ -7220,6 +7222,8 @@ def guard_tests(repo):
              "ls >& notes.txt"),
             ('reviewer', '>| over a file',
              "ls >| notes.txt"),
+            ('main', '>& with a file under a known variable',
+             'echo x >& "$CLAUDE_PROJECT_DIR"/gauntlet/config/gauntlet.properties'),
             ('main', 'a backslash before >| writes the file',
              "echo x \\\\>| gauntlet/config/gauntlet.properties"),
             # an escaped > is a character: the | after it is a pipe, the & after it ends the command
@@ -7389,6 +7393,8 @@ def guard_tests(repo):
              "ls -la >&2"),
             ('reviewer', 'a pipe after an escaped >',
              "ls \\>| head"),
+            ('reviewer', 'stderr restored from a saved descriptor (review of efa4c50)',
+             'exec {saved_stderr}>&2; ls 2>/dev/null; exec 2>&"$saved_stderr"'),
             ('reviewer', 'stderr onto stdout and stdout onto stderr',
              "git status 2>&1 1>&2 | head"),
             ('reviewer', 'perl -ne with readpipe in the pattern',

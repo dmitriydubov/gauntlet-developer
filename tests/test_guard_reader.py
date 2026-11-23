@@ -285,7 +285,8 @@ REDIRECTIONS = (
     'echo x > /dev/null 2>&1; echo y > gaunt"let"/config/gauntlet.properties',
 )
 # a file descriptor is no file
-NO_FILE = ("echo x >&2", "echo x 2>&1", "echo x >&-", "echo x 1>&2-", "echo x > >(cat)")
+NO_FILE = ("echo x >&2", "echo x 2>&1", "echo x >&-", "echo x 1>&2-", "echo x > >(cat)",
+           'exec {fd}>&2; echo x 2>&"$fd"')
 
 
 @unittest.skipUnless(shutil.which("bash"), "needs bash")

@@ -612,6 +612,10 @@
       к нему (glue вне `src/acceptanceTest/java`), C4 (кодировку называет `options.encoding`), awk и функции
       модулей perl, перебор perl. Не исправлены как не влияющие на вердикт в документированной конфигурации:
       C2, C5, C6, C7, предложение Grok. Самопроверка хуков: 2536 → 2623.
+    - **Ревью головы `efa4c50`.** Регресс `efa4c50` в guard: `>&` с переменной (`2>&"$saved_stderr"` —
+      восстановление stderr из сохранённого дескриптора) судился как запись файла, и ревьюеру отказывалось. Теперь
+      `>&` со словом, которое хук не может вычислить, — дескриптор; `>& "$CLAUDE_PROJECT_DIR"/…` по-прежнему путь.
+      Самопроверка хуков: 2623 → 2629.
     - **Роли и процесс.** `specifier`: сценарий обязан исполняться сам по себе; `hardener` и `gauntlet/CLAUDE.md`:
       красный контроль — это зависимость сценария от соседнего или от стенда, а не слабое step-определение.
     - **Регрессионный набор в репозитории.** Третий раунд ревью советовал «сохранить небольшой Gradle-проект в
@@ -667,7 +671,7 @@ Gherkin-мутаций в таблице и абзац о приёмочном �
   `INSTALL.md`, `config/gauntlet.properties` (обнаруженные версии проекта и отдельная JVM гейта);
 - `gauntlet/tools/IntegrityCheck.java`, `CrapGate.java`, `GherkinMutator.java`, `PitSummary.java`, `DryGate.java`;
 - `gauntlet/archtest/gauntlet/architecture/ArchitectureTest.java` (код Java 8);
-- `gauntlet/hooks/guard.py`, `stop_gate.py`, `selftest.py` (2623 проверки в трёх раскладках);
+- `gauntlet/hooks/guard.py`, `stop_gate.py`, `selftest.py` (2629 проверок в трёх раскладках);
 - `gauntlet/install.sh` (обновление gauntlet-хуков при слиянии, бюджет таймаута по модулям);
 - `gauntlet/gauntlet.gradle` (входы `acceptanceTest`, `mutationGate` source → compiled types);
 - `gauntlet/config/crap-allowlist.txt` (пример записи с сигнатурой перегрузки);
@@ -692,13 +696,13 @@ Gherkin-мутаций в таблице и абзац о приёмочном �
 | `.github/workflows/gauntlet.yml` | 1978 | 7658 |
 | `gauntlet/CLAUDE.md` | 63625 | 65401 |
 | `gauntlet/INSTALL.md` | 11426 | 16010 |
-| `gauntlet/README.md` | 29851 | 81189 |
+| `gauntlet/README.md` | 29851 | 81322 |
 | `gauntlet/archtest/gauntlet/architecture/ArchitectureTest.java` | 7906 | 7999 |
 | `gauntlet/config/crap-allowlist.txt` | 448 | 924 |
 | `gauntlet/config/gauntlet.properties` | 5921 | 6709 |
 | `gauntlet/gauntlet.gradle` | 32451 | 66644 |
-| `gauntlet/hooks/guard.py` | 26740 | 109308 |
-| `gauntlet/hooks/selftest.py` | 41192 | 134800 |
+| `gauntlet/hooks/guard.py` | 26740 | 109438 |
+| `gauntlet/hooks/selftest.py` | 41192 | 135116 |
 | `gauntlet/hooks/stop_gate.py` | 16669 | 21392 |
 | `gauntlet/install.sh` | 4933 | 12194 |
 | `gauntlet/templates/acceptanceTest/resources/features/example_discount.feature` | 928 | 1258 |
@@ -718,7 +722,7 @@ Gherkin-мутаций в таблице и абзац о приёмочном �
 
 ### Проверено
 
-- `python3 gauntlet/hooks/selftest.py` — 2623 проверки, 0 падений, три раскладки (корень; `core/`;
+- `python3 gauntlet/hooks/selftest.py` — 2629 проверок, 0 падений, три раскладки (корень; `core/`;
   `core/` + `adapter/`); в том числе из распакованной копии пересобранного бандла.
 - `python3 tests/run.py --gradle` — регрессионный набор дистрибутива по бандлу, распакованному скриптом из его
   шапки: манифест и побайтная пересборка сборщиком из раздела 8.4, единство ревизии и таблицы размеров, хуки,

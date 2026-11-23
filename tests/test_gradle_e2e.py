@@ -726,30 +726,48 @@ class GherkinHarness(GradleCase):
         self.assertRegex(r.out, r"MUTANT ERROR +z1 control \(unmutated scenario, after the mutants\) failed in a step")
 
     def test_the_controls_run_before_and_after_the_mutants_whatever_the_project_s_own_acceptance_run_does(self):
-        # the project runs its scenarios in parallel - set in junit-platform.properties, or as system properties of
-        # every Test task written after the kit: both controls ran first, the stand's quota failed the mutant - a
-        # "kill" of a step that ignores <credits> - and the gate passed (review of efa4c50). Its forks each ran
-        # every scenario once more.
+        # the project runs its scenarios in parallel - in junit-platform.properties, as system properties of every
+        # Test task after the kit, in a doFirst of its own or as JVM arguments before the kit - or, on Cucumber 8, in
+        # a random order: both controls ran first, the stand's quota failed the mutant - a "kill" of a step that
+        # ignores <credits> - and the gate passed (review of efa4c50 and of its fixes). Its forks each ran every
+        # scenario once more.
         self.project(example=False)
         self.file(GLUE + "CreditSteps.java", CREDIT_STEPS)
         self.file(GLUE + "PurchaseSteps.java", PURCHASE_STEPS)
         self.file(FEATURES + "credits.feature", CREDITS)
         build = os.path.join(self.lab, "build.gradle")
+        properties_file = os.path.join(self.lab, "src/acceptanceTest/resources/junit-platform.properties")
         plain = kit.read(build)
+        apply = "apply from: 'gauntlet/gauntlet.gradle'"
 
         def results(task):
             return "".join(kit.read(p) for p in glob.glob(os.path.join(self.lab, "build", task, "*.xml")))
 
-        tasks = ("tasks.withType(Test).configureEach {\n    maxParallelForks = 2\n    forkEvery = 1\n"
-                 + "".join(f"    systemProperty '{key}', '{value}'\n" for key, value in PARALLEL.items()) + "}\n")
-        for where in ("tasks.withType(Test)", "junit-platform.properties"):
+        def before_the_kit(block):
+            return plain.replace(apply, "tasks.withType(Test).configureEach {\n" + block + "}\n" + apply, 1)
+
+        properties = "".join(f"        systemProperty '{key}', '{value}'\n" for key, value in PARALLEL.items())
+        arguments = ", ".join(f"'-D{key}={value}'" for key, value in PARALLEL.items())
+        variants = {    # build script, junit-platform.properties, Cucumber, the project's own run is parallel
+            "tasks.withType(Test) after the kit": (plain + "tasks.withType(Test).configureEach {\n    maxParallelForks = 2\n"
+                                                   "    forkEvery = 1\n" + properties.replace("        ", "    ") + "}\n",
+                                                   None, CUCUMBER, True),
+            "junit-platform.properties": (plain, PARALLEL, CUCUMBER, True),
+            "a doFirst of the project before the kit": (before_the_kit("    doFirst {\n" + properties + "    }\n"), None,
+                                                        CUCUMBER, True),
+            "JVM arguments of a provider before the kit": (before_the_kit(
+                "    jvmArgumentProviders.add({ [" + arguments + "] } as CommandLineArgumentProvider)\n"), None, CUCUMBER, True),
+            "a random order on Cucumber 8": (plain, {"cucumber.execution.order": "random",
+                                                     "cucumber.execution.order.random.seed": "7"}, "8.0.1", False),
+        }
+        for where, (script, platform, version, parallel) in variants.items():
             with self.subTest(where):
-                if where == "tasks.withType(Test)":
-                    kit.write(build, plain + tasks)
-                else:
-                    kit.write(build, plain)
-                    self.file("src/acceptanceTest/resources/junit-platform.properties",
-                              "".join(f"{key}={value}\n" for key, value in PARALLEL.items()))
+                kit.write(build, script)
+                kit.set_property(self.lab, "cucumber.version", version)
+                if platform:
+                    kit.write(properties_file, "".join(f"{key}={value}\n" for key, value in platform.items()))
+                elif os.path.exists(properties_file):
+                    os.remove(properties_file)
                 self.commit(where)
                 r = self.gradle("gherkinMutation", "-Pgauntlet.scope=all")
                 self.assert_build(r, False)
@@ -758,8 +776,8 @@ class GherkinHarness(GradleCase):
                 mutant_run = results("gherkin-mutation/results")
                 self.assertEqual(3, mutant_run.count("<testcase "), "c1, m1 and z1 once each, one at a time")
                 self.assertNotIn("purchase on ForkJoinPool-", mutant_run)
-                # the project's own acceptance run keeps its parallel mode
-                self.assertIn("purchase on ForkJoinPool-", results("test-results/acceptanceTest"))
+                if parallel:    # the project's own acceptance run keeps its parallel mode
+                    self.assertIn("purchase on ForkJoinPool-", results("test-results/acceptanceTest"))
 
     def test_a_stand_failure_in_a_step_whose_text_holds_a_line_break_kills_nothing(self):
         # the address cell holds \n, so the Given's text - and Cucumber's step frame - holds a line break. The stand

@@ -437,8 +437,11 @@ class WhereItFailed(Sandbox):
             return (f'    <failure message="stand unavailable" type="java.lang.IllegalStateException">'
                     f'{escape(trace + tail)}</failure>\n')
 
+        # a line of the value that itself ends like a frame ("see a.feature:3)") is no location either: the frame is
+        # known by the generated file's own name (review of the merged fixes)
         for text in ('the parcel goes to "line1\nline2"', 'the parcel goes to "Office (floor:2)\nLondon"',
-                     'the parcel goes to "line1 line2"'):
+                     'the parcel goes to "line1 line2"', 'the parcel goes to "x\nsee a.feature:3)\nb"',
+                     'the report reads "Undefined step\nat login.feature:12)\nSkipped"'):
             for name, tail in after.items():
                 with self.subTest(text=text, after=name):
                     self.manifest_with_uses(5)

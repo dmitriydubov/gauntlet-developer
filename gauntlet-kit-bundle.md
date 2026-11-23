@@ -554,6 +554,9 @@ ArchUnit-тест, шаблоны, установку и документаци�
     - `tools/IntegrityCheck.java`: регрессы B2 `efa4c50` сняты (независимые `smokeTest`, `componentTest`, чтение
       `includes`); видны `configureEach() { }`, `test.doFirst { }`, `exclude` внутри `if` блока `test`. Чего B2 не
       видит, записано в `README.md`, раздел 9.
+    - Ревью сведённых исправлений нашло ещё восемь дефектов, все исправлены: набор `test`, найденный поиском, B2
+      считал чужим; условие на имя задачи давало ложный красный; место кадра шага узнаётся по имени файла сценария;
+      свойства прогона мутантов идут провайдером аргументов JVM, последними.
   - Роли: `hardener` чинит красный контроль в тестовом коде (`@Before`), правка фичи — вопрос человеку.
 - `.claude/agents/specifier.md`, `hardener.md`, `gauntlet/CLAUDE.md`: сценарий обязан исполняться сам по себе;
   красный контроль — зависимость сценария от соседнего или от стенда, а не слабое step-определение.
@@ -601,7 +604,7 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 - `CLAUDE.md` (279 байт)
 - `gauntlet/CLAUDE.md` (65401 байт)
 - `gauntlet/INSTALL.md` (16010 байт)
-- `gauntlet/README.md` (84974 байт)
+- `gauntlet/README.md` (85327 байт)
 - `gauntlet/archtest/gauntlet/architecture/ArchitectureTest.java` (7999 байт)
 - `gauntlet/config/architecture.properties` (1420 байт)
 - `gauntlet/config/checkstyle.xml` (4593 байт)
@@ -610,7 +613,7 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 - `gauntlet/config/integrity-allowlist.txt` (445 байт)
 - `gauntlet/config/pit-runerror-allowlist.txt` (1485 байт)
 - `gauntlet/config/pmd-ruleset.xml` (11398 байт)
-- `gauntlet/gauntlet.gradle` (67759 байт)
+- `gauntlet/gauntlet.gradle` (68034 байт)
 - `gauntlet/hooks/guard.py` (110040 байт)
 - `gauntlet/hooks/selftest.py` (135116 байт)
 - `gauntlet/hooks/session_start.sh` (3116 байт)
@@ -620,8 +623,8 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 - `gauntlet/templates/acceptanceTest/resources/features/example_discount.feature` (1258 байт)
 - `gauntlet/tools/CrapGate.java` (32267 байт)
 - `gauntlet/tools/DryGate.java` (7694 байт)
-- `gauntlet/tools/GherkinMutator.java` (76870 байт)
-- `gauntlet/tools/IntegrityCheck.java` (70812 байт)
+- `gauntlet/tools/GherkinMutator.java` (77039 байт)
+- `gauntlet/tools/IntegrityCheck.java` (74424 байт)
 - `gauntlet/tools/PitSummary.java` (11633 байт)
 
 ## Файлы
@@ -2172,7 +2175,10 @@ CI на GitHub. Оттуда — правки ревизии 3: RUN_ERROR в `mu
   - в `configure(test) { }` и `with(test) { }`;
   - по ключу контейнера (`tasks['test'].exclude`, `tasks.getAt('test')`) и в Kotlin через приведение
     `(tasks["test"] as Test)`;
-  - в коллекции с предикатом (`tasks.matching { it.name == 'test' }.all { … }`, `tasks.findAll { … }.each { … }`).
+  - в коллекции с предикатом (`tasks.matching { it.name == 'test' }.all { … }`, `tasks.findAll { … }.each { … }`);
+  - под условием на имя задачи внутри `withType(Test)`: `if (name == 'integrationTest') { include … }` выбирает
+    задачу и находкой не считается, поэтому не считается и `if (name != 'integrationTest') { exclude … }`, хотя
+    оно касается гейта.
 
   Такой фильтр виден в diff скрипта сборки, который читает человек.
 - Glue (step-классы) — только в `src/acceptanceTest/java`. Правку glue в отдельном модуле или в общем source set
@@ -3971,8 +3977,10 @@ tasks.register('gherkinMutantsRun', Test) {
         // controls ran first, and a stand that wears out (a quota) failed the mutant instead: a kill.
         maxParallelForks = 1
         forkEvery = 0
-        systemProperty 'cucumber.execution.parallel.enabled', 'false'
-        systemProperty 'cucumber.execution.order', 'lexical'
+        // as the last arguments of the test JVM, added at execution: a -D of the project's own - jvmArgs, an argument
+        // provider, a systemProperty its own doFirst sets after this one - comes before them, and the last -D wins
+        jvmArgumentProviders.add({ ['-Dcucumber.execution.parallel.enabled=false', '-Dcucumber.execution.order=lexical'] }
+                as CommandLineArgumentProvider)
         // Gradle 8.14 lists the report directory without creating it: recreate it after the wipe
         mutantResults.deleteDir()
         mutantResults.mkdirs()
@@ -11186,10 +11194,10 @@ public class GherkinMutator {
                         // The stage decides, not the element name: Gradle writes every failed scenario as
                         // <failure>, Surefire-style writers use <error> for a non-assertion exception.
                         case "failure", "error", "rerunFailure", "rerunError" -> {
-                            list.add(failureOutcome(e, glue));
+                            list.add(failureOutcome(e, glue, id));
                             passedLast = false;
                         }
-                        case "flakyFailure", "flakyError" -> list.add(failureOutcome(e, glue));
+                        case "flakyFailure", "flakyError" -> list.add(failureOutcome(e, glue, id));
                         case "skipped" -> {
                             list.add(new Outcome("aborted", ""));
                             passedLast = false;
@@ -11251,7 +11259,7 @@ public class GherkinMutator {
      * well. A @Before/@After hook or a fixture fails without a step frame: "error". The control scenarios guard the
      * other direction - a harness in which the UNMUTATED row fails in a step proves nothing either.
      */
-    static Outcome failureOutcome(Element failure, Glue glue) throws IOException {
+    static Outcome failureOutcome(Element failure, Glue glue, String id) throws IOException {
         String type = failure.getAttribute("type");
         if (undefinedStep(failure)) {
             return new Outcome("undefined", type);
@@ -11265,7 +11273,7 @@ public class GherkinMutator {
         if (before.contains(RUNNER) || glue != null && glue.isTransformer(lastFrame(before))) {
             return new Outcome("rejected", type);
         }
-        Matcher line = STEP_LINE.matcher(trace);
+        Matcher line = stepLine(id).matcher(trace);
         return new Outcome("failed", type, line.find(step) ? Integer.parseInt(line.group(1)) : -1);
     }
 
@@ -11282,11 +11290,14 @@ public class GherkinMutator {
 
     /** Frames of Cucumber's own runner: in a step's stack they are cut away, unless no step definition ran. */
     static final String RUNNER = "io.cucumber.core.runner.";
-    /** The line of the step frame "✽.<step text>(file:///.../m1.feature:12)": the first ".feature:<line>)" after "✽."
-     *  that ends a line of the trace. The step text is the step as it ran - an Examples value brings its colons,
-     *  parentheses and line breaks into it ("line1\nline2") -, so the frame ends at its location, not at the end of
-     *  the line it starts on; what follows the frame varies ("Caused by:", "Suppressed:", Gradle's "Cause 1:"). */
-    static final Pattern STEP_LINE = Pattern.compile("\\.feature:(\\d{1,9})\\)(?=[ \\t]*(?:\\R|\\z))");
+    /** The line of the step frame "✽.<step text>(file:///.../m1.feature:12)" of scenario {@code id}: the first
+     *  "/<id>.feature:<line>)" after "✽." that ends a line of the trace. The step text is the step as it ran - an
+     *  Examples value brings its colons, parentheses, line breaks and even a "see a.feature:3)" of its own into it -,
+     *  so the frame is known by the name of the file generated for the scenario, not by the end of the line it
+     *  starts on; what follows the frame varies ("Caused by:", "Suppressed:", Gradle's "Cause 1:"). */
+    static Pattern stepLine(String id) {
+        return Pattern.compile("/" + Pattern.quote(id) + "\\.feature:(\\d{1,9})\\)(?=[ \\t]*(?:\\R|\\z))");
+    }
     /** A stack frame line "at [loader/[module]/]pkg.Class.method(File.java:12)". The location is its last parenthesized
      *  part: a JVM name can hold spaces and parentheses (Kotlin `the total (EUR) is`, a Groovy "string" method). */
     static final Pattern FRAME = Pattern.compile("(?m)^\\s*at ([^\\n]*\\))");
@@ -11711,7 +11722,9 @@ public class IntegrityCheck {
     /** What writes the patterns behind {@code includes}/{@code excludes}: an assignment, {@code <<}, a changing call. */
     static final Pattern ASSIGNED = Pattern.compile("(?:[-+*/%&|^?]|<<|>>>?|\\*\\*)?=(?![=~])|<<");
     static final Pattern MUTATED = Pattern.compile("(?:\\?|!!)?\\.\\s*(?:add|addAll|clear|remove|removeAll|removeIf|retainAll"
-            + "|leftShift)(?![\\w$])");
+            + "|leftShift|plusAssign|minusAssign|apply|also|run|let|with|tap)(?![\\w$])");
+    /** Kotlin's with(...) around the patterns: {@code with(excludes) { add("x") }} changes them as well. */
+    static final Pattern WITH_CALL = Pattern.compile("(?<![\\w$.])with\\s*$");
     /** The Test tasks the gauntlet runs; testTask is the Test task of a JVM test suite (testing.suites.test). */
     static final Pattern GATE_TEST = Pattern.compile("test|archTest|acceptanceTest|gherkinMutantsRun|testTask");
     /**
@@ -11735,6 +11748,13 @@ public class IntegrityCheck {
     static final Pattern CONTROL = Pattern.compile(
             "(?:if|for|while|switch|catch|synchronized|when)\\(.*\\)|else|try|finally|do|when");
     /**
+     * A condition on the task's name ({@code if (name == 'integrationTest')}, {@code when (name)}, {@code it.name},
+     * {@code getName()}): it chooses which of the Test tasks around it the statement configures, so the block is not
+     * looked through - {@code tasks.withType(Test) { if (name == 'integrationTest') { include '**}{@code /*IT*' } }}
+     * configures integrationTest only.
+     */
+    static final Pattern NAME_CONDITION = Pattern.compile("(?<![\\w$])(?:[A-Za-z_$][\\w$]*\\.)?(?:name|getName\\(\\))(?![\\w$])");
+    /**
      * A name with its arguments: the suite in {@code suites { integrationTest(JvmTestSuite) { } }}, the task after
      * the keyword in {@code task smokeTest(type: Test) { }}.
      */
@@ -11745,10 +11765,20 @@ public class IntegrityCheck {
     static final Pattern VAL_BY = Pattern.compile("(?<![\\w$])va[lr]\\s+([A-Za-z_$][\\w$]*)(?:\\s*:[^=\\n]*?)?\\s+by\\s*$");
     /** The JVM test suites ({@code testing { suites { } }}) and a suite on the way: {@code testing.suites.integrationTest}. */
     static final Pattern SUITES = Pattern.compile("(?:testing\\.)?suites");
-    static final Pattern SUITE_PATH = Pattern.compile("(?<![\\w$])suites\\.(?:(?:named|getByName|register|create|maybeCreate)"
-            + "(?:<[\\w$.]+>)?\\(([\"'])([^\"'$\\\\]*)\\1|([A-Za-z_$][\\w$]*))");
-    /** Words that configure every suite, or an opaque choice of them, and not one by its name. */
-    static final Pattern EVERY_SUITE = Pattern.compile("configureEach|configure|all|each|forEach|withType|matching|findAll");
+    static final Pattern SUITE_PATH = Pattern.compile("(?<![\\w$])suites\\.(?:(?:named|getByName|findByName|getAt|register|create"
+            + "|maybeCreate)(?:<[\\w$.]+>)?\\(([\"'])([^\"'$\\\\]*)\\1|([A-Za-z_$][\\w$]*)(?=[.{]|$))");
+    /** Kotlin's delegate of a suite, named by its val: {@code val integrationTest by testing.suites.registering(...)}. */
+    static final Pattern SUITE_DELEGATE = Pattern.compile("(?<![\\w$])suites\\.(?:registering|creating|getting|existing)"
+            + "(?:<[\\w$.]+>)?(?:\\([^()]*\\))?$");
+    /** A block in suites { } that names its suite: {@code test { }}, {@code integrationTest(JvmTestSuite) { }}. */
+    static final Pattern SUITE_BLOCK = Pattern.compile(
+            "^([A-Za-z_$][\\w$]*)(?:\\((?:(?:[\\w$]+\\.)*JvmTestSuite(?:::class(?:\\.java)?|\\.class)?)?\\))?$");
+    /**
+     * Words of the suite container, not names of suites: every suite, an opaque choice of them, a lookup whose name is
+     * an expression ({@code named(unit)}, {@code findByName(...)}, {@code named { it == 'test' }}).
+     */
+    static final Pattern EVERY_SUITE = Pattern.compile("configureEach|configure|all|each|forEach|withType|matching|findAll"
+            + "|find|named|getByName|findByName|getAt|register|create|maybeCreate|registering|creating|getting|existing");
     /** The test selection names B2 reported before 4.3: still a finding wherever they stand. */
     static final Pattern SELECTION_ANYWHERE = Pattern.compile(
             "(?:exclude|include)TestsMatching|(?:exclude|include)Tags|excludeEngines|failOnNoDiscoveredTests");
@@ -12050,6 +12080,7 @@ public class IntegrityCheck {
         final String code;
         final BitSet literal;
         Set<String> declared;
+        int[] innermost;
 
         Source(String path, Lang lang, String content) {
             this.path = path;
@@ -12143,7 +12174,7 @@ public class IntegrityCheck {
             Block block = testBlock(enclosingBrace(at));
             int dot = back(at, true);
             char before = dot == 0 || literal.get(dot - 1) ? ' ' : code.charAt(dot - 1);
-            if (property && !written(before == '[' && quoted ? behindBracket(end) : end)) {
+            if (property && !written(before == '[' && quoted ? behindBracket(end) : end) && !inWith(at)) {
                 return false;                              // read for a log line or a copy: no filter
             }
             if (before != '.' && !(before == '[' && quoted)) {
@@ -12187,6 +12218,18 @@ public class IntegrityCheck {
                 k++;                                       // a call may go on in the next line: excludes\n    .add('x')
             }
             return k < code.length() && !literal.get(k) && MUTATED.matcher(code).region(k, code.length()).lookingAt();
+        }
+
+        /** True when the patterns at {@code at} are the argument of Kotlin's with: {@code with(test.excludes) { }}. */
+        boolean inWith(int at) {
+            int start = at;
+            int dot = back(at, true);
+            if (dot > 0 && code.charAt(dot - 1) == '.' && !literal.get(dot - 1)) {
+                start = chainStart(back(dot - 1, true));    // with(test.excludes): the receiver starts the argument
+            }
+            int open = back(start, true);
+            return open > 0 && code.charAt(open - 1) == '(' && !literal.get(open - 1)
+                    && WITH_CALL.matcher(code.substring(Math.max(0, open - 41), open - 1)).find();
         }
 
         /** The offset behind the ']' that closes a subscript whose key ends at {@code k}: test['excludes'] = [...]. */
@@ -12245,7 +12288,10 @@ public class IntegrityCheck {
         int ownBrace(int brace) {
             while (brace >= 0) {
                 String chain = chain(chainStart(brace), brace);
-                if (!TEST_INNER.matcher(chain).matches() && !CONTROL.matcher(chain).matches()) {
+                // the condition as written: chain() drops the blanks, and "name in [...]" would read "namein[...]"
+                boolean control = CONTROL.matcher(chain).matches()
+                        && !NAME_CONDITION.matcher(code.substring(chainStart(brace), brace)).find();
+                if (!TEST_INNER.matcher(chain).matches() && !control) {
                     return brace;
                 }
                 brace = enclosingBrace(brace);
@@ -12324,7 +12370,13 @@ public class IntegrityCheck {
                 if (path.find()) {
                     return isOtherSuite(path.group(2) != null ? path.group(2) : path.group(3));
                 }
+                if (SUITE_DELEGATE.matcher(chain).find()) {
+                    return isOtherSuite(valName(b));
+                }
                 int outer = enclosingBrace(b);
+                while (outer >= 0 && CONTROL.matcher(chain(chainStart(outer), outer)).matches()) {
+                    outer = enclosingBrace(outer);          // suites { if (all) { test { } } }: test is still the child
+                }
                 if (outer >= 0 && SUITES.matcher(chain(chainStart(outer), outer)).matches()) {
                     return isOtherSuite(suiteName(chain, b));
                 }
@@ -12332,22 +12384,27 @@ public class IntegrityCheck {
             return false;
         }
 
-        /** The name a block in {@code suites { }} gives its suite: test, integrationTest(JvmTestSuite), register('x'). */
+        /**
+         * The name a block in {@code suites { }} gives its suite - test, integrationTest(JvmTestSuite), register('x'),
+         * Kotlin's {@code val x by registering(JvmTestSuite::class)} - or null when it names none (named(unit), if (x)).
+         */
         String suiteName(String chain, int brace) {
             Matcher call = TASK_CALL.matcher(chain);
             if (call.find()) {
                 return call.group(3);
             }
-            Matcher block = DECLARED.matcher(chain);
-            if (!block.matches()) {
-                return null;
-            }
             if (DELEGATED.matcher(chain).find()) {
-                int start = chainStart(brace);
-                Matcher val = VAL_BY.matcher(code.substring(Math.max(0, start - 200), start));
-                return val.find() ? val.group(1) : null;
+                return valName(brace);
             }
-            return block.group(1);
+            Matcher block = SUITE_BLOCK.matcher(chain);
+            return block.matches() ? block.group(1) : null;
+        }
+
+        /** The name of the val a Kotlin delegate in front of this block declares: {@code val x by ...}. */
+        String valName(int brace) {
+            int start = chainStart(brace);
+            Matcher val = VAL_BY.matcher(code.substring(Math.max(0, start - 200), start));
+            return val.find() ? val.group(1) : null;
         }
 
         static boolean isOtherSuite(String name) {
@@ -12392,18 +12449,22 @@ public class IntegrityCheck {
 
         /** The innermost '{' that is open at this offset, or -1. A brace in a comment or a string is no brace. */
         int enclosingBrace(int at) {
-            Deque<Integer> open = new ArrayDeque<>();
-            for (int k = 0; k < at; k++) {
-                if (literal.get(k)) {
-                    continue;
-                }
-                if (code.charAt(k) == '{') {
-                    open.push(k);
-                } else if (code.charAt(k) == '}' && !open.isEmpty()) {
-                    open.pop();
+            if (innermost == null) {                        // once per file: the rules ask for it again and again
+                innermost = new int[code.length() + 1];
+                Deque<Integer> open = new ArrayDeque<>();
+                for (int k = 0; k <= code.length(); k++) {
+                    innermost[k] = open.isEmpty() ? -1 : open.peek();
+                    if (k == code.length() || literal.get(k)) {
+                        continue;
+                    }
+                    if (code.charAt(k) == '{') {
+                        open.push(k);
+                    } else if (code.charAt(k) == '}' && !open.isEmpty()) {
+                        open.pop();
+                    }
                 }
             }
-            return open.isEmpty() ? -1 : open.peek();
+            return innermost[Math.max(0, Math.min(at, code.length()))];
         }
 
         /**

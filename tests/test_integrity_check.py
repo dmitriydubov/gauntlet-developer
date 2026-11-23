@@ -281,6 +281,24 @@ class TestSelection(IntegrityCase):
         "under a condition": "test {\n    if (!project.hasProperty('all')) {\n        exclude '**/OrdersTest*'\n    }\n}",
         "in an else branch": "test {\n    if (project.hasProperty('all')) {\n        println 'all'\n    } else {\n"
                              "        exclude '**/OrdersTest*'\n    }\n}",
+        # the test suite reached through a lookup is no other suite (review of the merged fixes, efa4c50 round)
+        "the test suite found by name":
+            "testing.suites.findByName('test').targets.all {\n    testTask.configure { exclude '**/OrdersSlowTest*' }\n}",
+        "a suite named by a variable": "['test', 'integrationTest'].each { suiteName ->\n"
+                                       "    testing.suites.named(suiteName) { targets.all { testTask.configure { exclude '**/X*' } } }\n}",
+        "a suite chosen by a predicate":
+            "testing.suites.named { it == 'test' }.configure { targets.all { testTask.configure { exclude '**/X*' } } }",
+        "a suite named by a variable inside suites": "def unit = 'test'\ntesting { suites { named(unit) {\n"
+                                                    "    targets.all { testTask.configure { exclude '**/X*' } }\n} } }",
+        "the test suite under a condition inside suites": "testing { suites { if (!project.hasProperty('all')) {\n"
+                                                          "    test { targets.all { testTask.configure { exclude '**/X*' } } }\n} } }",
+        "engines of the test suite found by name": "testing.suites.findByName('test').targets.all {\n"
+                                                   "    testTask.configure { useJUnitPlatform { includeEngines 'junit-vintage' } }\n}",
+        "a condition that names no task": "tasks.withType(Test).configureEach { if (System.getenv('CI')) { exclude '**/Slow*' } }",
+        "the else branch of a condition on the name": "tasks.withType(Test).configureEach {\n"
+                                                      "    if (name == 'integrationTest') { include '**/*IT*' } else { exclude '**/*IT*' }\n}",
+        "the patterns changed in with { }": "test.excludes.with { add('**/WithTest*') }",
+        "the patterns changed in tap { }": "test { excludes.tap { add('**/TapTest*') } }",
     }
     FREE = {
         "jar": "jar { exclude 'META-INF/*.SF' }",
@@ -316,6 +334,13 @@ class TestSelection(IntegrityCase):
         "jar under a condition": "jar { if (true) { exclude 'META-INF/*.SF' } }",
         "jar with empty parentheses": "tasks.withType(Jar).configureEach() { exclude 'META-INF/*.SF' }",
         "an inner block behind jar": "jar.doFirst { exclude 'META-INF/*.SF' }",
+        # a condition on the task's name chooses the task: integrationTest only
+        "a condition on the task's name": "tasks.register('integrationTest', Test)\ntasks.withType(Test).configureEach {\n"
+                                          "    if (name == 'integrationTest') {\n        include '**/*IT.class'\n    }\n}",
+        "a condition on the names of tasks": "tasks.withType(Test).configureEach {\n"
+                                             "    if (name in ['integrationTest', 'e2eTest']) { include '**/*IT*' }\n}",
+        "a condition on the parameter's name": "tasks.withType(Test).configureEach { t ->\n"
+                                               "    if (t.name.startsWith('integration')) { t.include '**/*IT*' }\n}",
     }
     KOTLIN_B2 = {
         "the test accessor": "tasks.test { exclude(\"**/OrdersTest*\") }",
@@ -331,6 +356,11 @@ class TestSelection(IntegrityCase):
         "the patterns added to": "tasks.test { excludes.add(\"**/OrdersTest*\") }",
         "empty parentheses before the block": "tasks.withType<Test>().configureEach() { exclude(\"**/OrdersTest*\") }",
         "under a condition": "tasks.test { if (!project.hasProperty(\"all\")) { exclude(\"**/OrdersTest*\") } }",
+        "the test suite by a delegate of the container": "val test by testing.suites.getting(JvmTestSuite::class) "
+                                                         "{ targets.all { testTask.configure { exclude(\"**/X*\") } } }",
+        "the patterns changed in apply { }": "tasks.test { excludes.apply { add(\"**/OrdersTest*\") } }",
+        "the patterns changed by plusAssign": "tasks.test { excludes.plusAssign(\"**/OrdersTest*\") }",
+        "the patterns changed in with(...) { }": "tasks.test { with(excludes) { add(\"**/OrdersTest*\") } }",
     }
     KOTLIN_FREE = {
         "the jar accessor": "tasks.jar { exclude(\"META-INF/*.SF\") }",
@@ -342,6 +372,10 @@ class TestSelection(IntegrityCase):
                                    "{ targets { all { testTask.configure { exclude(\"**/X*\") } } } } } }",
         "engines of a registered task": "tasks.register<Test>(\"smokeTest\") { useJUnitPlatform { includeEngines(\"junit-jupiter\") } }",
         "another task by its delegate": "val integrationTest by tasks.getting(Test::class) { exclude(\"**/X*\") }",
+        "a suite by a delegate of the container": "val integrationTest by testing.suites.registering(JvmTestSuite::class) "
+                                                  "{ targets.all { testTask.configure { exclude(\"**/X*\") } } }",
+        "a condition on the task's name": "tasks.withType<Test>().configureEach { when (name) { \"integrationTest\" -> "
+                                          "{ include(\"**/*IT*\") } } }",
     }
 
     def test_every_filter_of_a_test_task_is_b2(self):

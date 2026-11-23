@@ -632,8 +632,15 @@
         выключен.
       - Регрессионный набор (Kimi): сценарии идут без кэша сборки и кэша конфигурации машины.
 
-      Записаны в ограничения B2: подписка `tasks['test']`, предикаты `matching { }`/`findAll { }`, переменные и
-      псевдонимы. Самопроверка хуков: 2623 → 2629.
+      Ревью сведённых исправлений нашло ещё восемь дефектов, все исправлены:
+      - B2: набор `test`, найденный поиском (`findByName`, Kotlin `getting`, `named(переменная)`), и `if` внутри
+        `suites { }` считались чужим набором; условие на имя задачи в `withType(Test)` давало ложный красный;
+        запись в `excludes` через `apply`/`with`/`tap`; скорость на огромных скриптах;
+      - `gherkinMutation`: место кадра узнаётся по имени файла сценария; свойства прогона мутантов идут провайдером
+        аргументов JVM, последними; подтест на Cucumber 8.0.1 со случайным порядком.
+
+      Записаны в ограничения B2: подписка `tasks['test']`, предикаты `matching { }`/`findAll { }`, условие на имя
+      задачи, переменные и псевдонимы. Самопроверка хуков: 2623 → 2629.
     - **Роли и процесс.** `specifier`: сценарий обязан исполняться сам по себе; `hardener` и `gauntlet/CLAUDE.md`:
       красный контроль — это зависимость сценария от соседнего или от стенда, а не слабое step-определение.
     - **Регрессионный набор в репозитории.** Третий раунд ревью советовал «сохранить небольшой Gradle-проект в
@@ -714,11 +721,11 @@ Gherkin-мутаций в таблице и абзац о приёмочном �
 | `.github/workflows/gauntlet.yml` | 1978 | 7658 |
 | `gauntlet/CLAUDE.md` | 63625 | 65401 |
 | `gauntlet/INSTALL.md` | 11426 | 16010 |
-| `gauntlet/README.md` | 29851 | 84974 |
+| `gauntlet/README.md` | 29851 | 85327 |
 | `gauntlet/archtest/gauntlet/architecture/ArchitectureTest.java` | 7906 | 7999 |
 | `gauntlet/config/crap-allowlist.txt` | 448 | 924 |
 | `gauntlet/config/gauntlet.properties` | 5921 | 6709 |
-| `gauntlet/gauntlet.gradle` | 32451 | 67759 |
+| `gauntlet/gauntlet.gradle` | 32451 | 68034 |
 | `gauntlet/hooks/guard.py` | 26740 | 110040 |
 | `gauntlet/hooks/selftest.py` | 41192 | 135116 |
 | `gauntlet/hooks/stop_gate.py` | 16669 | 22315 |
@@ -726,8 +733,8 @@ Gherkin-мутаций в таблице и абзац о приёмочном �
 | `gauntlet/templates/acceptanceTest/resources/features/example_discount.feature` | 928 | 1258 |
 | `gauntlet/tools/CrapGate.java` | 12638 | 32267 |
 | `gauntlet/tools/DryGate.java` | 6538 | 7694 |
-| `gauntlet/tools/GherkinMutator.java` | 35990 | 76870 |
-| `gauntlet/tools/IntegrityCheck.java` | 15688 | 70812 |
+| `gauntlet/tools/GherkinMutator.java` | 35990 | 77039 |
+| `gauntlet/tools/IntegrityCheck.java` | 15688 | 74424 |
 | `gauntlet/tools/PitSummary.java` | 11401 | 11633 |
 
 Остальные 8 файлов не правились; их размеры не изменились. Во втором раунде Codex (F1–F14) изменены 9 файлов:

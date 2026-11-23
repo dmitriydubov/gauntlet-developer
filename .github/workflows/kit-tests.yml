@@ -1,0 +1,43 @@
+# The regression suite of the Gauntlet distribution itself (tests/README.md). tests/run.py unpacks
+# gauntlet-kit-bundle.md with the script from the bundle's own header and runs every check against that copy:
+# the bundle as a container, the hooks' selftest, the single-file tools, the installer, the shell steps of the
+# kit's CI workflow and - with --gradle - the scenarios on a real Gradle build.
+name: kit tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kit-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      LC_ALL: C.UTF-8         # the scenarios compile classes and files with non-ASCII names
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      # JDK 25 for the gate JVM scenarios; JDK 21, listed last, is the default the suite compiles and runs with
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: |
+            25
+            21
+      # the scenarios call `gradle` from PATH (8.14+), as a user without a wrapper would
+      - uses: gradle/actions/setup-gradle@v5
+        with:
+          gradle-version: '8.14.3'
+      - name: Regression suite of the distribution
+        run: python3 tests/run.py --gradle

@@ -5,9 +5,13 @@ Every command of the corpus uses two programs: `M <n>` is a command the guard mu
 take for a command. Each command is executed by the real bash and read by the hook; the two sets are compared.
 Known residual, not in the corpus: a shell function defined in the same command that runs its arguments
 (`f() { "$@"; }; f bash <<EOF ...`) - the hook cannot know what the function does.
+
+The files a redirection writes are compared with bash the same way: every file bash writes through `>`, `>>`,
+`>|`, `&>`, `>&` or `<>` is one the guard judges, whatever quotes, backslashes or globs build its name.
 """
 import importlib.util
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -150,6 +154,13 @@ CORPUS = (
     "echo $'D 1\\x27'; M 2",
     "echo $'a\\\\'; M 1",
     "echo $'\\'D 1\\''; M 2",
+    # >| is one operator; after an escaped > the | is a pipe and the & ends the command
+    'M 1 >| out; M 2',
+    'M 1 2>| out',
+    'echo D 1 \\>| M 2',
+    'echo D 1 \\>& M 2',
+    'echo D 1 \\<& M 2',
+    'echo x \\\\>| out; M 1',
 )
 
 
@@ -244,6 +255,92 @@ class ReaderAgainstBash(unittest.TestCase):
         for command in ("echo $'abc", "echo $'ab\\'", "ls; echo $'x\\'"):
             with self.subTest(command=command):
                 self.assertEqual(self.guard.shell_code(command), command)
+
+
+# the target of each redirection is built in another way; every command writes one file of the tree below
+REDIRECTIONS = (
+    "echo x > 'gauntlet'/config/gauntlet.properties",
+    'echo x > "gauntlet"/config/gauntlet.properties',
+    "echo x > gaunt'let'/config/gauntlet.properties",
+    "echo x >> gauntlet''/config/gauntlet.properties",
+    "echo x > gaunt\\let/config/gauntlet.properties",
+    "echo x > $'gauntlet'/config/gauntlet.properties",
+    "echo x > $'\\147auntlet'/config/gauntlet.properties",
+    'echo x > "$CLAUDE_PROJECT_DIR"/gauntlet/config/gauntlet.properties',
+    "echo x > gauntle?/config/gauntlet.properties",
+    "echo x > gauntl[e]t/config/*.properties",
+    "echo x >& gauntlet/config/gauntlet.properties",
+    "echo x 1>&gauntlet/config/gauntlet.properties",
+    "echo x &> 'gauntlet'/config/gauntlet.properties",
+    "echo x &>> gauntlet/config/gauntlet.properties",
+    "echo x >| gauntlet/config/gauntlet.properties",
+    "echo x >|'gauntlet'/config/gauntlet.properties",
+    "echo x 2>| gauntlet/config/gauntlet.properties",
+    "echo x 1<> gauntlet/config/gauntlet.properties",
+    "echo x > 'notes dir'/'a b.txt'",
+    "cd gauntlet && echo x > 'config'/gauntlet.properties",
+    "(echo x) > 'gauntlet'/config/gauntlet.properties",
+    "{ echo x; } >| gauntlet/config/gauntlet.properties",
+    "echo x | tee >(cat > 'gauntlet'/config/gauntlet.properties) > /dev/null",
+    'echo x > /dev/null 2>&1; echo y > gaunt"let"/config/gauntlet.properties',
+)
+# a file descriptor is no file
+NO_FILE = ("echo x >&2", "echo x 2>&1", "echo x >&-", "echo x 1>&2-", "echo x > >(cat)")
+
+
+@unittest.skipUnless(shutil.which("bash"), "needs bash")
+class RedirectionsAgainstBash(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        cls.guard = load_guard()
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="gauntlet-redirect-")
+        self.addCleanup(self.tmp.cleanup)
+        self.work = os.path.realpath(self.tmp.name)
+
+    def tree(self):
+        """{path: content} of every file under the work directory."""
+        files = {}
+        for top, _, names in os.walk(self.work):
+            for name in names:
+                path = os.path.join(top, name)
+                files[path] = kit.read(path)
+        return files
+
+    def written_by_bash(self, command):
+        shutil.rmtree(self.work)
+        kit.write(os.path.join(self.work, "gauntlet", "config", "gauntlet.properties"), "original\n")
+        os.makedirs(os.path.join(self.work, "notes dir"))
+        before = self.tree()
+        subprocess.run(["bash", "-c", command], cwd=self.work, env=dict(os.environ, CLAUDE_PROJECT_DIR=self.work),
+                       timeout=60, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return {path for path, text in self.tree().items() if before.get(path) != text}
+
+    def judged_by_guard(self, command):
+        """The files the guard judges as written by a redirection, read the way command_violation reads them."""
+        g = self.guard
+        code = g.shell_code(command)
+        neutral = g.QUOTED.sub(lambda m: re.sub(r"[>;&|()`\n]", "_", m.group(0)), code)
+        files = set()
+        for segment, _, at in g.walk(g.segments_scoped(neutral), self.work, self.work):
+            for target in g.redirect_targets(segment, at, self.work):
+                files.add(os.path.normpath(os.path.join(at, g.expand(target, at, self.work))))
+        return files
+
+    def test_every_file_bash_writes_is_judged(self):
+        for command in REDIRECTIONS:
+            with self.subTest(command=command):
+                written = self.written_by_bash(command)
+                self.assertTrue(written, "the corpus is wrong: bash wrote nothing")
+                self.assertEqual(sorted(written - self.judged_by_guard(command)), [], "bash wrote it, the guard did not judge it")
+
+    def test_a_file_descriptor_is_no_file(self):
+        for command in NO_FILE:
+            with self.subTest(command=command):
+                self.assertEqual(self.written_by_bash(command), set(), "the corpus is wrong: bash wrote a file")
+                self.assertEqual(self.judged_by_guard(command), set())
 
 
 if __name__ == "__main__":

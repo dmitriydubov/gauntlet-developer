@@ -533,15 +533,26 @@ ArchUnit-тест, шаблоны, установку и документаци�
       - шаблон поиска perl — данные: ``perl -ne 'print if /`/'`` читает;
       - слитный `perl '-esystem(...)'` — отказ;
       - `acceptance.features` с `./` или `/` на конце замораживает тот же каталог (и в `stop_gate.py`).
+  - Ревью головы `2b5ccf7` (Codex, Kimi, Grok, Qwen). Правило остановки: исправляется ложный зелёный в
+    документированной конфигурации и ложный красный на обычном проекте без обходного пути; остальное — в
+    ограничения (`README.md`, раздел 9; `INSTALL.md`). Исправлены три старых дефекта:
+    - `hooks/guard.py`: цель перенаправления — слово, которое из неё делает bash (кавычки и `\` сняты, куски
+      склеены, глоб сопоставлен с файлами); `>&файл` и `>|` — запись. Раньше `> 'gauntlet'/config/…`,
+      `> gaunt\let/…`, `> gauntle?/…`, `>&файл` и `>|` писали в набор мимо хука, а команда после `\>&`
+      (экранированный `>`) не проверялась.
+    - `hooks/guard.py`: `readpipe` — запись perl, как `qx`.
+    - `tools/IntegrityCheck.java`: B2 видит весь выбор тестов Gradle — `exclude`/`include` задачи `Test`, которую
+      гоняет гейт, шаблоны `filter`, `includeTest`, `includeEngines`, сеттеры тегов, категории JUnit 4, группы
+      TestNG. Те же слова у `jar`, копирования, source set и зависимостей — не находка.
   - Роли: `hardener` чинит красный контроль в тестовом коде (`@Before`), правка фичи — вопрос человеку.
 - `.claude/agents/specifier.md`, `hardener.md`, `gauntlet/CLAUDE.md`: сценарий обязан исполняться сам по себе;
   красный контроль — зависимость сценария от соседнего или от стенда, а не слабое step-определение.
-- `hooks/selftest.py`: 997 → 2536 проверок (сокращения и их разрешающие контроли, конфигурация git, `gh`,
+- `hooks/selftest.py`: 997 → 2623 проверки (сокращения и их разрешающие контроли, конфигурация git, `gh`,
   оболочки/обёртки/вложенный код для human-only, путей и ролей, чтение командной строки, каталог после `cd`,
   перенаправления, `gh api`, чтения ревьюера, `buildSrc`, вывод при таймауте, `$'…'`, код perl в кавычках,
-  шаблоны perl, каталог фич с `./`). `README.md`,
+  шаблоны perl, каталог фич с `./`, цель перенаправления как слово bash, `readpipe`). `README.md`,
   `INSTALL.md`, `config/gauntlet.properties` — описание синхронизировано.
-- Проверки: `python3 tests/run.py` в репозитории набора (распакованный бандл): самопроверка хуков 2536/2536,
+- Проверки: `python3 tests/run.py` в репозитории набора (распакованный бандл): самопроверка хуков 2623/2623,
   инструменты, установщик, shell-шаги CI, побайтная пересборка; реальные Gradle 8.14.3/JDK 21 и 25, Cucumber
   7.23.0 и 8.0.1 — полный `gauntlet` на примере (9/9 Gherkin-мутантов, 6 контролей, PIT 2/2) и 43 сценария находок;
   регрессионный набор репозитория прошёл в GitHub Actions (`.github/workflows/kit-tests.yml`, ubuntu-24.04,
@@ -579,8 +590,8 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 - `.github/workflows/gauntlet.yml` (7658 байт)
 - `CLAUDE.md` (279 байт)
 - `gauntlet/CLAUDE.md` (65401 байт)
-- `gauntlet/INSTALL.md` (14949 байт)
-- `gauntlet/README.md` (76860 байт)
+- `gauntlet/INSTALL.md` (16010 байт)
+- `gauntlet/README.md` (81189 байт)
 - `gauntlet/archtest/gauntlet/architecture/ArchitectureTest.java` (7999 байт)
 - `gauntlet/config/architecture.properties` (1420 байт)
 - `gauntlet/config/checkstyle.xml` (4593 байт)
@@ -590,8 +601,8 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 - `gauntlet/config/pit-runerror-allowlist.txt` (1485 байт)
 - `gauntlet/config/pmd-ruleset.xml` (11398 байт)
 - `gauntlet/gauntlet.gradle` (66644 байт)
-- `gauntlet/hooks/guard.py` (106588 байт)
-- `gauntlet/hooks/selftest.py` (131280 байт)
+- `gauntlet/hooks/guard.py` (109308 байт)
+- `gauntlet/hooks/selftest.py` (134800 байт)
 - `gauntlet/hooks/session_start.sh` (3116 байт)
 - `gauntlet/hooks/stop_gate.py` (21392 байт)
 - `gauntlet/install.sh` (12194 байт)
@@ -600,7 +611,7 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и
 - `gauntlet/tools/CrapGate.java` (32267 байт)
 - `gauntlet/tools/DryGate.java` (7694 байт)
 - `gauntlet/tools/GherkinMutator.java` (76502 байт)
-- `gauntlet/tools/IntegrityCheck.java` (49923 байт)
+- `gauntlet/tools/IntegrityCheck.java` (56941 байт)
 - `gauntlet/tools/PitSummary.java` (11633 байт)
 
 ## Файлы
@@ -1596,9 +1607,16 @@ apply from: '../gauntlet/gauntlet.gradle'      // последней строк�
 Скрипт находит `gauntlet/` рядом с собой, а `src/` и `build/` берёт у сборки, в которой применён.
 Он не меняет `./gradlew build`; все проверки идут через задачи группы `gauntlet`.
 
+Если исходники не в UTF-8, кодировку нужно назвать явно: `options.encoding` задач `JavaCompile`. Gauntlet читает
+исходники в кодировке, которую называет сборка, а без неё — как UTF-8. Сборка, которая полагается на кодировку
+платформы (Windows с JDK 17 или более ранней), локально компилируется. Но гейт на ней падает с находкой E1, и так
+же упадёт CI на Linux.
+
 ## 5. Приёмочные тесты
 - Скопируй `gauntlet/templates/acceptanceTest/java/.../CucumberSpringConfiguration.java` в
   `src/acceptanceTest/java/<пакет из acceptance.glue>/` и поправь `package`.
+- Step-классы (glue) живут только в `src/acceptanceTest/java`. Правку glue в другом месте (отдельный модуль, общий
+  source set шагов) область `changed` не видит, и `gherkinMutation` проверит пустое множество.
 - Если контексту нужны PostgreSQL, RabbitMQ и т. п. — добавь в этот класс Testcontainers так же, как в
   существующих интеграционных тестах (`@ServiceConnection` / `@DynamicPropertySource`).
 - Пример фичи `templates/.../example_discount.feature` **не копируй**: это только образец формата.
@@ -1608,9 +1626,10 @@ apply from: '../gauntlet/gauntlet.gradle'      // последней строк�
 `./gradlew gauntlet --continue` (из каталога сборки). Изменённых main-классов в этой ветке нет, поэтому Checkstyle, CRAP,
 DRY, PIT и Gherkin-мутация проверят пустое множество; реально прогоняются `integrityCheck`, `test`
 и `archTest`. Чини только конфигурацию gauntlet:
-- `integrityCheck` нашёл в старых тестах `@Disabled`, `assume*`, `disabledWithoutDocker` и т. п. →
+- `integrityCheck` нашёл в старых тестах `@Disabled`, `assume*`, `disabledWithoutDocker` и т. п., а в скрипте
+  сборки — фильтр тестов (`test { exclude '**/*IT*' }`, `useJUnitPlatform { excludeTags … }`) →
   запиши каждое в `gauntlet/config/integrity-allowlist.txt` с причиной `pre-existing at install`
-  и перечисли в отчёте. Сами тесты не трогай.
+  и перечисли в отчёте. Сами тесты и скрипт сборки не трогай.
 - `archTest` перечислил незаявленные подпакеты или рёбра → шаг 3.
 - `test` красный → это не про gauntlet. Если причина в окружении (нужен Docker: в облачной VM
   `service docker start` падает на ulimit — запусти `nohup dockerd --host=unix:///var/run/docker.sock &` и
@@ -1690,7 +1709,7 @@ gauntlet/
   archtest/               ArchUnit-тест, читающий config/architecture.properties
   hooks/                  guard.py (PreToolUse), stop_gate.py (Stop; SubagentStop hardener'а — matcher в
                           .claude/settings.json), session_start.sh (SessionStart; в облаке поднимает dockerd),
-                          selftest.py (2536 проверок хуков в трёх раскладках: python3 gauntlet/hooks/selftest.py)
+                          selftest.py (2623 проверки хуков в трёх раскладках: python3 gauntlet/hooks/selftest.py)
   templates/              конфигурация Cucumber+Spring, пример фичи на русском
   claude/, ci/            только до установки: install.sh переносит их в .claude/ и .github/workflows/
 ```
@@ -1845,6 +1864,8 @@ Auto-fix (кнопка в CI status bar сессии): на упавший CI и
 | `git push --mirror`/`--all`/`--branches`, `push HEAD`/`push origin @` (`@` — синоним HEAD) или push без refspec сидя на базовой ветке; `git -C <worktree> push` из feature-сессии, когда worktree на базовой ветке; `--no-verif` (сокращение); `core.hooksPath` через `-c`/`--config-env` перед любой подкомандой и записью `git config core.hooksPath …`; алиасы и `include.path` (`git config alias.fp 'push --force'`), прячущие любую из этих команд; пути в другом регистре (`GAUNTLET/…`) | guard ловит все эти формы (чтение конфигурации и `--unset` разрешены) (push без refspec на базовой ветке = push базовой ветки при `push.default=simple`; текущая ветка берётся с учётом `-C`/`--git-dir`); `HEAD:other`/`@:other` базовой веткой не считаются и разрешены; сравнение путей и `mentions` регистронезависимы (macOS/Windows) |
 | команда, которую guard читал иначе, чем оболочка: апостроф в комментарии или в теле heredoc (`# don't forget` и следующей строкой `git push --force`), перенос строки через `\` (`cp src/A.java \` + `gauntlet/config/`), `<<` в строке или в арифметике, программа через heredoc, here-string или pipe (`bash <<EOF`, `python3 - <<EOF`, `bash <<< '…'`, `echo '…' \| python3`), подстановка в теле heredoc, `find … -exec sed -i` | до правил команда читается одним проходом: комментарии убираются, строки с `\` склеиваются, тело heredoc выносится из командной строки и судится как программа того, кто его читает (для `cat` и `tee` это данные), шаблон `case` не закрывает подоболочку; чтение сверено с настоящим bash; скрипт `sed`, программа `awk` и условия `find` — не пути, а `find` пишет, когда пишет команда его `-exec` |
 | `cd` в каталог, который хук не вычислял (`cd "$(git rev-parse --show-toplevel)" && echo … >> gauntlet/config/gauntlet.properties`, `cd "$CLAUDE_PROJECT_DIR"`, `cd -`, `popd`), и перенаправление, принятое за аргумент (`git push origin 2>&1` на базовой ветке — «refspec» `2>`; `echo '…' \| bash 2>&1`) | каталог после `cd` вычисляется для `~`, `$HOME`, `$PWD`, `$CLAUDE_PROJECT_DIR` и корня git; после `cd -`, `popd` и неизвестной цели команда судится по всем каталогам, где она уже была, и по корню проекта; перенаправления и here-string не входят в аргументы команды |
+| цель перенаправления, склеенная из кусков или собранная глобом (`> 'gauntlet'/config/…`, `> gaunt\let/…`, `> "$CLAUDE_PROJECT_DIR"/gauntlet/…`, `> gauntle?/config/…`), запись через `>&файл` и `>\|` | цель судится как слово, которое из неё делает bash: кавычки и `\` сняты, куски склеены, известные хуку переменные раскрыты, глоб сопоставлен с файлами; `>&` с файлом и `>\|` — запись, `>&2` и `2>&1` — дескриптор; экранированный `\>` — символ, и `\|` и `&` после него — конвейер и конец команды; сверено с настоящим bash |
+| не запускать падающий тест фильтром задачи `Test` (`test { exclude '**/OrdersTest*' }`, `filter { includePatterns = … }`, `includeEngines`, категории JUnit 4, группы TestNG) | `integrityCheck` B2 знает весь выбор тестов Gradle. `exclude` и `include` — находка там, где они настраивают задачу `Test`, которую гоняет гейт (`test`, `archTest`, `acceptanceTest`, `gherkinMutantsRun`, `withType(Test)`); те же слова у `jar`, копирования, source set и зависимостей — нет |
 | step-определение игнорирует параметр | `gherkinMutation` |
 | мутант «убит» не изменённым значением, а сломанным стендом: упала фикстура, сценарий зависит от соседнего, строку нельзя прогнать дважды на одном стенде, значение отверг сам Cucumber | `gherkinMutation`: каждая мутируемая строка «Примеров» прогоняется без изменений дважды — до мутантов (`cN`) и после них (`zN`), оба контроля обязаны пройти; kill — только падение, брошенное step-определением, на первом шаге, который использует мутированную колонку, или позже. Падение раньше этого шага, значение, которое Cucumber не смог конвертировать или которое отверг transformer (`@ParameterType` и т. п.), неудавшийся glue-объект, неоднозначный шаг, хук или фикстура — ошибка, а не kill |
 | область `changed` молча не увидела изменённый класс (кодировка исходников, второй корень main source set, необычное объявление типа) и гейт прошёл по пустому множеству | область строится по всем корням main source set, и Checkstyle, PMD, CPD получают их все; исходник читается как его читает javac (Unicode-escape, одиночный CR, `options.encoding` прежде `-encoding`); `gauntletScope` падает на изменённом исходнике, не читаемом в этой кодировке; перед PIT и CRAP каждый выведенный тип обязан существовать как класс, исходник с кодом обязан дать тип, а класс, чей атрибут `SourceFile` называет изменённый исходник, — быть среди выведенных |
@@ -1867,7 +1888,8 @@ Auto-fix (кнопка в CI status bar сессии): на упавший CI и
 команде, код из файла (скрипт, который запускает интерпретатор), `cd` внутри конвейера (`cd x | cat; …` — bash
 каталог не меняет, zsh меняет, хук считает, что сменился), конфигурация git через переменные окружения
 (`GIT_CONFIG_*`), алиасы, уже лежащие в глобальном конфиге, `push.default=upstream` с push без refspec и
-настройки репозитория через `gh api -X PATCH repos/…`: статический разбор их не видит.
+настройки репозитория через `gh api -X PATCH repos/…`, функции модулей perl (`File::Copy`) и программа awk
+(`system()`, `print >` внутри неё): статический разбор их не видит.
 `permissions.deny` тоже префиксный и обходится обёрткой. Опора — `integrityCheck`, CI, GitHub branch
 protection базовой ветки и то, что любая попытка видна в diff PR, который читает человек. Это растяжка,
 а не сейф.
@@ -1875,7 +1897,7 @@ protection базовой ветки и то, что любая попытка �
 ## 8. Что проверено в этой версии, а что нет
 
 Проверено здесь (Gradle 8.14.3, Java 21):
-- Хуки, `hooks/selftest.py`, 2536 проверок в трёх раскладках (сборка в корне; модуль `core/`; два модуля
+- Хуки, `hooks/selftest.py`, 2623 проверки в трёх раскладках (сборка в корне; модуль `core/`; два модуля
   `core/` + `adapter/` — Gradle только в изменённом модуле, красный модуль блокирует, коммит
   спецификации одного модуля замораживает фичи другого, чужая незакоммиченная работа не считается)
   на временном git-репозитории с фиктивным `origin/main`:
@@ -2038,10 +2060,11 @@ protection базовой ветки и то, что любая попытка �
   `gauntlet.log` набором; у ревьюера разрешены чтения с перенаправлением, `git branch --all`, `unzip -l`, `tar tf`,
   `tee` и `mkdir` вне проекта; источники `cp` читаются, а не пишутся; `git restore --staged` и `git reset <путь>`
   трогают только индекс; роли со своей зоной не блокируются на `2>/dev/null`. Самопроверка 997 → 2365 → 2431 → 2536
-  (+456, +22 и +35 на раскладку; файл настроек читается с разделителями `java.util.Properties` — `key: value`,
-  `key value`; строка `$'…'` раскодируется, как в bash, а код perl в кавычках судится в том виде, как написан;
-  шаблон поиска perl — данные: ``perl -ne 'print if /`/'`` читает; `acceptance.features` с `./` или `/` на конце
-  замораживает тот же каталог).
+  → 2623 (+456, +22, +35 и +29 на раскладку; файл настроек читается с разделителями `java.util.Properties` —
+  `key: value`, `key value`; строка `$'…'` раскодируется, как в bash, а код perl в кавычках судится в том виде, как
+  написан; шаблон поиска perl — данные: ``perl -ne 'print if /`/'`` читает; `acceptance.features` с `./` или `/` на
+  конце замораживает тот же каталог; цель перенаправления — слово, которое из неё делает bash, `>&файл` и `>|` —
+  запись, а после экранированного `\>` `|` — конвейер и `&` — конец команды; `readpipe` — запись perl).
   Независимое ревью этой же ревизии нашло дефекты и в её собственных правках — исправлены. `IntegrityCheck`:
   вырезание комментариев выдумывало параметр замыкания (`{ $/* … */ test -> /$`, вложенный комментарий Kotlin) и
   прятало `test.enabled = false`; теперь скрипт читается лексером языка, а 437 сниппетов, сверенных с настоящим
@@ -2088,6 +2111,16 @@ protection базовой ветки и то, что любая попытка �
   - guard. Шаблон поиска perl — данные: ``perl -ne 'print if /`/'`` читает. Слитный `perl '-esystem(...)'` —
     отказ.
 
+  Ревью головы `2b5ccf7` нашло ещё три старых дефекта, все исправлены; остальные находки ушли в ограничения по
+  правилу: исправлять только ложный зелёный в документированной конфигурации и ложный красный на обычном проекте
+  без обходного пути.
+  - guard. Цель перенаправления судилась по тексту: `> 'gauntlet'/config/…`, `> gaunt\let/…`, глоб, `>&файл` и
+    `>|` писали в набор мимо хука. Теперь цель — слово, которое из неё делает bash. Команда после `\>&` (`&` после
+    экранированного `>`) тоже больше не проходит.
+  - guard. `perl -e 'readpipe(…)'` — то же, что `qx`, — проходил.
+  - `integrityCheck`. `test { exclude '**/OrdersTest*' }` не был находкой B2, как и остальной выбор тестов Gradle:
+    шаблоны `filter`, `includeEngines`, категории JUnit 4, группы TestNG.
+
   Регрессии инструментов, установщика и CI лежат в `tests/` репозитория набора и гоняются по распакованному
   бандлу.
 - `install.sh` на демо-проекте: чистая установка; слияние с существующим `.claude/settings.json`
@@ -2110,6 +2143,15 @@ CI на GitHub. Оттуда — правки ревизии 3: RUN_ERROR в `mu
 следов внешнего контура» в коде и документах, ревизия источников документации по фактической доступности.
 
 ## 9. Ограничения
+- Glue (step-классы) — только в `src/acceptanceTest/java`. Правку glue в отдельном модуле или в общем source set
+  шагов область `changed` не видит: `gherkinMutation` проверит пустое множество.
+- Transformer (`@ParameterType` и т. п.) читается из базовой копии класса. В multi-release JAR, где аннотация есть
+  только в версионной копии, отвергнутое значение засчитается как kill. Glue набора — каталог классов, и в
+  экосистеме Cucumber такие JAR не встречаются.
+- Исходники не в UTF-8 требуют явного `options.encoding`: без него гейт читает их как UTF-8 и падает с находкой E1
+  (INSTALL, раздел 4).
+- Фильтр perl ревьюера, в тексте которого есть слово записи (`system`, `open`) вне шаблона поиска — в строке,
+  комментарии или heredoc, — отклоняется как запись. Это ошибка в безопасную сторону.
 - Метрики не ловят уязвимости и ошибки бизнес-логики, которых нет в спецификации. Для регулируемого
   контура стоит добавить SAST (SpotBugs+FindSecBugs или Semgrep) и проверку зависимостей.
 - Хуки читаются только в сессии с одним репозиторием; в сессии с несколькими репозиториями и в тредах
@@ -4139,8 +4181,8 @@ SHELL_KEYWORDS = {"if", "then", "else", "elif", "do", "while", "until", "!", "{"
 GRADLE = {"gradlew", "gradle"}
 GRADLE_PATH_OPTIONS = {"-p", "--project-dir", "-g", "--gradle-user-home", "--project-cache-dir", "-b", "--build-file",
                        "-c", "--settings-file", "-I", "--init-script", "--include-build"}
-PERL_WRITES = re.compile(r"\b(open|unlink|rename|system|exec|qx|mkdir|rmdir|truncate|chmod|chown|symlink|link|"
-                         r"utime|syswrite|sysopen)\b|`")
+PERL_WRITES = re.compile(r"\b(open|unlink|rename|system|exec|qx|readpipe|mkdir|rmdir|truncate|chmod|chown|symlink|"
+                         r"link|utime|syswrite|sysopen)\b|`")
 # a perl switch cluster that ends in -e / -E: the program is the rest of the word or the next word (-ne, -lane, -0777ne)
 PERL_PROGRAM_SWITCH = re.compile(r"(-[acdnpsStTuUwWXl0-9]*[eE])(.*)", re.S)
 # -i edits in place (-pi, -i.bak, -wpi, a lone -i anywhere); M m I F C D V e E take the rest of their word, so the i
@@ -4160,7 +4202,10 @@ PERL_READLINE = re.compile(r"<\$?\w*>")                # <>, <STDIN>, <$fh>
 # what interpolating a pattern can run: (?{ }), (??{ }), (*{ }), @{[ ]}, ${\ }, $x{...}, $x[...]; a $ before ), | or
 # the end is an anchor
 PERL_PATTERN_CODE = re.compile(r"\(\s*[?*]\s*\??\s*\{|@|\$(?![)|]|\Z)")
-REDIRECT = re.compile(r"(?<!>)>>?\|?\s*([^\s;&|<>()]+)")
+# a redirection that writes a file: > >> >| &> &>>, <> (opens it for writing too) and >& - whose word may also be a
+# file descriptor (`>&2` duplicates one, `>&-` closes it, `>&log` writes the file log)
+REDIRECT = re.compile(r"(?<![<>])(<>|>&|>>?\|?)")
+FD_WORD = re.compile(r"\d+-?|-")
 GLOB_CHARS = re.compile(r"[*?\[]")
 STATEMENT_END = re.compile(r";|&&|\|\||\n")
 
@@ -4350,7 +4395,7 @@ def command_violation(agent, command, ctx, cwd=None):
     neutral = QUOTED.sub(lambda m: re.sub(r"[>;&|()`\n]", "_", m.group(0)), command)
     statements = STATEMENT_END.split(neutral)
     for segment, words, cwd in walk(segments_scoped(neutral), cwd, ctx.project):
-        for target in REDIRECT.findall(segment):
+        for target in redirect_targets(segment, cwd, ctx.project):
             reason = write_violation(agent, target, cwd, ctx, protected, read_only, scope, "writing " + target)
             if reason:
                 return reason
@@ -4381,6 +4426,32 @@ def command_violation(agent, command, ctx, cwd=None):
         if hit:
             return protected_reason(agent, hit, ctx)
     return None
+
+
+def redirect_targets(segment, cwd, project):
+    """The files the redirections of a statement write, each as the word bash makes of its target: quotes and
+    backslashes removed, the pieces joined, a glob matched against the files there. `> 'gauntlet'/config/x`,
+    `> gaunt\\let/config/x`, `> gauntle?/config/x` and `> "$CLAUDE_PROJECT_DIR"/gauntlet/config/x` write into
+    gauntlet/ like `> gauntlet/config/x` does; `>&2` and `2>&1` write no file. Any other variable stays as
+    written: what it holds is the known limit of a static reading."""
+    targets = []
+    for m in REDIRECT.finditer(segment):
+        word = HERE_WORD.match(segment, m.end()).group(1)
+        if not word:
+            continue                            # >(...) is a process substitution, judged as the code it runs
+        try:
+            target = "".join(shlex.split(word))
+        except ValueError:
+            target = word
+        if m.group(1) == ">&" and FD_WORD.fullmatch(target):
+            continue
+        target = expand(target, cwd, project)
+        if GLOB_CHARS.search(target) and not unresolvable(target):
+            bases = [""] if os.path.isabs(target) else candidates(cwd, project)
+            targets.extend([p for base in bases for p in glob.glob(os.path.join(base, target))] or [target])
+        else:
+            targets.append(target)
+    return targets
 
 
 def raw_of(segment, neutral, command):
@@ -4689,7 +4760,7 @@ def here_strings(segment):
     """(the arguments of the segment, [(text, expanded by the shell)]): the segment without its redirections and
     here-strings. `2>&1`, `>/dev/null`, `<file` say where the command reads and writes and `<<< word` is what it
     reads on stdin; none of them is an argument - `git push origin 2>&1` names no refspec, `bash 2>&1` no script.
-    (What a redirection writes is judged from the text of the segment, by REDIRECT.)"""
+    (What a redirection writes is judged separately, by redirect_targets.)"""
     if "<" not in segment and ">" not in segment:
         return segment, []
     out, texts, quote, i, n = [], [], None, 0, len(segment)
@@ -5051,7 +5122,7 @@ def reads_stdin_program(words):
 
 
 def pipe_points(command):
-    """Offsets of every `|` that joins two pipeline stages (not `||`) outside quotes."""
+    """Offsets of every `|` that joins two pipeline stages (not `||`, not the `>|` of a redirection) outside quotes."""
     points, quote, i, n = [], None, 0, len(command)
     while i < n:
         c = command[i]
@@ -5068,7 +5139,7 @@ def pipe_points(command):
         elif c == "|" and quote is None:
             if command.startswith("||", i):
                 i += 1
-            else:
+            elif not redirection_part(command, i):
                 points.append(i)
         i += 1
     return points
@@ -5596,8 +5667,38 @@ def skips_git_hooks(args):
     return False
 
 
+SEPARATOR = re.compile(r"\|\||&&|[;|&`\n]|\$\(|[()]")
+
+
+def unescaped(command, i):
+    """True when no backslash escapes the character at i: an even number of them stands right before it."""
+    k = i
+    while k > 0 and command[k - 1] == "\\":
+        k -= 1
+    return (i - k) % 2 == 0
+
+
+def redirection_part(command, i):
+    """True when the | or & at i belongs to a redirection - >|, 2>&1, <&3, &>file - and ends no command. The < or >
+    before it must be an operator: after `echo x \\>` the | is a pipe and the & sends the echo to the background."""
+    if command[i] == "&" and command[i + 1:i + 2] == ">":
+        return True
+    before = command[i - 1:i]
+    return (before == ">" or before == "<" and command[i] == "&") and unescaped(command, i - 1)
+
+
+def separators(command):
+    """What ends a simple command: ;, &&, ||, a newline, a pipe, & - and $( ), ( ) and backticks."""
+    return [m for m in SEPARATOR.finditer(command) if m.group(0) not in "|&" or not redirection_part(command, m.start())]
+
+
 def segments(command):
-    return [s for s in re.split(r"\|\||&&|[;|`\n]|(?<![<>])&(?!>)|\$\(|[()]", command) if s.strip()]
+    out, last = [], 0
+    for m in separators(command):
+        out.append(command[last:m.start()])
+        last = m.end()
+    out.append(command[last:])
+    return [s for s in out if s.strip()]
 
 
 def split_shell(command):
@@ -5644,8 +5745,8 @@ def split_shell(command):
             buf = []
             parts.append(")" if backtick else "(")
             backtick = not backtick
-        elif c in ";|\n" or (c == "&" and command[i - 1:i] not in ("<", ">") and command[i + 1:i + 2] != ">"):
-            parts.append("".join(buf))             # not the & of 2>&1 or &>file
+        elif c in ";\n" or (c in "|&" and not redirection_part(command, i)):
+            parts.append("".join(buf))             # not the | of >|file, the & of 2>&1 or &>file
             buf = []
         else:
             buf.append(c)
@@ -5658,7 +5759,7 @@ def segments_scoped(command):
     """segments() for quote-neutralised text, but subshell parens are emitted as '(' / ')' markers so a cd
     inside ( ... ), $( ... ) or backticks is scoped to the subshell and cannot leak to the parent shell's commands."""
     out, last, backtick = [], 0, False
-    for m in re.finditer(r"\|\||&&|[;|`\n]|(?<![<>])&(?!>)|\$\(|[()]", command):
+    for m in separators(command):
         out.append(command[last:m.start()])
         sep = m.group(0)
         if sep == "`":
@@ -7090,6 +7191,48 @@ def guard_tests(repo):
              "rm -rf $'gaun\\x74let'"),
             ('main', 'an ANSI-C redirection target',
              "echo x > $'gauntlet/config/gauntlet.properties'"),
+            # a redirection writes the word bash makes of its target, by every operator that writes (review of 2b5ccf7)
+            ('main', 'a quoted piece of a redirection target',
+             "echo x > 'gauntlet'/config/gauntlet.properties"),
+            ('main', 'a double-quoted piece of a redirection target',
+             'echo x > "gauntlet"/config/gauntlet.properties'),
+            ('main', 'a quote inside a redirection target',
+             "echo x > gaunt'let'/config/gauntlet.properties"),
+            ('main', 'an empty quote inside a redirection target',
+             "echo x >> gauntlet''/config/gauntlet.properties"),
+            ('main', 'a backslash inside a redirection target',
+             "echo x > gaunt\\let/config/gauntlet.properties"),
+            ('main', 'an ANSI-C piece of a redirection target',
+             "echo x > $'gauntlet'/config/gauntlet.properties"),
+            ('main', 'a quoted $CLAUDE_PROJECT_DIR in a redirection target',
+             'echo x > "$CLAUDE_PROJECT_DIR"/gauntlet/config/gauntlet.properties'),
+            ('main', 'a glob as a redirection target',
+             "echo x > gauntle?/config/gauntlet.properties"),
+            ('main', 'a quoted piece of a redirection target into the features',
+             "echo x > '{F}'/order.feature"),
+            ('main', '>& with a file as its target',
+             "echo x >& gauntlet/config/gauntlet.properties"),
+            ('main', '>| into the kit',
+             "echo x >| gauntlet/config/gauntlet.properties"),
+            ('main', '>| into the kit in the payload of bash -c',
+             "bash -c 'echo x >| gauntlet/config/gauntlet.properties'"),
+            ('reviewer', '>& with a file as its target',
+             "ls >& notes.txt"),
+            ('reviewer', '>| over a file',
+             "ls >| notes.txt"),
+            ('main', 'a backslash before >| writes the file',
+             "echo x \\\\>| gauntlet/config/gauntlet.properties"),
+            # an escaped > is a character: the | after it is a pipe, the & after it ends the command
+            ('main', 'a pipe after an escaped >',
+             "echo x \\>| rm -rf gauntlet"),
+            ('main', 'a program piped into sh after an escaped >',
+             "printf 'rm -rf gauntlet\\n' \\>| sh"),
+            ('main', 'a command after an escaped > and &',
+             "echo x \\>& rm -rf gauntlet"),
+            ('main', 'a command after an escaped < and &',
+             "echo x \\<& rm -rf gauntlet"),
+            ('reviewer', 'a pipe after an escaped >',
+             "echo x \\>| touch notes.txt"),
             # perl's own syntax inside the quotes is code, not shell text (review of 65c03da)
             ('main', 'perl backticks',
              "perl -e '`rm -rf gauntlet`'"),
@@ -7097,6 +7240,10 @@ def guard_tests(repo):
              'perl -e \'system("rm -rf gauntlet")\''),
             ('main', 'perl qx()',
              "perl -e 'qx(rm -rf gauntlet)'"),
+            ('main', 'perl readpipe',
+             'perl -e \'readpipe("rm -rf gauntlet")\''),
+            ('reviewer', 'perl readpipe',
+             'perl -e \'readpipe("touch notes.txt")\''),
             ('main', 'perl open for writing',
              'perl -e \'open(F, ">", "gauntlet/config/gauntlet.properties")\''),
             ('reviewer', 'perl system with one string',
@@ -7232,6 +7379,20 @@ def guard_tests(repo):
              "git commit -m $'fix: the user\\'s --amend flag'"),
             ('main', 'an ANSI-C format of git log',
              "git log --format=$'%h\\t%s' -3"),
+            ('main', 'a quoted piece of a redirection target outside the kit',
+             "echo ok > 'notes'/today.txt"),
+            ('main', 'a quoted $CLAUDE_PROJECT_DIR in a redirection into build/',
+             'echo ok > "$CLAUDE_PROJECT_DIR"/build/out.txt'),
+            ('main', '>| over a note',
+             "echo ok >| notes.txt"),
+            ('reviewer', '>& onto a file descriptor',
+             "ls -la >&2"),
+            ('reviewer', 'a pipe after an escaped >',
+             "ls \\>| head"),
+            ('reviewer', 'stderr onto stdout and stdout onto stderr',
+             "git status 2>&1 1>&2 | head"),
+            ('reviewer', 'perl -ne with readpipe in the pattern',
+             "perl -ne 'print if /readpipe/' README.md"),
             ('main', 'perl that prints',
              'perl -e \'print "hello"\''),
             ('main', 'perl -ne that reads the kit',
@@ -11454,6 +11615,26 @@ public class IntegrityCheck {
     /** A task named by its accessor. In front of a block: {@code jar} or {@code tasks.jar}; as a receiver: any last name. */
     static final Pattern OWN_TASK = Pattern.compile("(?:^|(?<![\\w$])tasks\\.)([A-Za-z_$][\\w$]*)$");
     static final Pattern LAST_ID = Pattern.compile("(?:^|\\.)([A-Za-z_$][\\w$]*)$");
+    /**
+     * The include and exclude patterns of a Test task ({@code test { exclude 'com/acme/OrdersTest.class' }}). The
+     * same words mean something else for jar, a copy, a source set or a dependency, so B2 reports them only where
+     * they configure a Test task the gauntlet runs.
+     */
+    static final String TEST_PATTERNS = "(?<![\\w$])(?:exclude|include|excludes|includes|setExcludes|setIncludes)(?![\\w$])";
+    static final Pattern TEST_PATTERN = Pattern.compile(TEST_PATTERNS);
+    /** The Test tasks the gauntlet runs; testTask is the Test task of a JVM test suite (testing.suites.test). */
+    static final Pattern GATE_TEST = Pattern.compile("test|archTest|acceptanceTest|gherkinMutantsRun|testTask");
+    /**
+     * Test tasks by their type: {@code withType(Test)}, {@code withType<Test>()}, {@code withType(Test::class.java)};
+     * in Kotlin also a delegate of a task that exists already, {@code val test by tasks.getting(Test::class)}.
+     */
+    static final Pattern TEST_TYPE = Pattern.compile("(?<![\\w$])(?:withType(?:<(?:[\\w$]+\\.)*Test>(?:\\(\\))?"
+            + "|\\((?:[\\w$]+\\.)*Test(?:::class(?:\\.java)?|\\.class)?\\))"
+            + "|(?:getting|existing)\\((?:[\\w$]+\\.)*Test::class(?:\\.java)?(?:,[^()]*)?\\))$");
+    /** The task behind a provider: {@code tasks.named("test").get()}. */
+    static final Pattern PROVIDED = Pattern.compile("(?:\\?|!!)?\\.get\\(\\)$");
+    /** Blocks whose bare calls still reach the Test task they sit in: {@code test { filter { exclude 'x' } }}. */
+    static final Pattern TEST_INNER = Pattern.compile("filter|useJUnitPlatform|useJUnit|useTestNG|doFirst|doLast");
     /** What may stand between the tasks and their block: {@code tasks.withType(Jar).matching { }.configureEach { }}. */
     static final Pattern CONFIGURER = Pattern.compile(
             "(?:(?:\\?|!!)?\\.matching\\{\\})*(?:(?:\\?|!!)?\\.(configure|configureEach|all|each|forEach))?$");
@@ -11486,8 +11667,9 @@ public class IntegrityCheck {
                     "tag commonly used to exclude a scenario"),
             rule("B1", Kind.BUILD, "ignoreFailures|\\b(is)?[eE]nabled\\s*=\\s*false|setEnabled\\s*\\(\\s*false|onlyIf\\s*[({]",
                     false, "build script switches a check off"),
-            rule("B2", Kind.BUILD, "(exclude|include)TestsMatching|(exclude|include)Tags|excludeEngines|failOnNoDiscoveredTests",
-                    false, "build script filters which tests run"),
+            rule("B2", Kind.BUILD, "(?<![\\w$])(?:set)?(?:[Ee]xclude|[Ii]nclude)(?:TestsMatching|Test|Patterns|Tags|Engines"
+                    + "|Categories|Groups)(?![\\w$])|(?:set)?[Tt]estNameIncludePatterns|failOnNoDiscoveredTests|"
+                    + TEST_PATTERNS, false, "build script filters which tests run"),
             rule("B3", Kind.BUILD, "maxSurviving|mutationThreshold|coverageThreshold|testStrengthThreshold"
                     + "|excludedClasses|excludedMethods|excludedTestClasses|excludedGroups|avoidCallsTo|targetClasses"
                     + "|targetTests|classDirectories|cucumber\\.(filter|features|glue)", false,
@@ -11784,8 +11966,78 @@ public class IntegrityCheck {
             if (kind != Kind.BUILD) {
                 return r.includeComments() || !literal.get(m.start());   // "@Disabled" in a string is no annotation
             }
+            if (r.id().equals("B2") && TEST_PATTERN.matcher(m.group()).matches()) {
+                return filtersGateTests(m.start(), m.end());
+            }
             // Only "enabled = false" for a packaging/doc task is exempt - ignoreFailures or onlyIf never are.
             return !(r.id().equals("B1") && DISABLED.matcher(m.group()).matches() && switchesOffOwnTask(m.start()));
+        }
+
+        /**
+         * True when the exclude or include at {@code at} narrows the classes of a Test task the gauntlet runs:
+         * called bare in a block that configures such tasks - {@code test { }}, {@code tasks.named('test') { }},
+         * {@code tasks.withType(Test).configureEach { }} - or on one: {@code test.exclude}, {@code tasks.test.exclude},
+         * {@code it.exclude} in such a block, {@code test."exclude"(...)}. The words are not a finding for anything
+         * else: {@code jar { exclude }}, {@code configurations.all { exclude group: }},
+         * {@code sourceSets.main.java.exclude}, a named argument ({@code fileTree(dir: d, include: '*.jar')}), the
+         * coverage exclusions of {@code test { jacoco { excludes = [...] } }}, or a string that only mentions them.
+         */
+        boolean filtersGateTests(int at, int end) {
+            boolean quoted = literal.get(at);
+            if (quoted) {                                  // Groovy calls a method by a string: test."exclude"('x')
+                char quote = at > 0 ? code.charAt(at - 1) : ' ';
+                if ("\"'`".indexOf(quote) < 0 || end >= code.length() || code.charAt(end) != quote
+                        || at > 1 && literal.get(at - 2)) {
+                    return false;
+                }
+                at--;
+                end++;
+            }
+            int after = end;
+            while (after < code.length() && (code.charAt(after) == ' ' || code.charAt(after) == '\t')) {
+                after++;
+            }
+            if (after < code.length() && code.charAt(after) == ':' && !code.startsWith("::", after) && !literal.get(after)) {
+                return false;                              // a named argument: fileTree(dir: d, include: '*.jar')
+            }
+            Block block = testBlock(enclosingBrace(at));
+            int dot = back(at, true);
+            char before = dot == 0 || literal.get(dot - 1) ? ' ' : code.charAt(dot - 1);
+            if (before != '.' && !(before == '[' && quoted)) {
+                // a bare call configures the block's task; test.&exclude and Test::exclude only name the method
+                return "@&:".indexOf(before) < 0 && block != null && !block.each() && !quoted;
+            }
+            int receiverEnd = back(dot - 1, true);
+            if (before == '.' && receiverEnd > 0 && "?*".indexOf(code.charAt(receiverEnd - 1)) >= 0) {
+                receiverEnd--;                             // tasks.findByName("test")?.exclude, tasks.withType(Test)*.exclude
+            } else if (before == '.' && receiverEnd > 1 && code.startsWith("!!", receiverEnd - 2)) {
+                receiverEnd -= 2;
+            }
+            String receiver = chain(chainStart(receiverEnd), receiverEnd);
+            if (block != null) {
+                if (receiver.equals(block.parameter())) {
+                    return true;
+                }
+                if (receiver.equals("it")) {               // as for B1: in Kotlin "it" there is an outer lambda's
+                    return !block.ownParameters() && (lang != Lang.KOTLIN || block.each());
+                }
+                if (receiver.equals("this") || receiver.equals("delegate") && lang != Lang.KOTLIN) {
+                    return !block.each();
+                }
+            }
+            return namesGateTest(receiver, LAST_ID);
+        }
+
+        /**
+         * The block a brace opens, when it configures Test tasks the gauntlet runs; -1 is no brace. A block in
+         * between whose bare calls still reach the task ({@code filter}, {@code useJUnitPlatform}, {@code doFirst})
+         * is looked through; any other block is the one the call belongs to.
+         */
+        Block testBlock(int brace) {
+            while (brace >= 0 && TEST_INNER.matcher(chain(chainStart(brace), brace)).matches()) {
+                brace = enclosingBrace(brace);
+            }
+            return brace < 0 ? null : block(brace, chain -> namesGateTest(chain, OWN_TASK));
         }
 
         int lineOf(int offset) {
@@ -11846,9 +12098,14 @@ public class IntegrityCheck {
          * A name that is only mentioned - {@code if (project.hasProperty('jar'))} - opens no such block.
          */
         Block taskBlock(int brace) {
+            return block(brace, chain -> namesHarmlessTask(chain, OWN_TASK));
+        }
+
+        /** The block this brace opens, when the call chain in front of it names tasks that {@code names} accepts. */
+        Block block(int brace, Predicate<String> names) {
             String chain = chain(chainStart(brace), brace);
             Matcher how = CONFIGURER.matcher(chain);
-            if (!how.find() || !namesHarmlessTask(chain.substring(0, how.start()), OWN_TASK)) {
+            if (!how.find() || !names.test(chain.substring(0, how.start()))) {
                 return null;
             }
             Matcher parameter = CLOSURE_PARAM.matcher(code).region(brace + 1, code.length());
@@ -11959,6 +12216,24 @@ public class IntegrityCheck {
             }
             return chain.toString();
         }
+    }
+
+    /**
+     * True when the call chain names Test tasks the gauntlet runs: by type ({@code tasks.withType(Test)}), by name
+     * ({@code tasks.named("test")}, {@code tasks.getByName('acceptanceTest')}) or by accessor ({@code test},
+     * {@code tasks.test}), the provider of one ({@code tasks.named("test").get()}) too.
+     */
+    static boolean namesGateTest(String chain, Pattern accessor) {
+        chain = PROVIDED.matcher(chain).replaceFirst("");
+        if (TEST_TYPE.matcher(chain).find()) {
+            return true;
+        }
+        Matcher call = TASK_CALL.matcher(chain);
+        if (call.find()) {
+            return call.group(3) != null && GATE_TEST.matcher(call.group(3)).matches();
+        }
+        Matcher name = accessor.matcher(chain);
+        return name.find() && GATE_TEST.matcher(name.group(1)).matches();
     }
 
     /** True when the call chain names packaging/doc tasks by name or by type, not merely mentions one. */

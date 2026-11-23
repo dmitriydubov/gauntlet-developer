@@ -228,6 +228,99 @@ class PackagingTasks(IntegrityCase):
                     self.assertEqual(sorted(set(self.rules())), expected)
 
 
+class TestSelection(IntegrityCase):
+    """B2 knows every way Gradle narrows the tests a Test task runs. exclude and include of a Test task count where
+    they configure a Test task the gauntlet runs; for jar, a copy, a source set or a dependency they are no finding."""
+
+    B2 = {
+        "exclude in the test block": "test { exclude '**/OrdersTest*' }",
+        "include on its own line": "test {\n    include '**/*Fast*'\n}",
+        "the excludes property": "test { excludes = ['**/OrdersTest*'] }",
+        "the setter": "test { setIncludes(['**/A*']) }",
+        "a spec": "test { exclude { it.file.name.contains('Orders') } }",
+        "named test": "tasks.named('test') { exclude '**/OrdersTest*' }",
+        "named test with its type": "tasks.named('test', Test) { exclude '**/OrdersTest*' }",
+        "every Test task": "tasks.withType(Test).configureEach { exclude '**/OrdersTest*' }",
+        "every Test task by its full name": "tasks.withType(org.gradle.api.tasks.testing.Test) { exclude '**/X*' }",
+        "it in a Test block": "tasks.withType(Test).configureEach { it.exclude '**/OrdersTest*' }",
+        "the parameter of a Test block": "tasks.withType(Test).configureEach { t -> t.exclude '**/OrdersTest*' }",
+        "on the task": "test.exclude '**/OrdersTest*'",
+        "on tasks.test": "tasks.test.exclude('**/OrdersTest*')",
+        "on a looked-up task": "tasks.getByName('test').exclude('**/OrdersTest*')",
+        "on a provided task": "tasks.named('test').get().exclude('**/OrdersTest*')",
+        "the property on the task": "test.excludes = ['**/OrdersTest*']",
+        "a method named by a string": "test.\"exclude\"('**/OrdersTest*')",
+        "a property named by a string": "test['excludes'] = ['**/OrdersTest*']",
+        "inside filter": "test { filter { exclude '**/OrdersTest*' } }",
+        "inside doFirst": "test { doFirst { exclude '**/OrdersTest*' } }",
+        "in subprojects": "subprojects { test { exclude '**/OrdersTest*' } }",
+        "the acceptance tests": "acceptanceTest { exclude '**/*' }",
+        "a JVM test suite": "testing { suites { test { targets { all { testTask.configure { exclude '**/X*' } } } } } }",
+        "filter patterns": "test { filter { includePatterns = ['*Fast*'] } }",
+        "a filter setter": "test { filter { setExcludePatterns(['*Slow*']) } }",
+        "one test class": "test { filter { excludeTest 'a.OrdersTest', null } }",
+        "engines": "test { useJUnitPlatform { includeEngines 'junit-vintage' } }",
+        "a tag setter": "test { useJUnitPlatform { setExcludeTags(['slow'] as Set) } }",
+        "JUnit 4 categories": "test { useJUnit { excludeCategories 'a.Slow' } }",
+        "TestNG groups": "test { useTestNG { excludeGroups 'slow' } }",
+        "test name patterns": "test { setTestNameIncludePatterns(['*Fast*']) }",
+    }
+    FREE = {
+        "jar": "jar { exclude 'META-INF/*.SF' }",
+        "resources of the tests": "processTestResources { exclude '**/*.tmp' }",
+        "checkstyle of the tests": "checkstyleTest { exclude '**/generated/**' }",
+        "a dependency of every configuration": "configurations.all { exclude group: 'commons-logging' }",
+        "a test dependency": "dependencies {\n    testImplementation('junit:junit:4.13.2') { exclude group: 'org.hamcrest' }\n}",
+        "a source directory": "sourceSets.main.java.exclude '**/Gen*'",
+        "the test source set": "sourceSets { test { java { exclude '**/Gen*' } } }",
+        "coverage inside the test block": "test { jacoco { excludes = ['a.Gen*'] } }",
+        "a named argument": "dependencies { implementation fileTree(dir: 'libs', include: ['*.jar']) }",
+        "a named argument inside the test block": "test { classpath += fileTree(dir: 'libs', include: '*.jar') }",
+        "a string inside the test block": "test { systemProperty 'exclude', 'x' }",
+        "a copy": "copy { from 'a'; into 'b'; include '*.txt' }",
+        "a packaging task with a parameter": "tasks.withType(Jar).configureEach { t -> t.exclude('**/*.sql') }",
+        "doFirst of jar": "jar { doFirst { exclude 'x' } }",
+        "a method reference": "def m = test.&exclude",
+        "a comment": "// test { exclude '**/OrdersTest*' }",
+        "included builds in settings": "includeBuild('../lib')",
+    }
+    KOTLIN_B2 = {
+        "the test accessor": "tasks.test { exclude(\"**/OrdersTest*\") }",
+        "named with a type": "tasks.named<Test>(\"test\") { exclude(\"**/OrdersTest*\") }",
+        "every Test task": "tasks.withType<Test>().configureEach { exclude(\"**/OrdersTest*\") }",
+        "every Test task by its class": "tasks.withType(Test::class.java).configureEach { exclude(\"**/X*\") }",
+        "inside tasks": "tasks { test { exclude(\"**/OrdersTest*\") } }",
+        "on a provided task": "tasks.test.get().exclude(\"**/OrdersTest*\")",
+        "safe call": "tasks.findByName(\"test\")?.exclude(\"**/OrdersTest*\")",
+        "the excludes property": "tasks.test { excludes += \"**/OrdersTest*\" }",
+    }
+    KOTLIN_FREE = {
+        "the jar accessor": "tasks.jar { exclude(\"META-INF/*.SF\") }",
+        "a dependency of every configuration": "configurations.all { exclude(group = \"commons-logging\") }",
+        "a test dependency": "dependencies { testImplementation(\"junit:junit:4.13.2\") { exclude(group = \"org.hamcrest\") } }",
+    }
+
+    def test_every_filter_of_a_test_task_is_b2(self):
+        for name, script in self.B2.items():
+            with self.subTest(name):
+                self.file("build.gradle", APPLY + script + "\n")
+                self.assertEqual(self.rules(), ["B2"])
+
+    def test_the_patterns_of_anything_else_are_free(self):
+        for name, script in self.FREE.items():
+            with self.subTest(name):
+                self.file("build.gradle", APPLY + script + "\n")
+                self.assertEqual(self.rules(), [])
+
+    def test_kotlin_dsl(self):
+        os.remove(os.path.join(self.root, "build.gradle"))
+        for expected, cases in ((["B2"], self.KOTLIN_B2), ([], self.KOTLIN_FREE)):
+            for name, script in cases.items():
+                with self.subTest(name):
+                    self.file("build.gradle.kts", 'apply(from = "gauntlet/gauntlet.gradle")\n' + script + "\n")
+                    self.assertEqual(self.rules(), expected)
+
+
 class Encoding(IntegrityCase):
     LATIN = "package a;\n/** réduit */\n// CHECKSTYLE:OFF\nclass Tarifé { }\n"
 

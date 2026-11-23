@@ -592,6 +592,26 @@
 
       Независимое ревью сведённого диффа нашло в самих исправлениях 12 дефектов. Главный: компиляция теста набора
       JDK гейта ломала обычные сборки, и её заменил код Java 8. Все 12 исправлены. Самопроверка хуков: 2431 → 2536.
+    - **Ревью головы `2b5ccf7` (Codex, Kimi, Grok, Qwen; 13 находок).** Kimi новых замечаний не нашёл. Решение по
+      каждой находке принято по правилу остановки: исправляется ложный зелёный в документированной конфигурации и
+      ложный красный на обычном проекте без обходного пути. Остальное записано в ограничения с причиной
+      (`docs/decisions.md`). Исправлены три старых дефекта, все из 4.2; у каждого регрессия падает на `2b5ccf7`.
+      - guard, цель перенаправления (Grok, шире заявленного). Цель судилась по тексту, кавычки снимались только по
+        краям, и мимо хука в набор писали `> 'gauntlet'/config/…`, `> gaunt\let/…`,
+        `> "$CLAUDE_PROJECT_DIR"/gauntlet/…` и глоб `> gauntle?/…`. Операторы `>&файл` и `>|` хук не видел вовсе.
+        Теперь цель — слово, которое из неё делает bash. Сверка с настоящим bash: 24 формы, прежнее чтение
+        пропускало 22. Заодно закрыт старый пробел: `&` после экранированного `\>` хук считал частью `>&`, и
+        `echo x \>& rm -rf gauntlet` проходил.
+      - guard, `readpipe` (Qwen) — функция perl для `qx`; проходила у main и у ревьюера.
+      - `IntegrityCheck` B2 (Qwen, шире заявленного). `test { exclude '**/OrdersTest*' }` не был находкой, как и
+        шаблоны `filter`, `includeTest`, `includeEngines`, сеттеры тегов, категории JUnit 4 и группы TestNG.
+        `exclude` и `include` — находка там, где они настраивают задачу `Test`, которую гоняет гейт. У `jar`,
+        копирования, source set и зависимостей те же слова находкой не считаются.
+
+      Записаны в ограничения: Codex C1 (transformer в версионной копии multi-release JAR), C3 и побочная находка
+      к нему (glue вне `src/acceptanceTest/java`), C4 (кодировку называет `options.encoding`), awk и функции
+      модулей perl, перебор perl. Не исправлены как не влияющие на вердикт в документированной конфигурации:
+      C2, C5, C6, C7, предложение Grok. Самопроверка хуков: 2536 → 2623.
     - **Роли и процесс.** `specifier`: сценарий обязан исполняться сам по себе; `hardener` и `gauntlet/CLAUDE.md`:
       красный контроль — это зависимость сценария от соседнего или от стенда, а не слабое step-определение.
     - **Регрессионный набор в репозитории.** Третий раунд ревью советовал «сохранить небольшой Gradle-проект в
@@ -624,7 +644,9 @@ guard — растяжка, а не сейф (это заявлено в наб�
 - конфигурацию git через переменные окружения (`GIT_CONFIG_KEY_n`, `GIT_CONFIG_PARAMETERS`, `GIT_CONFIG_GLOBAL`)
   и алиасы, уже лежащие в глобальном конфиге пользователя;
 - `push.default=upstream` с push без refspec на ветке, чей upstream — базовая;
-- настройки репозитория через `gh api -X PATCH repos/…`.
+- настройки репозитория через `gh api -X PATCH repos/…`;
+- функции модулей perl (`perl -MFile::Copy -e 'copy(…)'`) и программу awk (`system()`, `print >`): хук знает
+  встроенные слова записи perl, но не разбирает модули perl и программу awk.
 
 `permissions.deny` тоже префиксный и обходится обёрткой (`bash -c 'git push --force'` не начинается с
 `git push`). Настоящая опора для базовой ветки — GitHub branch protection, CI (`fetch-depth: 0`,
@@ -645,13 +667,13 @@ Gherkin-мутаций в таблице и абзац о приёмочном �
   `INSTALL.md`, `config/gauntlet.properties` (обнаруженные версии проекта и отдельная JVM гейта);
 - `gauntlet/tools/IntegrityCheck.java`, `CrapGate.java`, `GherkinMutator.java`, `PitSummary.java`, `DryGate.java`;
 - `gauntlet/archtest/gauntlet/architecture/ArchitectureTest.java` (код Java 8);
-- `gauntlet/hooks/guard.py`, `stop_gate.py`, `selftest.py` (2536 проверок в трёх раскладках);
+- `gauntlet/hooks/guard.py`, `stop_gate.py`, `selftest.py` (2623 проверки в трёх раскладках);
 - `gauntlet/install.sh` (обновление gauntlet-хуков при слиянии, бюджет таймаута по модулям);
 - `gauntlet/gauntlet.gradle` (входы `acceptanceTest`, `mutationGate` source → compiled types);
 - `gauntlet/config/crap-allowlist.txt` (пример записи с сигнатурой перегрузки);
 - `.claude/settings.json` (deny; таймаут SubagentStop 3600 → 7200 с);
 - `gauntlet/templates/acceptanceTest/resources/features/example_discount.feature`;
-- `gauntlet/README.md` (таблица лазеек, раздел 8, остаток, пункт `install.sh`);
+- `gauntlet/README.md` (таблица лазеек, разделы 8 и 9, остаток, пункт `install.sh`);
 - манифест: пересчитаны байтовые размеры 20 изменённых файлов (см. ниже).
 
 **`tests/`** (новый каталог, в бандл не входит): регрессионный набор дистрибутива, `python3 tests/run.py`.
@@ -669,21 +691,21 @@ Gherkin-мутаций в таблице и абзац о приёмочном �
 | `.claude/settings.json` | 1720 | 2543 |
 | `.github/workflows/gauntlet.yml` | 1978 | 7658 |
 | `gauntlet/CLAUDE.md` | 63625 | 65401 |
-| `gauntlet/INSTALL.md` | 11426 | 14949 |
-| `gauntlet/README.md` | 29851 | 76860 |
+| `gauntlet/INSTALL.md` | 11426 | 16010 |
+| `gauntlet/README.md` | 29851 | 81189 |
 | `gauntlet/archtest/gauntlet/architecture/ArchitectureTest.java` | 7906 | 7999 |
 | `gauntlet/config/crap-allowlist.txt` | 448 | 924 |
 | `gauntlet/config/gauntlet.properties` | 5921 | 6709 |
 | `gauntlet/gauntlet.gradle` | 32451 | 66644 |
-| `gauntlet/hooks/guard.py` | 26740 | 106588 |
-| `gauntlet/hooks/selftest.py` | 41192 | 131280 |
+| `gauntlet/hooks/guard.py` | 26740 | 109308 |
+| `gauntlet/hooks/selftest.py` | 41192 | 134800 |
 | `gauntlet/hooks/stop_gate.py` | 16669 | 21392 |
 | `gauntlet/install.sh` | 4933 | 12194 |
 | `gauntlet/templates/acceptanceTest/resources/features/example_discount.feature` | 928 | 1258 |
 | `gauntlet/tools/CrapGate.java` | 12638 | 32267 |
 | `gauntlet/tools/DryGate.java` | 6538 | 7694 |
 | `gauntlet/tools/GherkinMutator.java` | 35990 | 76502 |
-| `gauntlet/tools/IntegrityCheck.java` | 15688 | 49923 |
+| `gauntlet/tools/IntegrityCheck.java` | 15688 | 56941 |
 | `gauntlet/tools/PitSummary.java` | 11401 | 11633 |
 
 Остальные 8 файлов не правились; их размеры не изменились. Во втором раунде Codex (F1–F14) изменены 9 файлов:
@@ -696,7 +718,7 @@ Gherkin-мутаций в таблице и абзац о приёмочном �
 
 ### Проверено
 
-- `python3 gauntlet/hooks/selftest.py` — 2536 проверок, 0 падений, три раскладки (корень; `core/`;
+- `python3 gauntlet/hooks/selftest.py` — 2623 проверки, 0 падений, три раскладки (корень; `core/`;
   `core/` + `adapter/`); в том числе из распакованной копии пересобранного бандла.
 - `python3 tests/run.py --gradle` — регрессионный набор дистрибутива по бандлу, распакованному скриптом из его
   шапки: манифест и побайтная пересборка сборщиком из раздела 8.4, единство ревизии и таблицы размеров, хуки,
@@ -713,7 +735,7 @@ Gherkin-мутаций в таблице и абзац о приёмочном �
   прежней JVM гейта и прежней политики архитектуры; настройки компилятора проекта; гейт ниже 17; каталог фич с
   `./` и `/`; на парах JDK 21/25, 17/21 и 8/21. Отдельно Cucumber 8.0.1 с JUnit 6.1.2 — 9/9 kill, 3 контроля. Тот же набор
   регрессионный набор репозитория прошёл в GitHub Actions (`.github/workflows/kit-tests.yml`, ubuntu-24.04,
-  243 теста); workflow самого набора (`gauntlet.yml`) там не исполняется: его шаги проверены локально как shell.
+  248 тестов); workflow самого набора (`gauntlet.yml`) там не исполняется: его шаги проверены локально как shell.
 - Компиляция всех single-file инструментов (`javac`): `CrapGate`, `DryGate`, `GherkinMutator`,
   `IntegrityCheck`, `PitSummary` — без ошибок.
 - Целевые регрессии: allowlist `CrapGate` (ключ `Class#method` цел), опенер `IntegrityCheck` (10 случаев),

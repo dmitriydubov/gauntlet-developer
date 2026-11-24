@@ -1,0 +1,114 @@
+{
+  "type": "object",
+  "required": [
+    "card",
+    "revision",
+    "model",
+    "summary",
+    "coverage",
+    "checked",
+    "not_checked",
+    "questions"
+  ],
+  "properties": {
+    "card": {
+      "type": "string",
+      "description": "Номер и название карточки, например «4.1 карта кода, срез A»."
+    },
+    "revision": {
+      "type": "string",
+      "description": "Вывод git rev-parse HEAD или «рабочее дерево»."
+    },
+    "model": {
+      "type": "string",
+      "description": "Модель и уровень рассуждений, как ты их знаешь; не знаешь — «не знаю»."
+    },
+    "summary": {
+      "type": "string",
+      "description": "Итог: одна-две строки, ответ на вопрос карточки."
+    },
+    "coverage": {
+      "type": "object",
+      "required": [
+        "covered",
+        "total",
+        "denominator"
+      ],
+      "properties": {
+        "covered": {
+          "type": "integer"
+        },
+        "total": {
+          "type": "integer"
+        },
+        "denominator": {
+          "type": "string",
+          "description": "Что входит в M: перечень пунктов чек-листа или запрос, которым получен список."
+        }
+      }
+    },
+    "checked": {
+      "type": "array",
+      "description": "Проверено: каждое утверждение с доказательством.",
+      "items": {
+        "type": "object",
+        "required": [
+          "claim",
+          "kind",
+          "evidence"
+        ],
+        "properties": {
+          "claim": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "command",
+              "file_line",
+              "source"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "description": "command: команда, выполненная в этом прогоне, и её вывод по сути; file_line: путь:строка и цитата; source: URL или артефакт нужной версии и цитата."
+          }
+        }
+      }
+    },
+    "not_checked": {
+      "type": "array",
+      "description": "Не проверено: что, почему, чем грозит. Пусто только при полном покрытии.",
+      "items": {
+        "type": "object",
+        "required": [
+          "what",
+          "why",
+          "risk"
+        ],
+        "properties": {
+          "what": {
+            "type": "string"
+          },
+          "why": {
+            "type": "string"
+          },
+          "risk": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "questions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Вопросы и риски для координатора."
+    },
+    "table": {
+      "type": "string",
+      "description": "Таблица, которую требует карточка (Markdown), если требует."
+    }
+  }
+}

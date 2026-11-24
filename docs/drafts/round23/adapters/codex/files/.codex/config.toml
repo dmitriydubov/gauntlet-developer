@@ -1,0 +1,42 @@
+# .codex/config.toml — Codex в репозитории под набором gauntlet. Файл человека, как .claude/settings.json.
+# Слой проекта читается, только если проект доверен (projects."<путь>".trust_level = "trusted" в
+# ~/.codex/config.toml или codex exec --trust); тогда его ключи главнее ~/.codex/config.toml.
+# Ключи верхнего уровня стоят до первой таблицы [..]: в TOML всё, что ниже заголовка, принадлежит ему.
+
+# Одобрения: человек, а не автоматический ревьюер — просьбу записать в файлы набора человек отклоняет сам.
+approval_policy = "on-request"
+approvals_reviewer = "user"
+
+# Права — профиль gauntlet (Beta). Не задавайте sandbox_mode ни здесь, ни в ~/.codex/config.toml и не
+# запускайте codex с --sandbox: тогда Codex берёт старую схему песочницы, и этот профиль молча не действует.
+default_permissions = "gauntlet"
+
+[features]
+hooks = true            # хуки набора (guard, Stop, SubagentStop); включены и по умолчанию — здесь явно
+# [features].multi_agent здесь не ставить: в 0.172.0 ключ устарел и при старте даёт предупреждение.
+
+[agents]
+enabled = true                           # инструменты субагентов (spawn_agent, wait_agent …); true и по умолчанию
+max_concurrent_threads_per_session = 6   # карточки пред-проверки идут параллельно; больше — спор за Gradle и память
+
+[permissions.gauntlet]
+description = "Рабочее дерево пишется; набор gauntlet, роли, инструкции агентов и workflow — только чтение"
+extends = ":workspace"  # .git, .codex, .agents, .aws внутри корня уже только для чтения
+
+[permissions.gauntlet.filesystem]
+"~/.gradle" = "write"   # кэш зависимостей и wrapper Gradle
+
+[permissions.gauntlet.filesystem.":workspace_roots"]
+"gauntlet" = "read"
+".claude" = "read"
+"CLAUDE.md" = "read"
+"AGENTS.md" = "read"
+"AGENTS.override.md" = "read"   # Codex читает его вместо AGENTS.md того же каталога; действует ли правило на ещё не созданный файл — D.4
+".github/workflows/gauntlet.yml" = "read"
+".github/workflows/gauntlet-kit.yml" = "read"
+
+[permissions.gauntlet.network]
+enabled = true          # Maven Central, портал плагинов Gradle, официальная документация (правило 12)
+
+[permissions.gauntlet.network.unix_sockets]
+"/var/run/docker.sock" = "allow"   # Testcontainers; проверить при установке (раздел A.4, шаг 6)

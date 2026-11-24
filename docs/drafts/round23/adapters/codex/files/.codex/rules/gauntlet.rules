@@ -1,0 +1,87 @@
+# .codex/rules/gauntlet.rules — действия, которые в наборе делает только человек (gauntlet/CLAUDE.md, правило 10;
+# permissions.deny в .claude/settings.json), и git-команды процесса, которым нужна запись в .git.
+# Правила префиксные: обёртка (bash -c с перенаправлением, переменная) их обходит. Те же команды семантически
+# отклоняет guard набора (хук PreToolUse), а итог судят защита ветки GitHub и CI.
+
+# --- только человек -----------------------------------------------------------------------------------------
+prefix_rule(
+    pattern = ["gh", "pr", "merge"],
+    decision = "forbidden",
+    justification = "Merge - утверждение результата человеком. Агент не мержит и не просит мержить.",
+    match = ["gh pr merge 12 --squash"],
+)
+prefix_rule(
+    pattern = ["gh", "workflow", "disable"],
+    decision = "forbidden",
+    justification = "CI-гейт выключает только человек.",
+)
+prefix_rule(
+    pattern = ["git", ["rebase", "filter-branch", "filter-repo", "update-ref", "replace", "revert"]],
+    decision = "forbidden",
+    justification = "История ветки не переписывается: ошибку исправляют новым коммитом.",
+    match = ["git rebase origin/main", "git revert HEAD"],
+    not_match = ["git merge origin/main"],
+)
+prefix_rule(
+    pattern = ["git", "commit", ["--amend", "--am", "--ame", "--amen", "--no-verify", "-n"]],
+    decision = "forbidden",
+    justification = "Только новые коммиты и без пропуска git-хуков.",
+    match = ["git commit --amend -m x"],
+)
+prefix_rule(
+    pattern = ["git", "pull", ["--rebase", "-r"]],
+    decision = "forbidden",
+    justification = "Ветку подтягивают слиянием (git pull без rebase), историю не переписывают.",
+)
+prefix_rule(
+    pattern = ["git", "reset", "--hard"],
+    decision = "forbidden",
+    justification = "Ветку не переставляют на другую ревизию.",
+)
+prefix_rule(
+    pattern = ["git", "push", ["--force", "-f", "--force-with-lease", "--mirror", "--all", "--delete", "-d", "--no-verify"]],
+    decision = "forbidden",
+    justification = "Force push, push всех веток, удаление веток и пропуск хуков - только человек.",
+    match = ["git push --force origin task", "git push -f"],
+    not_match = ["git push -u origin HEAD"],
+)
+prefix_rule(
+    pattern = ["git", "checkout", "-B"],
+    decision = "forbidden",
+    justification = "Ветку не пересоздают поверх существующей.",
+)
+prefix_rule(
+    pattern = ["git", "switch", "-C"],
+    decision = "forbidden",
+    justification = "Ветку не пересоздают поверх существующей.",
+)
+prefix_rule(
+    pattern = ["git", "branch", ["-f", "-D", "-M", "--force", "--delete", "--move"]],
+    decision = "forbidden",
+    justification = "Ветки не переставляют, не удаляют и не переименовывают.",
+)
+
+# --- шаги процесса, которым нужна запись в .git (в песочнице .git только для чтения) ---------------------------
+prefix_rule(
+    pattern = ["git", ["add", "commit", "push", "fetch", "merge", "pull"]],
+    decision = "allow",
+    justification = "Коммит, push своей ветки, слияние основной ветки перед PR и git pull после spec-коммита владельца - шаги процесса; запрещённые формы отклоняют правила выше и guard.",
+    match = ["git commit -m x", "git push -u origin HEAD", "git fetch origin main", "git merge origin/main"],
+)
+prefix_rule(
+    pattern = ["git", "switch", "-c"],
+    decision = "allow",
+    justification = "Ветка задачи от основной ветки.",
+)
+prefix_rule(
+    pattern = ["gh", "pr", ["create", "view", "checks", "comment"]],
+    decision = "allow",
+    justification = "PR с отчётом, статус CI и ответы внешнему ревьюеру.",
+)
+
+# --- вложенный Codex обходит хуки этой сессии: только с согласия человека ---------------------------------------
+prefix_rule(
+    pattern = ["codex"],
+    decision = "prompt",
+    justification = "Запуск другой сессии Codex (в том числе с выключенными хуками) - решение владельца.",
+)

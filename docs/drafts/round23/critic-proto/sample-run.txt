@@ -1,0 +1,9 @@
+OK        gauntlet-method-universal.md:262                                       gauntlet-method-universal.md:262
+OK        gauntlet-method-universal.md:297                                       gauntlet-method-universal.md:297
+MISMATCH  gauntlet-method-universal.md:262                                       цитаты нет в gauntlet-method-universal.md на ревизии 7c4e34f5593e
+MISMATCH  gauntlet-method-universal.md:120                                       цитата есть, но на строке 262, а не 120
+OK        grep -c Пред-проверка gauntlet-method-universal.md                     код 0
+MISMATCH  git grep -c agent_type -- gauntlet-kit-bundle.md                       в выводе нет «gauntlet-kit-bundle.md:2»; фактически: «gauntlet-kit-bundle.md:6»
+SKIPPED   ./gradlew gauntletFast                                                 ./gradlew вне списка программ только для чтения
+SKIPPED   grep -c x gauntlet-method-universal.md > /tmp/x                        синтаксис оболочки «>» не перезапускается
+итого: 8 доказательств, расхождений 3, пропущено 2; ревизия 7c4e34f5593e

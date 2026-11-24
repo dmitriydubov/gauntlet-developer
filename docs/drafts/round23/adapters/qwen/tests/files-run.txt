@@ -1,0 +1,64 @@
+ok   hardener: frontmatter block
+ok   hardener: name = file name
+ok   hardener: tools are runtime ids
+ok   hardener: background is boolean
+ok   hardener: prompt < 10000, description < 1000
+ok   hardener: no ${name} placeholder
+ok   precheck-critic: frontmatter block
+ok   precheck-critic: name = file name
+ok   precheck-critic: tools are runtime ids
+ok   precheck-critic: background is boolean
+ok   precheck-critic: prompt < 10000, description < 1000
+ok   precheck-critic: no ${name} placeholder
+ok   precheck-framework: frontmatter block
+ok   precheck-framework: name = file name
+ok   precheck-framework: tools are runtime ids
+ok   precheck-framework: background is boolean
+ok   precheck-framework: prompt < 10000, description < 1000
+ok   precheck-framework: no ${name} placeholder
+ok   precheck-mapper: frontmatter block
+ok   precheck-mapper: name = file name
+ok   precheck-mapper: tools are runtime ids
+ok   precheck-mapper: background is boolean
+ok   precheck-mapper: prompt < 10000, description < 1000
+ok   precheck-mapper: no ${name} placeholder
+ok   precheck-refuter: frontmatter block
+ok   precheck-refuter: name = file name
+ok   precheck-refuter: tools are runtime ids
+ok   precheck-refuter: background is boolean
+ok   precheck-refuter: prompt < 10000, description < 1000
+ok   precheck-refuter: no ${name} placeholder
+ok   review-repro: frontmatter block
+ok   review-repro: name = file name
+ok   review-repro: tools are runtime ids
+ok   review-repro: background is boolean
+ok   review-repro: prompt < 10000, description < 1000
+ok   review-repro: no ${name} placeholder
+ok   reviewer: frontmatter block
+ok   reviewer: name = file name
+ok   reviewer: tools are runtime ids
+ok   reviewer: background is boolean
+ok   reviewer: prompt < 10000, description < 1000
+ok   reviewer: no ${name} placeholder
+ok   specifier: frontmatter block
+ok   specifier: name = file name
+ok   specifier: tools are runtime ids
+ok   specifier: background is boolean
+ok   specifier: prompt < 10000, description < 1000
+ok   specifier: no ${name} placeholder
+ok   QWEN.md: exactly one import, @gauntlet/CLAUDE.md
+ok   gauntlet/CLAUDE.md: no bare @token outside code
+ok   settings.json: hook events are Qwen Code events
+ok   settings.json: SessionStart timeout 180 = 180 s
+ok   settings.json: SessionStart hook has no name (cannot be disabled one by one)
+ok   settings.json: SubagentStart timeout 30 = 30 s
+ok   settings.json: SubagentStart hook has no name (cannot be disabled one by one)
+ok   settings.json: PreToolUse matcher compiles
+ok   settings.json: PreToolUse timeout 60 = 60 s
+ok   settings.json: PreToolUse hook has no name (cannot be disabled one by one)
+ok   settings.json: Stop timeout 1800000 = 1800.0 s
+ok   settings.json: Stop hook has no name (cannot be disabled one by one)
+ok   settings.json: SubagentStop matcher compiles
+ok   settings.json: SubagentStop timeout 7200000 = 7200.0 s
+ok   settings.json: SubagentStop hook has no name (cannot be disabled one by one)
+0 failure(s)

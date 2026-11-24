@@ -1,0 +1,211 @@
+# ~/.kimi-code/config.toml — дописать к своему файлу (ключи верхнего уровня — до первой таблицы [..]).
+# Kimi Code читает хуки, правила разрешений и каталоги агентов только из этого пользовательского файла:
+# файла хуков в проекте нет. Мост ~/.kimi-code/hooks/kimi_hooks.py — копия gauntlet/adapters/kimi/kimi_hooks.py;
+# он действует только в рабочих копиях из ~/.kimi-code/gauntlet-projects.txt, в остальных проектах молчит.
+# Пути в правилах ниже — от каталога, где запущен kimi: запускайте его в корне репозитория.
+
+# Роли набора (.claude/agents) и агенты адаптера: Kimi читает их как свои агенты, без копирования.
+extra_agent_dirs = [".claude/agents", "gauntlet/adapters/kimi/agents"]
+
+# Новые сессии — Ask When Needed: обычные правки и команды без подтверждения, опасные команды и чувствительные
+# файлы — с подтверждением; правила deny ниже и хуки действуют в любом режиме, в том числе в kimi -p.
+default_permission_mode = "yolo"
+
+[task]
+bash_task_timeout_s = 0          # фоновые прогоны Gradle (gauntlet, mutationGate) не обрываются через 600 с
+
+[subagent]
+timeout_ms = 10800000            # 3 ч на сабагента: hardener с mutationGate дольше 2 ч по умолчанию бывает
+
+# ---------------------------------------------------------------------------------------------------------- хуки
+# Команда сначала проверяет, что мост на месте: при его отсутствии python3 вышел бы с кодом 2, а код 2 для Kimi —
+# «заблокировать». Таймаут — не больше 600 с (предел Kimi).
+[[hooks]]
+event = "SessionStart"
+command = 'f="${KIMI_CODE_HOME:-$HOME/.kimi-code}/hooks/kimi_hooks.py"; [ -f "$f" ] || exit 0; exec python3 -I -B "$f" session-start'
+timeout = 180
+
+[[hooks]]
+event = "UserPromptSubmit"
+command = 'f="${KIMI_CODE_HOME:-$HOME/.kimi-code}/hooks/kimi_hooks.py"; [ -f "$f" ] || exit 0; exec python3 -I -B "$f" prompt'
+timeout = 15
+
+[[hooks]]
+event = "TurnStarted"
+command = 'f="${KIMI_CODE_HOME:-$HOME/.kimi-code}/hooks/kimi_hooks.py"; [ -f "$f" ] || exit 0; exec python3 -I -B "$f" turn'
+timeout = 15
+
+[[hooks]]
+event = "PreToolUse"
+matcher = "^(Write|Edit|Bash)$"
+command = 'f="${KIMI_CODE_HOME:-$HOME/.kimi-code}/hooks/kimi_hooks.py"; [ -f "$f" ] || exit 0; exec python3 -I -B "$f" guard'
+timeout = 30
+
+[[hooks]]
+event = "Stop"
+command = 'f="${KIMI_CODE_HOME:-$HOME/.kimi-code}/hooks/kimi_hooks.py"; [ -f "$f" ] || exit 0; exec python3 -I -B "$f" stop --task gauntletFast --max-attempts 1'
+timeout = 600
+
+# ------------------------------------------------------------------------------------------- правила разрешений
+# deny главнее ask и allow и действует для главного агента и сабагентов, в TUI и в kimi -p. Write/Edit сверяются
+# с путём (glob, без учёта регистра); это второй слой под guard.py, который через мост видит и shell-команды.
+[[permission.rules]]
+decision = "deny"
+pattern = "Write(gauntlet/**)"
+reason = "gauntlet: набор принадлежит человеку"
+[[permission.rules]]
+decision = "deny"
+pattern = "Edit(gauntlet/**)"
+reason = "gauntlet: набор принадлежит человеку"
+[[permission.rules]]
+decision = "deny"
+pattern = "Write(.claude/**)"
+reason = "gauntlet: роли и настройки Claude Code принадлежат человеку"
+[[permission.rules]]
+decision = "deny"
+pattern = "Edit(.claude/**)"
+reason = "gauntlet: роли и настройки Claude Code принадлежат человеку"
+[[permission.rules]]
+decision = "deny"
+pattern = "Write(.kimi-code/**)"
+reason = "gauntlet: инструкции и настройки Kimi проекта принадлежат человеку"
+[[permission.rules]]
+decision = "deny"
+pattern = "Edit(.kimi-code/**)"
+reason = "gauntlet: инструкции и настройки Kimi проекта принадлежат человеку"
+[[permission.rules]]
+decision = "deny"
+pattern = "Write(.agents/**)"
+reason = "gauntlet: агенты и навыки проекта принадлежат человеку"
+[[permission.rules]]
+decision = "deny"
+pattern = "Edit(.agents/**)"
+reason = "gauntlet: агенты и навыки проекта принадлежат человеку"
+[[permission.rules]]
+decision = "deny"
+pattern = "Write(CLAUDE.md)"
+reason = "gauntlet: инструкция агентов принадлежит человеку"
+[[permission.rules]]
+decision = "deny"
+pattern = "Edit(CLAUDE.md)"
+reason = "gauntlet: инструкция агентов принадлежит человеку"
+[[permission.rules]]
+decision = "deny"
+pattern = "Write(AGENTS.md)"
+reason = "gauntlet: инструкция агентов принадлежит человеку"
+[[permission.rules]]
+decision = "deny"
+pattern = "Edit(AGENTS.md)"
+reason = "gauntlet: инструкция агентов принадлежит человеку"
+[[permission.rules]]
+decision = "deny"
+pattern = "Write(.mcp.json)"
+reason = "gauntlet: MCP-серверы проекта (Kimi их запускает при старте сессии) назначает человек"
+[[permission.rules]]
+decision = "deny"
+pattern = "Edit(.mcp.json)"
+reason = "gauntlet: MCP-серверы проекта (Kimi их запускает при старте сессии) назначает человек"
+# Kimi читает AGENTS.md/agents.md и .kimi-code/AGENTS.md в каждом каталоге от корня до рабочего, а системный промпт
+# велит смотреть AGENTS.md подкаталогов: вложенные копии — тоже инструкции (сравнение путей без учёта регистра).
+[[permission.rules]]
+decision = "deny"
+pattern = "Write(**/AGENTS.md)"
+reason = "gauntlet: инструкции агентов принадлежат человеку"
+[[permission.rules]]
+decision = "deny"
+pattern = "Edit(**/AGENTS.md)"
+reason = "gauntlet: инструкции агентов принадлежат человеку"
+[[permission.rules]]
+decision = "deny"
+pattern = "Write(**/.kimi-code/**)"
+reason = "gauntlet: инструкции и настройки Kimi проекта принадлежат человеку"
+[[permission.rules]]
+decision = "deny"
+pattern = "Edit(**/.kimi-code/**)"
+reason = "gauntlet: инструкции и настройки Kimi проекта принадлежат человеку"
+[[permission.rules]]
+decision = "deny"
+pattern = "Write(.github/workflows/gauntlet*.yml)"
+reason = "gauntlet: CI набора принадлежит человеку"
+[[permission.rules]]
+decision = "deny"
+pattern = "Edit(.github/workflows/gauntlet*.yml)"
+reason = "gauntlet: CI набора принадлежит человеку"
+[[permission.rules]]
+decision = "deny"
+pattern = "Write(.git/**)"
+reason = "gauntlet: история и настройки git — через git, не правкой файлов"
+[[permission.rules]]
+decision = "deny"
+pattern = "Edit(.git/**)"
+reason = "gauntlet: история и настройки git — через git, не правкой файлов"
+[[permission.rules]]
+decision = "deny"
+pattern = "Write(~/.kimi-code/*.*)"
+reason = "gauntlet: настройки Kimi владельца (хуки, правила, SYSTEM.md) не трогать"
+[[permission.rules]]
+decision = "deny"
+pattern = "Edit(~/.kimi-code/*.*)"
+reason = "gauntlet: настройки Kimi владельца (хуки, правила, SYSTEM.md) не трогать"
+[[permission.rules]]
+decision = "deny"
+pattern = "Write(~/.kimi-code/hooks/**)"
+reason = "gauntlet: мост хуков не трогать"
+[[permission.rules]]
+decision = "deny"
+pattern = "Edit(~/.kimi-code/hooks/**)"
+reason = "gauntlet: мост хуков не трогать"
+[[permission.rules]]
+decision = "deny"
+pattern = "Write(~/.kimi-code/agents/**)"
+reason = "gauntlet: агенты владельца не трогать"
+[[permission.rules]]
+decision = "deny"
+pattern = "Edit(~/.kimi-code/agents/**)"
+reason = "gauntlet: агенты владельца не трогать"
+[[permission.rules]]
+decision = "deny"
+pattern = "Write(~/.kimi-code/skills/**)"
+reason = "gauntlet: навыки владельца не трогать"
+[[permission.rules]]
+decision = "deny"
+pattern = "Edit(~/.kimi-code/skills/**)"
+reason = "gauntlet: навыки владельца не трогать"
+[[permission.rules]]
+decision = "deny"
+pattern = "Write(~/.kimi-code/plugins/**)"
+reason = "gauntlet: плагины владельца (в них бывают хуки) не трогать"
+[[permission.rules]]
+decision = "deny"
+pattern = "Edit(~/.kimi-code/plugins/**)"
+reason = "gauntlet: плагины владельца (в них бывают хуки) не трогать"
+[[permission.rules]]
+decision = "deny"
+pattern = "Write(~/.agents/**)"
+reason = "gauntlet: общие инструкции и агенты владельца не трогать"
+[[permission.rules]]
+decision = "deny"
+pattern = "Edit(~/.agents/**)"
+reason = "gauntlet: общие инструкции и агенты владельца не трогать"
+[[permission.rules]]
+decision = "deny"
+pattern = "Write(**/CODEOWNERS)"
+reason = "gauntlet: владельцев кода назначает человек"
+[[permission.rules]]
+decision = "deny"
+pattern = "Edit(**/CODEOWNERS)"
+reason = "gauntlet: владельцев кода назначает человек"
+# Bash: шаблон сверяется со всей строкой команды, и «*» не проходит через «/» (glob picomatch), поэтому эти правила
+# ловят только простые формы. Смысловую проверку shell-команд делает guard.py через мост.
+[[permission.rules]]
+decision = "deny"
+pattern = "Bash(gh pr merge*)"
+reason = "gauntlet: merge — решение человека"
+[[permission.rules]]
+decision = "deny"
+pattern = "Bash(git rebase*)"
+reason = "gauntlet: только новые коммиты"
+[[permission.rules]]
+decision = "deny"
+pattern = "Bash(git commit --amend*)"
+reason = "gauntlet: только новые коммиты"

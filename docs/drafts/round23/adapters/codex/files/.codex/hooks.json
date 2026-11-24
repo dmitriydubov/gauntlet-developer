@@ -1,0 +1,92 @@
+{
+  "description": "gauntlet: те же скрипты набора, что в .claude/settings.json, плюс прослойка gauntlet/adapters/codex/codex_hooks.py",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact|fork",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\" && CLAUDE_PROJECT_DIR=\"$PWD\" bash gauntlet/hooks/session_start.sh | sed '1s/^/gauntlet status: /'",
+            "timeout": 180,
+            "statusMessage": "Gauntlet: статус набора"
+          }
+        ]
+      },
+      {
+        "matcher": "startup|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\" && CLAUDE_PROJECT_DIR=\"$PWD\" python3 gauntlet/adapters/codex/codex_hooks.py context",
+            "timeout": 30,
+            "additionalContextLimit": 0,
+            "statusMessage": "Gauntlet: gauntlet/CLAUDE.md в контекст"
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "matcher": "^(specifier|hardener|reviewer|precheck_[a-z_]+|review_repro)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\" && CLAUDE_PROJECT_DIR=\"$PWD\" python3 gauntlet/adapters/codex/codex_hooks.py context",
+            "timeout": 30,
+            "additionalContextLimit": 0,
+            "statusMessage": "Gauntlet: роль и правила набора субагенту"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "^(Bash|apply_patch)$|spawn_agent$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\" && CLAUDE_PROJECT_DIR=\"$PWD\" python3 gauntlet/adapters/codex/codex_hooks.py guard",
+            "timeout": 120
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\" && CLAUDE_PROJECT_DIR=\"$PWD\" python3 gauntlet/hooks/stop_gate.py --task gauntletFast --max-attempts 3 --timeout 1700",
+            "timeout": 1800,
+            "statusMessage": "Gauntlet: ./gradlew gauntletFast..."
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "^hardener$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\" && CLAUDE_PROJECT_DIR=\"$PWD\" python3 gauntlet/hooks/stop_gate.py --task mutationGate --max-attempts 2 --timeout 3300",
+            "timeout": 7200,
+            "statusMessage": "Gauntlet: ./gradlew mutationGate для hardener..."
+          }
+        ]
+      },
+      {
+        "matcher": "^(precheck_[a-z_]+|review_repro|reviewer)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\" && CLAUDE_PROJECT_DIR=\"$PWD\" python3 gauntlet/adapters/codex/codex_hooks.py report",
+            "timeout": 30,
+            "statusMessage": "Gauntlet: форма отчёта субагента"
+          }
+        ]
+      }
+    ]
+  }
+}

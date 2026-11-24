@@ -1,0 +1,76 @@
+ok   SubagentStart specifier recorded silently: (0, '')
+ok   SubagentStart hardener recorded silently: (0, '')
+ok   SubagentStart reviewer recorded silently: (0, '')
+ok   SubagentStart precheck-mapper recorded silently: (0, '')
+ok   SubagentStart hardener recorded silently: (0, '')
+ok   SubagentStart specifier-lookalike recorded silently: (0, '')
+ok   direct guard.py | write_file gauntlet/config/gauntlet.properties (main): allow
+ok   qwen_hooks.py   | write_file gauntlet/config/gauntlet.properties (main): deny
+ok   direct guard.py | edit .qwen/settings.json (main): allow
+ok   qwen_hooks.py   | edit .qwen/settings.json (main): deny
+ok   direct guard.py | write_file QWEN.md (main): allow
+ok   qwen_hooks.py   | write_file QWEN.md (main): deny
+ok   direct guard.py | write_file ~/.qwen/settings.json (main): allow
+ok   qwen_hooks.py   | write_file ~/.qwen/settings.json (main): deny
+ok   direct guard.py | run_shell_command echo >> gauntlet/config/gauntlet.properties (main): allow
+ok   qwen_hooks.py   | run_shell_command echo >> gauntlet/config/gauntlet.properties (main): deny
+ok   direct guard.py | run_shell_command rm config/gauntlet.properties, directory=gauntlet (main): allow
+ok   qwen_hooks.py   | run_shell_command rm config/gauntlet.properties, directory=gauntlet (main): deny
+ok   direct guard.py | run_shell_command git push --force (main): allow
+ok   qwen_hooks.py   | run_shell_command git push --force (main): deny
+ok   direct guard.py | run_shell_command gh pr merge (main): allow
+ok   qwen_hooks.py   | run_shell_command gh pr merge (main): deny
+ok   direct guard.py | monitor tail >> .qwen/settings.json (main): allow
+ok   qwen_hooks.py   | monitor tail >> .qwen/settings.json (main): deny
+ok   direct guard.py | run_shell_command QWEN_CODE_SAFE_MODE=1 qwen -p (main): allow
+ok   qwen_hooks.py   | run_shell_command QWEN_CODE_SAFE_MODE=1 qwen -p (main): deny
+ok   direct guard.py | run_shell_command qwen --bare -p (main): allow
+ok   qwen_hooks.py   | run_shell_command qwen --bare -p (main): deny
+ok   direct guard.py | run_shell_command git clone --bare (main, not a hook switch): allow
+ok   qwen_hooks.py   | run_shell_command git clone --bare (main, not a hook switch): allow
+ok   direct guard.py | edit src/main App.java (main): allow
+ok   qwen_hooks.py   | edit src/main App.java (main): allow
+ok   direct guard.py | run_shell_command ./gradlew gauntletFast > build/fast.log (main): allow
+ok   qwen_hooks.py   | run_shell_command ./gradlew gauntletFast > build/fast.log (main): allow
+ok   direct guard.py | write_file feature (main: only the specifier writes the spec): allow
+ok   qwen_hooks.py   | write_file feature (main: only the specifier writes the spec): deny
+ok   direct guard.py | write_file feature (specifier, recorded at SubagentStart): allow
+ok   qwen_hooks.py   | write_file feature (specifier, recorded at SubagentStart): allow
+ok   direct guard.py | write_file src/main (specifier): allow
+ok   qwen_hooks.py   | write_file src/main (specifier): deny
+ok   direct guard.py | write_file src/test (hardener): allow
+ok   qwen_hooks.py   | write_file src/test (hardener): allow
+ok   direct guard.py | edit src/main (hardener): allow
+ok   qwen_hooks.py   | edit src/main (hardener): deny
+ok   direct guard.py | run_shell_command sed -i src/main (hardener): allow
+ok   qwen_hooks.py   | run_shell_command sed -i src/main (hardener): deny
+ok   direct guard.py | edit src/test (hardener, no SubagentStart record: agent_id prefix): allow
+ok   qwen_hooks.py   | edit src/test (hardener, no SubagentStart record: agent_id prefix): allow
+ok   direct guard.py | edit src/main (hardener, no SubagentStart record: agent_id prefix): allow
+ok   qwen_hooks.py   | edit src/main (hardener, no SubagentStart record: agent_id prefix): deny
+ok   direct guard.py | write_file src/test (reviewer): allow
+ok   qwen_hooks.py   | write_file src/test (reviewer): deny
+ok   direct guard.py | run_shell_command git diff (reviewer): allow
+ok   qwen_hooks.py   | run_shell_command git diff (reviewer): allow
+ok   direct guard.py | run_shell_command git commit (reviewer): allow
+ok   qwen_hooks.py   | run_shell_command git commit (reviewer): deny
+ok   direct guard.py | run_shell_command ./gradlew gauntletFast (reviewer): allow
+ok   qwen_hooks.py   | run_shell_command ./gradlew gauntletFast (reviewer): allow
+ok   direct guard.py | write_file src/main (precheck-mapper card: read-only): allow
+ok   qwen_hooks.py   | write_file src/main (precheck-mapper card: read-only): deny
+ok   direct guard.py | run_shell_command git grep (precheck-mapper card): allow
+ok   qwen_hooks.py   | run_shell_command git grep (precheck-mapper card): allow
+ok   direct guard.py | write_file src/test (hardener known only from the SubagentStart record): allow
+ok   qwen_hooks.py   | write_file src/test (hardener known only from the SubagentStart record): allow
+ok   direct guard.py | write_file src/main (hardener known only from the SubagentStart record): allow
+ok   qwen_hooks.py   | write_file src/main (hardener known only from the SubagentStart record): deny
+ok   direct guard.py | write_file feature (agent 'specifier-lookalike': the record wins over the prefix): allow
+ok   qwen_hooks.py   | write_file feature (agent 'specifier-lookalike': the record wins over the prefix): deny
+ok   direct guard.py | edit src/main (unknown subagent, no record: read-only): allow
+ok   qwen_hooks.py   | edit src/main (unknown subagent, no record: read-only): deny
+ok   direct guard.py | read_file gauntlet/CLAUDE.md (main: not a write): allow
+ok   qwen_hooks.py   | read_file gauntlet/CLAUDE.md (main: not a write): allow
+ok   qwen_hooks.py   | write_file feature after the spec commit (specifier: frozen): deny
+ok   qwen_hooks.py   | malformed event fails open: (0, '')
+ok   qwen_hooks.py   | selftest: (0, 'ok')
+0 failure(s)

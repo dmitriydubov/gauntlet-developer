@@ -644,11 +644,14 @@ class GherkinRetry(GradleCase):
 
     def test_every_retry_round_is_judged_by_its_own_message_stream(self):
         # each round runs in a JVM of its own and would write the stream anew: the kit keeps one stream per JVM. Here
-        # _JAVA_OPTIONS runs both rounds in parallel on the quota stand - the mutant "killed" on both attempts, the
-        # controls passed on both, and the gate passed (issue #4)
-        arguments = " ".join(f"-D{key}={value}" for key, value in PARALLEL.items())
-        self.project(example=False, build_extra=RETRY % f"    environment '_JAVA_OPTIONS', '{arguments}'")
+        # an argument file runs both rounds in parallel on the quota stand - the mutant "killed" on both attempts, the
+        # controls passed on both, and the gate passed (issue #4). Gradle lists the file, not the -D inside it.
+        self.project(example=False)
+        argfile = self.file("build-args/parallel.args", "".join(f"-D{key}={value}\n" for key, value in PARALLEL.items()))
         build = os.path.join(self.lab, "build.gradle")
+        kit.write(build, kit.read(build).replace("apply from: 'gauntlet/gauntlet.gradle'\n", RETRY % (
+            f"    doFirst {{ jvmArgumentProviders.add({{ ['@{argfile}'] }} as CommandLineArgumentProvider) }}") +
+            "\napply from: 'gauntlet/gauntlet.gradle'\n"))
         kit.write(build, kit.read(build).replace("    id 'java'\n", "    id 'java'\n    id 'org.gradle.test-retry' version '1.6.2'\n"))
         self.file(GLUE + "CreditSteps.java", CREDIT_STEPS)
         self.file(GLUE + "PurchaseSteps.java", PURCHASE_STEPS)
@@ -1082,8 +1085,11 @@ class GherkinHarness(GradleCase):
             "a provider of a random order on Cucumber 8": (
                 provider({"cucumber.execution.order": "random", "cucumber.execution.order.random.seed": "7"}), "8.0.1",
                 "cucumber.execution.order=random", None),
+            # without the kit's provider acceptanceTest itself is refused first (review of 4.4: dry-run and the root
+            # engine are the kit's there too), and the mutant run never starts
             "the kit's provider removed": ("        jvmArgumentProviders.clear()\n", CUCUMBER,
-                                           "cucumber.execution.parallel.enabled=unset, cucumber.execution.order=unset",
+                                           "acceptanceTest ran with cucumber.execution.dry-run=unset, "
+                                           "cucumber.junit-platform.discovery.as-root-engine=unset: the gates judge",
                                            "ACCEPTANCE ERROR no Cucumber message stream in "),
         }
         for what, (block, version, named, census) in variants.items():
@@ -1094,7 +1100,8 @@ class GherkinHarness(GradleCase):
                 self.commit(what)
                 r = self.gradle("gherkinMutation", "-Pgauntlet.scope=all", "--continue")
                 self.assert_build(r, False)
-                self.assertIn("gauntlet: gherkinMutantsRun ran with " + named + ": its controls prove nothing", r.out)
+                self.assertIn("gauntlet: " + named if named.startswith("acceptanceTest ") else
+                              "gauntlet: gherkinMutantsRun ran with " + named + ": its controls prove nothing", r.out)
                 self.assertNotIn("Gherkin mutation: OK", r.out)
                 counted = "Acceptance census: 1 of 1 scenario(s) in 1 feature file(s) ran" in r.out
                 if what == "forks":         # whether the two JVMs wrote at the same time
@@ -1162,6 +1169,10 @@ class GherkinHarness(GradleCase):
                 r = self.gradle("gherkinMutation", "-Pgauntlet.scope=all")
                 self.assert_build(r, False)
                 self.assertNotIn("Gherkin mutation: OK", r.out)
+                if "_JAVA_OPTIONS" in what:     # refused after the run, before the verdict (review of 4.4): the same
+                    # tasks.withType(Test) block reaches acceptanceTest, which is refused first
+                    self.assertRegex(r.out, r"gauntlet: (acceptanceTest|gherkinMutantsRun) ran with _JAVA_OPTIONS -Dcucumber\.")
+                    continue
                 self.assertNotIn("gherkinMutantsRun ran with", r.out)          # the arguments Gradle lists were the kit's
                 self.assertIn("Gherkin mutation: 1 mutant(s) - ", r.out)      # the verdict ran, and judged the order
                 self.assertEqual(parallel, "purchase on ForkJoinPool-" in self.results())

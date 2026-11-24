@@ -619,7 +619,10 @@ ArchUnit-тест, шаблоны, установку и документаци�
   запускаются с `-Dfile.encoding=UTF-8`; `gauntlet.properties` не в UTF-8 не роняет Stop-хук; PR в другую ветку
   отчитывается под именем `gauntlet kit unchanged (<ветка>)`.
 - `README.md` (разделы 2, 3, 5, 7, 9), `INSTALL.md`, `gauntlet/CLAUDE.md` — описание синхронизировано.
-- Проверки: ЗАПОЛНИТЬ ПОСЛЕ ПОЛНОГО ПРОГОНА.
+- Проверки: `python3 tests/run.py --gradle` в репозитории набора — 385 тестов, из них 65 сценариев на настоящем
+  Gradle 8.14.3 (JDK 17, 21, 25; Cucumber 7.23.0 и 8.0.1; Spring Boot 4.0.7); самопроверка хуков 2656/2656; каждая
+  правка проверена в обе стороны; независимое ревью — 26 находок, все воспроизведены и исправлены или записаны в
+  README, раздел 9.
 
 ## Как распаковать (Claude выполняет это на шаге 2 протокола `start`)
 
@@ -656,7 +659,7 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md`, `
 - `CLAUDE.md` (279 байт)
 - `gauntlet/CLAUDE.md` (66971 байт)
 - `gauntlet/INSTALL.md` (22275 байт)
-- `gauntlet/README.md` (121534 байт)
+- `gauntlet/README.md` (123753 байт)
 - `gauntlet/archtest/gauntlet/architecture/ArchitectureTest.java` (7999 байт)
 - `gauntlet/config/architecture.properties` (1420 байт)
 - `gauntlet/config/checkstyle.xml` (4593 байт)
@@ -2235,6 +2238,23 @@ protection базовой ветки и то, что любая попытка �
 набора; замороженную спецификацию и области ролей охраняют guard и diff PR.
 
 ## 8. Что проверено в этой версии, а что нет
+
+Ревизия 4.4 — проверки по результату — проверена на настоящем Gradle 8.14.3 (JDK 17, 21, 25; Cucumber 7.23.0 и
+8.0.1; Spring Boot 4.0.7 с `io.spring.dependency-management`), каждая в обе стороны — сценарий падает на ревизии
+до правки и проходит с ней:
+- `gauntlet-kit.yml` — на настоящих git-репозиториях (добавление, правка, удаление, переименование, режим, тип,
+  регистр, merge base, PR без merge base, база без набора, PR в другую ветку), шаг workflow — как на раннере;
+  сам GitHub (check run, защита ветки) здесь не исполняется.
+- `testCensus` — 30 форм фильтра Groovy и 9 Kotlin (лаборатории ревью), в регрессионном наборе — шесть форм
+  B2 и `PostDiscoveryFilter`, UP-TO-DATE и FROM-CACHE, SKIPPED, `-x`, `excludedTaskNames`, выключенный XML,
+  суженный `testClassesDirs` и `output.classesDirs`, исходник вне компиляции, общий каталог XML, раннеры TestNG
+  и JUnit 4, Kotlin в сборке модуля.
+- Поток сообщений Cucumber — порядок прогона мутантов против шести путей мимо аргументов JVM, перепись
+  сценариев в шести формах фильтра, dry run (скрипт, `junit-platform.properties`, `_JAVA_OPTIONS`), запятая в
+  конце списка плагинов, `as-root-engine=false`, повторные попытки test-retry.
+- Stop-хук и CI — сборка, которая оставляет гейты вне графа, выключает `integrityCheck` после `apply` или
+  своим `onlyIf`, выключает `crapGate` формой, которой B1 не читает, игнорирует коды выхода; зелёный
+  `gauntletFast` и вывод полного `gauntlet` с пропусками набора — без ложного красного.
 
 Проверено здесь (Gradle 8.14.3, Java 21):
 - Хуки, `hooks/selftest.py`, 2656 проверок в трёх раскладках (сборка в корне; модуль `core/`; два модуля

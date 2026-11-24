@@ -7,7 +7,9 @@ trace, and an exception thrown by a step definition carries Cucumber's own frame
 A retried scenario (the test-retry plugin 1.6.2) is a <testcase> per attempt, or - with reports.junitXml.mergeReruns -
 one <testcase> holding <flakyFailure> or <failure> + <rerunFailure>, with the trace in a <stackTrace> child.
 """
+import json
 import os
+import pathlib
 import re
 import shutil
 import subprocess
@@ -162,6 +164,72 @@ def write_manifest(directory, mutants, controls):
     rows += ["\t".join([f"m{n}", FEATURE, "11", SCENARIO, "price", "5", "9"]) for n in range(1, mutants + 1)]
     rows += ["\t".join([f"c{n}", FEATURE, "11", SCENARIO, "(control)", "", ""]) for n in range(1, controls + 1)]
     write(os.path.join(directory, "manifest.tsv"), "\n".join(rows) + "\n")
+
+
+# ----------------------------------------------------------------------------- Cucumber's message stream
+
+MUTANTS_URI = "file:///lab/build/gherkin-mutation/mutants/"
+RUN_START_MS = 1_795_469_163_000          # 2026-11-23, when the synthetic runs start
+
+
+def stamp(ms):
+    """A Cucumber timestamp {seconds, nanos}, ms milliseconds (a float: to the nanosecond) after the run started."""
+    ns = RUN_START_MS * 1_000_000 + round(ms * 1_000_000)
+    return {"seconds": ns // 1_000_000_000, "nanos": ns % 1_000_000_000}
+
+
+def envelopes(cases, compiled=()):
+    """The envelopes of Cucumber's message stream that the tool reads, in the shape Cucumber 7.23.0 and 8.0.1 write them
+    (taken from real runs): cases = [(uri, line, name, started ms, finished ms or None: never finished)], a test case
+    each, in the order given; compiled = [(uri, line, name)], pickles the run compiled but did not run (a filter dropped
+    them). A line is a Scenario's line, or (Scenario line, Examples row line) for an outline's row."""
+    out = [{"meta": {"protocolVersion": "27.2.0", "implementation": {"name": "cucumber-jvm", "version": "7.23.0"}}},
+           {"testRunStarted": {"timestamp": stamp(0)}}]
+    nodes = {}                                  # uri -> {(scenario line, row line or None): (scenario id, row id)}
+    pickles = []
+    for uri, line, name, *_ in list(cases) + [c + (None, None) for c in compiled]:
+        scenario, row = line if isinstance(line, tuple) else (line, None)
+        ids = nodes.setdefault(uri, {}).setdefault((scenario, row), (f"s{len(pickles)}", f"r{len(pickles)}"))
+        pickles.append((uri, (scenario, row), name, ids))
+    for uri, scenarios in nodes.items():
+        children = [{"scenario": {"id": sid, "location": {"line": scenario, "column": 3}, "keyword": "Scenario Outline",
+                                  "name": "", "steps": [],
+                                  "examples": [] if row is None else [{"id": "e" + sid, "location": {"line": row - 2, "column": 5},
+                                                                        "tableHeader": {"id": "h" + sid, "location": {"line": row - 1, "column": 7}, "cells": []},
+                                                                        "tableBody": [{"id": rid, "location": {"line": row, "column": 7}, "cells": []}]}]}}
+                    for (scenario, row), (sid, rid) in scenarios.items()]
+        out.append({"source": {"uri": uri, "data": "Feature: \"quoted\" \\ back\\slash and a line\nбreak", "mediaType": "text/x.cucumber.gherkin+plain"}})
+        out.append({"gherkinDocument": {"uri": uri, "feature": {"location": {"line": 1, "column": 1}, "tags": [],
+                                                                "language": "en", "keyword": "Feature", "name": "Ф",
+                                                                "description": "", "children": children}}})
+    for n, (uri, (scenario, row), name, (sid, rid)) in enumerate(pickles):
+        out.append({"pickle": {"id": f"p{n}", "uri": uri, "name": name, "language": "en", "steps": [], "tags": [],
+                               "astNodeIds": [sid] if row is None else [sid, rid]}})
+    for n, case in enumerate(cases):
+        out.append({"testCase": {"id": f"tc{n}", "pickleId": f"p{n}", "testSteps": []}})
+    for n, (uri, line, name, started, finished) in enumerate(cases):
+        out.append({"testCaseStarted": {"attempt": 0, "id": f"run{n}", "testCaseId": f"tc{n}", "workerId": "Test worker",
+                                        "timestamp": stamp(started)}})
+        if finished is not None:
+            out.append({"testCaseFinished": {"testCaseStartedId": f"run{n}", "timestamp": stamp(finished),
+                                             "willBeRetried": False}})
+    out.append({"testRunFinished": {"success": False, "timestamp": stamp(10_000)}})
+    return out
+
+
+def write_messages(path, cases, compiled=()):
+    write(path, "".join(json.dumps(e, ensure_ascii=False) + "\n" for e in envelopes(cases, compiled)))
+
+
+def without_timestamp(envelope):
+    """A testCaseStarted envelope without its timestamp; any other envelope as it is."""
+    envelope.get("testCaseStarted", {}).pop("timestamp", None)
+    return envelope
+
+
+def generated(scenario_id, started, finished):
+    """A test case of a generated scenario: Cucumber names its feature file <id>.feature."""
+    return MUTANTS_URI + scenario_id + ".feature", 3, f"{scenario_id.upper()} | {SCENARIO}", started, finished
 
 
 class Sandbox(unittest.TestCase):
@@ -827,6 +895,147 @@ class WhereItFailed(Sandbox):
                               " (java.lang.IllegalArgumentException", out)
 
 
+# ----------------------------------------------------------------------------- run order
+
+class RunOrderTest(Sandbox):
+    """The controls of a row prove the harness only for the mutants that ran between them, one scenario at a time: the
+    verdict judges that by Cucumber's message stream of the run (--messages), not by the settings the run had."""
+
+    def setUp(self):
+        super().setUp()
+        rows = [GENERATED_HEADER] + ["\t".join([m, FEATURE, "11", SCENARIO, "price", "5", "9", "4"]) for m in ("m1", "m2")]
+        rows += ["\t".join([c, FEATURE, "11", SCENARIO, "(control)", "", "", ""]) for c in ("c1", "z1")]
+        write(os.path.join(self.mutants, "manifest.tsv"), "\n".join(rows) + "\n")
+
+    def judge(self, *streams, attempts=1):
+        """streams: the test cases of each test JVM's stream. The JUnit XML: every scenario passed or killed, as often
+        as `attempts` says."""
+        for n, cases in enumerate(streams, 1):
+            write_messages(self.path("messages", f"jvm-{n}.ndjson"), cases)
+        write_results(self.results, [(control_name(c), PASSED) for c in ("c1", "z1") for _ in range(attempts)]
+                      + [(mutant_name(m), in_step()) for m in (1, 2) for _ in range(attempts)])
+        return tool("verdict", "--mutants", "mutants", "--results", "results", "--messages", "messages", cwd=self.dir)
+
+    IN_ORDER = [generated("c1", 0, 10), generated("m1", 11, 20), generated("m2", 21, 30), generated("z1", 31, 40)]
+
+    def test_a_run_one_scenario_at_a_time_in_the_order_of_the_names_passes(self):
+        # behaviour that must not change; at the same instant is not at the same time (a coarse clock gives that)
+        for cases in (self.IN_ORDER, [generated("c1", 0, 10), generated("m1", 10, 20), generated("m2", 20, 30),
+                                      generated("z1", 30, 40)]):
+            with self.subTest(cases=[c[3:] for c in cases]):
+                code, out = self.judge(cases)
+                self.assertEqual("Gherkin mutation: 2 mutant(s) - 2 killed, 0 survived, 0 error(s); 2 control(s) - 2 passed",
+                                 self.summary(out))
+                self.assertNotIn("run order", out)
+                self.assertEqual(0, code, out)
+
+    def test_scenarios_that_ran_at_the_same_time_prove_nothing(self):
+        # parallel Cucumber through _JAVA_OPTIONS, an argument file or a provider the kit's check of the arguments did
+        # not see (review of 7061885): both controls ran at once, then the mutants - every one "killed" by a stand
+        # that wore out (issue #4)
+        code, out = self.judge([generated("c1", 0, 10), generated("z1", 2, 12), generated("m1", 13, 20),
+                                generated("m2", 13.5, 21)])
+        self.assertEqual(1, code, out)
+        self.assertIn("2 killed, 0 survived, 0 error(s); 2 control(s) - 2 passed", self.summary(out))
+        self.assertIn("MUTANT ERROR    run order: c1 and z1 ran at the same time (jvm-1.ndjson: z1 started 8.000 ms before"
+                      " c1 finished)", out)
+        self.assertIn("MUTANT ERROR    run order: m1 and m2 ran at the same time (jvm-1.ndjson: m2 started 6.500 ms before"
+                      " m1 finished)", out)
+        self.assertIn("MUTANT ERROR    run order: m1 did not run between its controls c1 and z1 - z1 started before it"
+                      " finished (jvm-1.ndjson)", out)
+        self.assertIn("  Run order: the controls prove the harness only for the mutants that ran between them", out)
+        self.assertNotIn("Gherkin mutation: OK", out)
+
+    def test_a_mutant_outside_its_controls_proves_nothing(self):
+        # one at a time, but not in the order of the names: a random order on Cucumber 8, a reversed one
+        cases = {
+            "z1 first": ([generated("z1", 0, 10), generated("c1", 11, 20), generated("m1", 21, 30), generated("m2", 31, 40)],
+                         "m1 did not run between its controls c1 and z1 - z1 started before it finished"),
+            "a mutant first": ([generated("m1", 0, 10), generated("c1", 11, 20), generated("m2", 21, 30),
+                                generated("z1", 31, 40)], "m1 did not run between its controls c1 and z1 - it started"
+                                                          " before c1 finished"),
+        }
+        for what, (stream, problem) in cases.items():
+            with self.subTest(what):
+                code, out = self.judge(stream)
+                self.assertEqual(1, code, out)
+                self.assertIn("MUTANT ERROR    run order: " + problem + " (jvm-1.ndjson)", out)
+                self.assertNotIn("ran at the same time", out)
+
+    def test_a_mutant_and_its_controls_in_different_test_jvms_prove_nothing(self):
+        # forks: each JVM is a stream of its own
+        code, out = self.judge([generated("c1", 0, 10), generated("z1", 31, 40)],
+                               [generated("m1", 11, 20), generated("m2", 21, 30)])
+        self.assertEqual(1, code, out)
+        self.assertIn("MUTANT ERROR    run order: m1 did not run between its controls c1 and z1 - c1 did not run in the"
+                      " same test JVM (jvm-2.ndjson)", out)
+
+    def test_every_attempt_of_a_retry_is_judged(self):
+        # the test-retry plugin runs each round in a new JVM, a stream each: both rounds in order pass, a round out of
+        # order fails - and an attempt the JUnit XML reports without a test case in a stream has an unknown order
+        code, out = self.judge(self.IN_ORDER, self.IN_ORDER, attempts=2)
+        self.assertEqual(0, code, out)
+        self.assertIn("2 killed, 0 survived, 0 error(s); 2 control(s) - 2 passed", self.summary(out))
+        code, out = self.judge(self.IN_ORDER, [generated("c1", 0, 10), generated("z1", 5, 15), generated("m1", 16, 20),
+                                               generated("m2", 21, 30)], attempts=2)
+        self.assertEqual(1, code, out)
+        self.assertIn("MUTANT ERROR    run order: c1 and z1 ran at the same time (jvm-2.ndjson: ", out)
+        os.remove(self.path("messages", "jvm-2.ndjson"))
+        code, out = tool("verdict", "--mutants", "mutants", "--results", "results", "--messages", "messages", cwd=self.dir)
+        self.assertEqual(1, code, out)
+        for scenario in ("m1", "m2", "c1", "z1"):
+            self.assertIn(f"MUTANT ERROR    run order: {scenario} ran 2 time(s) by the JUnit XML and 1 by the message"
+                          " stream - the order of an attempt is unknown", out)
+
+    def test_a_missing_or_unreadable_stream_is_an_error(self):
+        code, out = self.judge(self.IN_ORDER)
+        self.assertEqual(0, code, out)
+        shutil.rmtree(self.path("messages"))
+        for what, prepare, problem in (
+                ("no directory", lambda: None, "no Cucumber message stream in messages - what the run did is unknown"),
+                ("an empty directory", lambda: os.makedirs(self.path("messages")),
+                 "no Cucumber message stream in messages"),
+                ("not JSON", lambda: write(self.path("messages", "jvm-1.ndjson"), '{"meta": {}}\n{"testCaseStarted": {\n'),
+                 "cannot read the message stream messages/jvm-1.ndjson: line 2: not JSON at column 22"),
+                ("no timestamp", lambda: write(self.path("messages", "jvm-1.ndjson"), "\n".join(
+                    json.dumps(without_timestamp(e)) for e in envelopes(self.IN_ORDER)) + "\n"),
+                 "cannot read the message stream messages/jvm-1.ndjson: timestamp is not a JSON object"),
+                ("a test case of no pickle", lambda: write(self.path("messages", "jvm-1.ndjson"), "\n".join(
+                    json.dumps(e) for e in envelopes(self.IN_ORDER) if "testCase" not in e) + "\n"),
+                 "cannot read the message stream messages/jvm-1.ndjson: test case run0 started for a test case or pickle"
+                 " the stream does not define"),
+                ("an empty stream", lambda: write(self.path("messages", "jvm-1.ndjson"), ""),
+                 "cannot read the message stream messages/jvm-1.ndjson: it holds no message - Cucumber did not start its"
+                 " run")):
+            with self.subTest(what):
+                shutil.rmtree(self.path("messages"), ignore_errors=True)
+                prepare()
+                code, out = tool("verdict", "--mutants", "mutants", "--results", "results", "--messages", "messages",
+                                 cwd=self.dir)
+                self.assertEqual(1, code, out)
+                self.assertIn("MUTANT ERROR    run order: " + problem, out)
+                self.assertNotIn("Gherkin mutation: OK", out)
+
+    def test_a_test_case_that_never_finished_is_an_error(self):
+        # the JVM died in the middle of z1: whether anything ran beside it is unknown
+        code, out = self.judge(self.IN_ORDER[:3] + [generated("z1", 31, None)])
+        self.assertEqual(1, code, out)
+        self.assertIn("MUTANT ERROR    run order: z1 started and never finished (jvm-1.ndjson)", out)
+
+    def test_a_single_stream_file_is_read_as_well(self):
+        write_results(self.results, [(control_name(c), PASSED) for c in ("c1", "z1")]
+                      + [(mutant_name(m), in_step()) for m in (1, 2)])
+        write_messages(self.path("run.ndjson"), [generated("c1", 0, 10), generated("z1", 5, 15), generated("m1", 16, 20),
+                                                 generated("m2", 21, 30)])
+        code, out = tool("verdict", "--mutants", "mutants", "--results", "results", "--messages", "run.ndjson", cwd=self.dir)
+        self.assertEqual(1, code, out)
+        self.assertIn("MUTANT ERROR    run order: c1 and z1 ran at the same time (run.ndjson: ", out)
+        write_messages(self.path("run.ndjson"), self.IN_ORDER)
+        code, out = tool("verdict", "--mutants", "mutants", "--results", "results", "--messages", "run.ndjson", cwd=self.dir)
+        self.assertEqual(0, code, out)
+        self.assertIn("Gherkin mutation: OK", out)
+
+
 # ----------------------------------------------------------------------------- generate
 
 DOUBLING = """Feature: Doubling
@@ -1199,6 +1408,204 @@ class NoSkippedTest(Sandbox):
                 code, out = self.no_skipped()
                 self.assertIn("none skipped - OK", out)
                 self.assertEqual(0, code, out)
+
+    def test_an_external_entity_in_a_results_file_is_not_read(self):
+        # issue #3: the JUnit XML reader expanded a DOCTYPE's external entity - a file anywhere on the machine became
+        # part of the results it judged, and its text part of the output. Gradle's JUnit XML declares no DOCTYPE (checked
+        # on 7.23.0 and 8.0.1 runs): one that does is not read.
+        write(self.path("features/doubling.feature"), DOUBLING)
+        write(self.path("elsewhere/secret.xml"), '<testcase name="TOP-SECRET-7" classname="planted"><skipped/></testcase>')
+        write(os.path.join(self.results, "TEST-planted.xml"),
+              '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE testsuite [<!ENTITY leak SYSTEM "'
+              + pathlib.Path(self.path("elsewhere/secret.xml")).resolve().as_uri() + '">]>\n'
+              '<testsuite name="Cucumber" tests="1">&leak;</testsuite>\n')
+        code, out = self.no_skipped()
+        self.assertNotIn("TOP-SECRET-7", out)
+        self.assertIn("but no scenario ran", out)               # the planted file counts for nothing
+        self.assertEqual(1, code, out)
+        write_results(self.results, [("Example #1.1", PASSED), ("Example #1.2", PASSED)])    # next to Gradle's own
+        code, out = self.no_skipped()
+        self.assertIn("Acceptance: 2 scenario(s), none skipped - OK", out)
+        self.assertNotIn("TOP-SECRET-7", out)
+        self.assertEqual(0, code, out)
+
+
+# ----------------------------------------------------------------------------- the census of an acceptance run
+
+CENSUS = """Feature: Census
+
+  Background:
+    Given the shop is open
+
+  Scenario: Plain
+    Given step one
+
+  Scenario: Reserved for later
+
+  Scenario Outline: Without examples
+    Given step <a>
+
+  Scenario Outline: Header only
+    Given step <a>
+
+    Examples:
+      | a |
+
+  Rule: A rule
+    Background:
+      Given the rule holds
+
+    Scenario Outline: Two tables
+      Given step <a>
+
+      Examples: first
+        | a |
+        | 1 |
+        | 2 |
+
+      @slow
+      Examples: second
+        | a |
+        | 3 |
+"""
+# what Cucumber 7.23.0 and 8.0.1 compile CENSUS into (checked against their message streams): a scenario without steps
+# and an outline without Examples are one pickle each, Examples with a header only none, a Background none
+CENSUS_PICKLES = [(6, "Plain"), (9, "Reserved for later"), (11, "Without examples"), ((24, 29), "Two tables"),
+                  ((24, 30), "Two tables"), ((24, 35), "Two tables")]
+
+
+class CensusTest(Sandbox):
+    """acceptanceCheck: every scenario the feature files define must have run - a filter that drops scenarios silently
+    (includeTags/excludeTags of the test platform, a narrower cucumber.features) is finding F2 (issue #4)."""
+
+    def uri(self, rel):
+        return pathlib.Path(self.path(rel)).resolve().as_uri()
+
+    def run_census(self, *streams, allowlist=None, results=2):
+        """streams: per test JVM, the pickles of CENSUS that ran [(line, name)] and those compiled but not run."""
+        for n, (ran, compiled) in enumerate(streams, 1):
+            write_messages(self.path("messages", f"jvm-{n}.ndjson"),
+                           [(uri, line, name, 10 * i, 10 * i + 5) for i, (uri, line, name) in enumerate(ran)], compiled)
+        write_results(self.results, [(f"Example #1.{i}", PASSED) for i in range(1, results + 1)])
+        if allowlist is not None:
+            write(self.path("allowlist.txt"), allowlist)
+        return tool("no-skipped", "--results", "results", "--features", "features", "--messages", "messages", "--root", ".",
+                    "--allowlist", "allowlist.txt", cwd=self.dir)
+
+    def census_pickles(self, rel="features/census.feature"):
+        return [(self.uri(rel), line, name) for line, name in CENSUS_PICKLES]
+
+    def test_every_scenario_of_the_feature_files_ran(self):
+        write(self.path("features/census.feature"), CENSUS)
+        code, out = self.run_census((self.census_pickles(), []), results=6)
+        self.assertIn("Acceptance census: 6 of 6 scenario(s) in 1 feature file(s) ran", out)
+        self.assertIn("Acceptance: 6 scenario(s), none skipped - OK", out)
+        self.assertEqual(0, code, out)
+
+    def test_a_scenario_a_filter_dropped_is_finding_f2(self):
+        # useJUnitPlatform { excludeTags 'slow' }: Cucumber compiles the row of the @slow table and never runs it, and
+        # neither the JUnit XML nor the skipped count shows it
+        write(self.path("features/census.feature"), CENSUS)
+        pickles = self.census_pickles()
+        code, out = self.run_census((pickles[:5], [pickles[5]]), results=5)
+        self.assertEqual(1, code, out)
+        self.assertIn("ACCEPTANCE F2 features/census.feature  5 of 6 scenario(s) ran", out)
+        self.assertIn("ACCEPTANCE F2 features/census.feature:35  did not run  |  Two tables", out)
+        self.assertIn("Acceptance census: 5 of 6 scenario(s) in 1 feature file(s) ran", out)
+        self.assertIn("Acceptance: FAILED - scenarios the feature files define did not run (finding F2)", out)
+        self.assertNotIn("none skipped - OK", out)
+
+    def test_a_feature_file_cucumber_never_loaded_is_finding_f2(self):
+        # a narrower cucumber.features: Cucumber never parses the other files, and the run looks complete
+        write(self.path("features/census.feature"), CENSUS)
+        write(self.path("features/sub/doubling.feature"), DOUBLING)
+        code, out = self.run_census((self.census_pickles(), []), results=6)
+        self.assertEqual(1, code, out)
+        self.assertIn("ACCEPTANCE F2 features/sub/doubling.feature  0 of 2 scenario(s) ran - Cucumber did not load the file",
+                      out)
+        self.assertIn("ACCEPTANCE F2 features/sub/doubling.feature:11  did not run  |  The price is doubled", out)
+        self.assertIn("ACCEPTANCE F2 features/sub/doubling.feature:12  did not run  |  The price is doubled", out)
+        self.assertIn("Acceptance census: 6 of 8 scenario(s) in 2 feature file(s) ran", out)
+
+    def test_only_the_integrity_allowlist_accepts_f2_for_a_feature_file(self):
+        write(self.path("features/census.feature"), CENSUS)
+        write(self.path("features/sub/doubling.feature"), DOUBLING)
+        streams = (self.census_pickles(), [])
+        for allowlist, accepted in (("features/sub/doubling.feature  F2   # nightly only\n", True),
+                                    ("features/**/*.feature  F2\n", True),
+                                    ("features/sub/doubling.feature  F1\n", False),
+                                    ("features/census.feature  F2\n", False),
+                                    ("# features/sub/doubling.feature  F2\n", False)):
+            with self.subTest(allowlist=allowlist):
+                code, out = self.run_census(streams, allowlist=allowlist, results=6)
+                if accepted:
+                    self.assertIn("Acceptance census: 6 of 8 scenario(s) in 2 feature file(s) ran; 2 did not run, accepted"
+                                  " by the integrity allowlist (F2)", out)
+                    self.assertIn("none skipped - OK", out)
+                    self.assertEqual(0, code, out)
+                else:
+                    self.assertIn("ACCEPTANCE F2 features/sub/doubling.feature  0 of 2", out)
+                    self.assertEqual(1, code, out)
+
+    def test_without_the_message_stream_which_scenarios_ran_is_unknown(self):
+        write(self.path("features/census.feature"), CENSUS)
+        write_results(self.results, [("Example #1.1", PASSED)])
+        code, out = tool("no-skipped", "--results", "results", "--features", "features", "--messages", "messages",
+                         "--root", ".", cwd=self.dir)
+        self.assertEqual(1, code, out)
+        self.assertIn("ACCEPTANCE ERROR no Cucumber message stream in messages", out)
+        self.assertIn("Acceptance: FAILED - which scenarios ran is unknown without Cucumber's message stream", out)
+        # Cucumber 8 without Jackson: the file is there, the run never started
+        write(self.path("messages", "jvm-1.ndjson"), "")
+        code, out = tool("no-skipped", "--results", "results", "--features", "features", "--messages", "messages",
+                         "--root", ".", cwd=self.dir)
+        self.assertEqual(1, code, out)
+        self.assertIn("ACCEPTANCE ERROR cannot read the message stream messages/jvm-1.ndjson: it holds no message -"
+                      " Cucumber did not start its run (Cucumber 8 writes the stream only with Jackson", out)
+        self.assertNotIn("ACCEPTANCE F2", out)
+
+    def test_a_scenario_that_ran_in_any_test_jvm_ran(self):
+        # retry rounds and forks: a stream per JVM
+        write(self.path("features/census.feature"), CENSUS)
+        pickles = self.census_pickles()
+        code, out = self.run_census((pickles[:3], pickles[3:]), (pickles[3:], pickles[:3]), results=6)
+        self.assertIn("Acceptance census: 6 of 6 scenario(s) in 1 feature file(s) ran", out)
+        self.assertEqual(0, code, out)
+
+    def test_cucumber_s_own_pickles_count_where_the_tool_cannot_read_the_language(self):
+        # the census reads en and ru; Cucumber knows every dialect. A file it loaded counts by its pickles; a file in
+        # another language that it never loaded has unknown scenarios - finding F2, which the allowlist can accept
+        write(self.path("features/rabatt.feature"), "# language: de\nFunktionalität: Rabatt\n\n  Szenario: Eins\n"
+                                                    "    Angenommen ein Schritt\n")
+        loaded = [(self.uri("features/rabatt.feature"), 4, "Eins")]
+        code, out = self.run_census((loaded, []), results=1)
+        self.assertIn("Acceptance census: 1 of 1 scenario(s) in 1 feature file(s) ran", out)
+        self.assertEqual(0, code, out)
+        code, out = self.run_census(([], []), results=1)
+        self.assertIn("ACCEPTANCE F2 features/rabatt.feature  Cucumber listed no scenario of it (it did not load the"
+                      " file, or the file defines none), and its language is not one GherkinMutator reads: which"
+                      " scenarios it defines is unknown", out)
+        self.assertEqual(1, code, out)
+
+    def test_the_stop_hook_hands_the_findings_back_to_the_agent(self):
+        # the hook passes on the lines of the gate it knows, then the tail of the output: the census and the run order
+        # must be among the former - in gauntletFast, crapGate and dryGate still print after acceptanceCheck
+        findings = ["ACCEPTANCE F2 src/acceptanceTest/resources/features/a.feature  1 of 2 scenario(s) ran",
+                    "ACCEPTANCE F2 src/acceptanceTest/resources/features/a.feature:12  did not run  |  Plain one",
+                    "ACCEPTANCE ERROR no Cucumber message stream in build/cucumber-messages/acceptanceTest",
+                    "MUTANT ERROR    run order: c1 and z1 ran at the same time (jvm-1.ndjson: z1 started 2.000 ms before"
+                    " c1 finished)"]
+        output = "\n".join(["> Task :acceptanceCheck"] + findings + [f"> Task :later{n}" for n in range(40)])
+        relayed = kit.stop_gate().summarize(output).split("--- end of the Gradle output ---")[0]
+        for line in findings:
+            self.assertIn(line, relayed)
+
+    def test_russian_keywords_and_a_byte_order_mark(self):
+        write(self.path("features/discount.feature"), "﻿" + RUSSIAN)
+        code, out = self.run_census(([(self.uri("features/discount.feature"), (4, 10), "Фиксированная скидка")], []),
+                                    results=1)
+        self.assertIn("Acceptance census: 1 of 1 scenario(s) in 1 feature file(s) ran", out)
+        self.assertEqual(0, code, out)
 
 
 if __name__ == "__main__":

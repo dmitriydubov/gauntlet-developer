@@ -1,5 +1,6 @@
 """CrapGate.java on synthetic JaCoCo reports: thresholds, the allowlist, and the changed-file scope."""
 import os
+import pathlib
 import tempfile
 import unittest
 
@@ -80,10 +81,52 @@ class Threshold(CrapCase):
         r = self.gate(report(("a/Orders", "Orders.java", [method("total")])))
         self.assertEqual(r.code, 0, r)
 
+    def test_a_large_report_of_constructors_is_read_on_the_newest_jdk(self):
+        # JDK 24+ counts every &lt; and &gt; in an attribute against jdk.xml.maxGeneralEntitySizeLimit (100,000 per
+        # document): JaCoCo names each constructor "&lt;init&gt;", and a report of 34,000 stopped the gate (review of 4.4)
+        java = kit.newest_java(24)
+        if java is None:
+            self.skipTest("needs a JDK 24 or newer")
+        classes = [(f"com/example/C{i}", f"C{i}.java", [method("<init>".replace("<", "&lt;").replace(">", "&gt;"))])
+                   for i in range(50000)]
+        path = kit.write(os.path.join(self.dir, "jacoco.xml"), report(*classes))
+        r = kit.tool("CrapGate", "--report", path, cwd=self.dir, java=java)
+        self.assertEqual(r.code, 0, r.out[-2000:])
+        self.assertIn("CRAP gate: OK", r.out)
+
     def test_missing_report_and_bad_usage_are_input_errors(self):
         self.assertEqual(kit.tool("CrapGate", "--report", os.path.join(self.dir, "none.xml")).code, 2)
         self.assertEqual(kit.tool("CrapGate", "--nonsense", "1").code, 2)
         self.assertEqual(kit.tool("CrapGate").code, 2)
+
+    def test_a_threshold_that_is_no_finite_number_from_zero_up_is_a_usage_error(self):
+        # Double.parseDouble takes NaN and Infinity, and no score is above NaN: crap.threshold=NaN passed an uncovered
+        # complex method (issue #3). Below zero is no CRAP score either.
+        xml = report(("a/Orders", "Orders.java", [method("total", **COMPLEX)]))        # CRAP 12
+        for value in ("NaN", "-NaN", "Infinity", "1e999", "-Infinity", "-1", "-0.5"):
+            with self.subTest(threshold=value):
+                r = self.gate(xml, "--threshold", value)
+                self.assertEqual(r.code, 2, r)
+                self.assertIn(f"--threshold must be a finite number >= 0, not {value}", r.out)
+                self.assertNotIn("CRAP gate: OK", r.out)
+        # every finite threshold from zero up is still a threshold
+        for value, code in (("0", 1), ("11.9", 1), ("12", 0), ("1e300", 0)):
+            with self.subTest(threshold=value):
+                self.assertEqual(self.gate(xml, "--threshold", value).code, code)
+
+    def test_an_external_parameter_entity_in_the_report_s_doctype_is_not_loaded(self):
+        # JaCoCo's report has a DOCTYPE, so CrapGate reads one. An external parameter entity declared in it defined
+        # an entity with a file's content, and the gate printed that as a method name (XXE, issue #3).
+        secret = kit.write(os.path.join(self.dir, "secret.txt"), "TOP-SECRET-4711")
+        dtd = kit.write(os.path.join(self.dir, "evil.dtd"),
+                        f'<!ENTITY % file SYSTEM "{pathlib.Path(secret).as_uri()}">\n'
+                        "<!ENTITY % define \"<!ENTITY content '%file;'>\">\n%define;\n")
+        xml = report(("a/Orders", "Orders.java", [method("&content;", **COMPLEX)])).replace(
+            '"report.dtd">', f'"report.dtd" [<!ENTITY % ext SYSTEM "{pathlib.Path(dtd).as_uri()}"> %ext;]>')
+        r = self.gate(xml)
+        self.assertEqual(r.code, 2, r)
+        self.assertIn("cannot read", r.out)
+        self.assertNotIn("TOP-SECRET-4711", r.out)
 
 
 class Allowlist(CrapCase):

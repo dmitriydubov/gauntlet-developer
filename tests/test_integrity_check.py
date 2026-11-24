@@ -105,6 +105,11 @@ class Rules(IntegrityCase):
                 self.file("build.gradle", APPLY + line + "\n")
                 self.assertEqual(self.rules(), [rule])
 
+    def test_the_test_census_is_a_gauntlet_task(self):
+        # testCensus judges what test and archTest ran: a build script that reaches for it touches a gate (B4)
+        self.file("build.gradle", APPLY + "tasks.named('testCensus') { args.clear() }\n")
+        self.assertEqual(self.rules(), ["B4"])
+
     def test_a_property_named_by_a_string_is_a_finding(self):
         # Groovy reaches a property through a string as well, so the build rules read strings too; a string that only
         # mentions the words is reported as well - the safe direction, the human allowlists it
@@ -125,6 +130,18 @@ class Rules(IntegrityCase):
     def test_test_properties_filtering_scenarios(self):
         self.file("src/acceptanceTest/resources/junit-platform.properties", "cucumber.filter.tags=not @slow\n")
         self.assertEqual(self.rules(), ["P1"])
+
+    def test_a_dry_run_of_the_test_platform(self):
+        # junit.platform.execution.dryRun.enabled=true: JUnit 5.12.2 reports every test as skipped and runs none, Gradle
+        # stays green, and the census counts a skipped test as run (found while verifying the census, issue #4)
+        self.file("src/test/resources/junit-platform.properties", "junit.platform.execution.dryRun.enabled = true\n")
+        self.assertEqual(self.rules(), ["P1"])
+        for line in ("test { systemProperty 'junit.platform.execution.dryRun.enabled', 'true' }",
+                     "test { jvmArgs '-Djunit.platform.execution.dryRun.enabled=true' }"):
+            with self.subTest(line):
+                self.file("src/test/resources/junit-platform.properties", "junit.jupiter.execution.timeout.default = 5m\n")
+                self.file("build.gradle", APPLY + line + "\n")
+                self.assertEqual(self.rules(), ["B3"])
 
     def test_missing_gauntlet_script_is_a_structural_finding(self):
         self.file("build.gradle", "plugins { id 'java' }\n")

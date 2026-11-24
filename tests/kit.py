@@ -3,10 +3,11 @@
 tests/run.py unpacks gauntlet-kit-bundle.md, compiles the single-file Java tools and exports:
   GAUNTLET_REPO     the repository root (the documents)
   GAUNTLET_KIT      the unpacked kit (contains gauntlet/, .claude/, .github/, CLAUDE.md)
-  GAUNTLET_CLASSES  the compiled tools (CrapGate, DryGate, GherkinMutator, IntegrityCheck, PitSummary)
+  GAUNTLET_CLASSES  the compiled tools (CrapGate, DryGate, GherkinMutator, IntegrityCheck, PitSummary, TestCensus)
 A test module can also be run on its own: the helpers below then unpack and compile on first use.
 """
 import atexit
+import importlib.util
 import os
 import re
 import shutil
@@ -17,7 +18,7 @@ import tempfile
 REPO = os.environ.get("GAUNTLET_REPO") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BUNDLE = os.path.join(REPO, "gauntlet-kit-bundle.md")
 METHOD = os.path.join(REPO, "gauntlet-method-universal.md")
-TOOLS = ("CrapGate", "DryGate", "GherkinMutator", "IntegrityCheck", "PitSummary")
+TOOLS = ("CrapGate", "DryGate", "GherkinMutator", "IntegrityCheck", "PitSummary", "TestCensus")
 _state = {}
 
 
@@ -53,7 +54,9 @@ def unpack(bundle_path, target):
 
 def compile_tools(kit, classes):
     os.makedirs(classes, exist_ok=True)
-    sources = [os.path.join(kit, "gauntlet", "tools", t + ".java") for t in TOOLS]
+    # the tools the kit has: an older kit (a revision a new test is checked against) lacks the newer ones, and their
+    # tests fail on the missing class; test_bundle compiles every tool of TOOLS from the bundle itself
+    sources = [s for s in (os.path.join(kit, "gauntlet", "tools", t + ".java") for t in TOOLS) if os.path.isfile(s)]
     r = subprocess.run(["javac", "-nowarn", "-d", classes, *sources], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                        text=True, env=java_env())
     assert r.returncode == 0, "javac failed:\n" + r.stdout
@@ -98,9 +101,26 @@ class Result:
         return f"exit {self.code}\n{self.out}"
 
 
-def tool(name, *args, cwd=None):
+def newest_java(at_least):
+    """The java of the newest JDK on this machine whose major is at least `at_least` (JAVA_HOME_<major>_<ARCH>, then
+    /usr/lib/jvm), or None."""
+    homes = [v for k, v in os.environ.items() if re.fullmatch(r"JAVA_HOME_\d+_\w+", k)]
+    homes += [os.path.join("/usr/lib/jvm", d) for d in (os.listdir("/usr/lib/jvm") if os.path.isdir("/usr/lib/jvm") else [])]
+    found = {}
+    for home in homes:
+        java = os.path.join(home, "bin", "java")
+        if not os.access(java, os.X_OK):
+            continue
+        said = subprocess.run([java, "-version"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True).stdout
+        m = re.search(r'(?m)^\S+ version "(?:1\.)?(\d+)', said)
+        if m and int(m.group(1)) >= at_least:
+            found.setdefault(int(m.group(1)), java)
+    return found[max(found)] if found else None
+
+
+def tool(name, *args, cwd=None, java="java"):
     """Runs a compiled single-file tool the way gauntlet.gradle does (arguments only, no stdin)."""
-    r = subprocess.run(["java", "-cp", classes(), name, *[str(a) for a in args]], cwd=cwd, stdout=subprocess.PIPE,
+    r = subprocess.run([java, "-cp", classes(), name, *[str(a) for a in args]], cwd=cwd, stdout=subprocess.PIPE,
                        stderr=subprocess.STDOUT, text=True, encoding="utf-8", env=java_env())
     return Result(r)
 
@@ -108,6 +128,21 @@ def tool(name, *args, cwd=None):
 def run(cmd, cwd=None, env=None, input=None):
     r = subprocess.run(cmd, cwd=cwd, env=env, input=input, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     return Result(r)
+
+
+def stop_gate():
+    """The kit's gauntlet/hooks/stop_gate.py imported as a module: GATE_TASKS, gate_tasks(), not_run(). No bytecode
+    lands in the kit: the suite checks that the unpacked kit stays byte for byte what the bundle holds."""
+    if "stop_gate" not in _state:
+        spec = importlib.util.spec_from_file_location("stop_gate", os.path.join(kit(), "gauntlet", "hooks", "stop_gate.py"))
+        module = importlib.util.module_from_spec(spec)
+        saved, sys.dont_write_bytecode = sys.dont_write_bytecode, True
+        try:
+            spec.loader.exec_module(module)
+        finally:
+            sys.dont_write_bytecode = saved
+        _state["stop_gate"] = module
+    return _state["stop_gate"]
 
 
 def copy_kit(target):
@@ -119,7 +154,10 @@ def copy_kit(target):
     shutil.copy(os.path.join(src, ".claude", "settings.json"), os.path.join(target, "gauntlet", "claude", "settings.json"))
     shutil.copytree(os.path.join(src, ".claude", "agents"), os.path.join(target, "gauntlet", "claude", "agents"))
     os.makedirs(os.path.join(target, "gauntlet", "ci"))
-    shutil.copy(os.path.join(src, ".github", "workflows", "gauntlet.yml"), os.path.join(target, "gauntlet", "ci", "gauntlet.yml"))
+    for workflow in ("gauntlet.yml", "gauntlet-kit.yml"):      # a kit before gauntlet-kit.yml has only the first
+        source = os.path.join(src, ".github", "workflows", workflow)
+        if os.path.exists(source):
+            shutil.copy(source, os.path.join(target, "gauntlet", "ci", workflow))
     return target
 
 

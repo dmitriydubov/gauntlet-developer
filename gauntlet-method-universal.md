@@ -1,10 +1,10 @@
 # Метод Gauntlet: разработка «не читая код»
 
 Универсальная инструкция и протокол развёртывания для любого стека (Java, Python, JS/TS-фронтенд и Node,
-другие) в Claude Code, облачные и локальные сессии. Ревизия 4.3, 2026-11-20 (ревизия 4.2 — 2026-11-19, ревизия 4.1 — 2026-10-06, ревизия 4 —
+другие) в Claude Code, облачные и локальные сессии. Ревизия 4.4, 2026-11-23 (ревизия 4.3 — 2026-11-20, ревизия 4.2 — 2026-11-19, ревизия 4.1 — 2026-10-06, ревизия 4 —
 2026-10-05, ревизия 3 — 2026-10-04, ревизия 2.1 — 2026-09-30, ревизия 2 — 2026-09-29, ревизия 1 — 2026-09-26).
 Источник: эталонный набор `gauntlet/` (Java 21, Gradle, Spring Boot 4), обкатанный на реальном проекте, и
-бандл `gauntlet-kit-bundle.md` ревизии 4.3. Имён, пакетов и предметной области эталонного проекта здесь нет:
+бандл `gauntlet-kit-bundle.md` ревизии 4.4. Имён, пакетов и предметной области эталонного проекта здесь нет:
 предметную область нового проекта `start` определяет по его репозиторию.
 
 Термины. «Многоагентный прогон» — несколько сабагентов, запущенных координатором параллельно (инструмент
@@ -74,6 +74,14 @@ workflow, если он есть в сессии и владелец разре�
 Причина: правка одного случая неопределённого правила порождает следующий случай новым заворотом, а гейты его
 не ловят — мутации закаляют тесты против спецификации, а не против ненаписанных правил. Синхронизировано с
 бандлом ревизии 4.2.
+
+**Ревизия 4.4** (2026-11-23, проверки по результату вместо эвристик по тексту): CI сравнивает PR с merge base и
+красный, когда изменены файлы набора (`gauntlet-kit.yml`, копия из основной ветки, без кода PR, вердикт — на голове
+PR); `testCensus` сверяет каждый скомпилированный тестовый класс с результатами задачи; поток сообщений Cucumber
+судит порядок прогона мутантов и перепись сценариев приёмки; Stop-хук и CI принимают зелёный код выхода, только
+когда в выводе сборщика выполнена каждая задача гейта; давние дефекты установщика, хуков и инструментов (XXE, порог
+`NaN`, JVM гейта ниже 17). Метод не изменился; при переносе на другой стек — пп. 1 и 8 протокола `start` (раздел 8.1).
+Синхронизировано с бандлом ревизии 4.4.
 
 **Ревизия 4.3** (2026-11-20, ревью набора на ошибки и их правки):
 - п. 10: «Blocker и major типа «дефект» исправляются всегда» — оговорка типа, как в шаге 7 процесса: находка
@@ -936,7 +944,7 @@ Add file → Upload files, каталог `gauntlet-bootstrap/`) и взять �
 нейтральные шаблоны (`com.example.service`, `adapter`, `shared-lib`, пример фичи про скидку).
 
 1. Скопировать из распакованного бандла `hooks/`, `install.sh`, `.claude/settings.json` и `.claude/agents/*.md`
-   (в новом наборе — в `gauntlet/claude/`), `.github/workflows/gauntlet.yml` (в `gauntlet/ci/`), структуру
+   (в новом наборе — в `gauntlet/claude/`), `.github/workflows/gauntlet.yml` и `gauntlet-kit.yml` (в `gauntlet/ci/`), структуру
    `config/` и пустые allowlist'ы — и адаптировать: как есть они привязаны к Gradle.
    - `stop_gate.py`: `BUILD_FILES` — все наблюдаемые пути, а не только файлы сборки: код, тесты, приёмка,
      манифесты и lock-файлы (пример FastAPI: `app`, `tests`, `acceptance`, `pyproject.toml`, `uv.lock`;
@@ -951,8 +959,10 @@ Add file → Upload files, каталог `gauntlet-bootstrap/`) и взять �
      маски) закрыт для него и в Edit, и в shell. В `selftest.py` проверить: hardener пишет
      `src/foo.test.ts` и `acceptance/steps/x.ts` — можно, `src/foo.ts` и `acceptance/features/x.feature` —
      нельзя. Можно и иначе: договориться с владельцем, что тесты лежат только в `tests/`.
-     `HUMAN_OWNED`: вместо `.github/workflows/gauntlet.yml` — файл CI платформы владельца
-     (`.gitlab-ci.yml`, `Jenkinsfile` и т. п.); в `selftest.py` проверить, что его правка отклоняется.
+     `HUMAN_OWNED`: вместо `.github/workflows/gauntlet.yml` и `gauntlet-kit.yml` — файлы CI платформы владельца
+     (`.gitlab-ci.yml`, `Jenkinsfile` и т. п.); в `selftest.py` проверить, что их правка отклоняется.
+   - `stop_gate.py`: `GATE_TASKS` и `TASK_LINE` — под задачи гейта стека и строку, которой сборщик называет
+     выполненную задачу; без такой строки — маркер, который печатает последний шаг `run.sh`.
    - `install.sh`: проверку Gradle-проекта и `gauntlet.gradle` заменить на манифест стека и `run.sh`.
    - `settings.json`: `Bash(./gradlew:*)` и statusMessage — на `gauntlet/run.sh`.
 
@@ -1030,7 +1040,11 @@ Add file → Upload files, каталог `gauntlet-bootstrap/`) и взять �
    обнаруженные версии, а не эталонные: Java CI устанавливает `project.java.version` и `gate.java.version`
    отдельно, wrapper работает с проектной `JAVA_HOME`, а gate JDK передаётся через `GAUNTLET_GATE_JAVA_HOME`;
    используется wrapper той версии Gradle, которую нашёл `start`, и печатаются `./gradlew --version`/`gauntletInfo`; другие стеки —
-   соответствующий setup/action или контейнер с `project.*`. Проверить синтаксис workflow и путь к конфигу.
+   соответствующий setup/action или контейнер с `project.*`. Зелёный код выхода шаг гейта проверяет по выводу:
+   каждая задача гейта выполнена (`stop_gate.py --verify-ran`). Второе задание — проверка файлов набора: копия из
+   основной ветки (у GitHub — `pull_request_target`), код PR не исполняется, красная, когда PR меняет пути
+   `HUMAN_OWNED` относительно merge base; вердикт — на голове PR, человек делает его обязательным. Проверить
+   синтаксис workflow и путь к конфигу.
 9. Самопроверка: `python3 gauntlet/hooks/selftest.py` (адаптировать под пути стека) — 0 failed;
    каждый инструмент из `tools/`, включая size_gate, проверить на намеренном нарушении (тест с
    пропуском, метод с CC 5, функция в 30 строк, дубль, пустой step) и на чистом примере.
@@ -1188,7 +1202,8 @@ SessionStart, записать в план окружение координат
 ```bash
 REPO=<путь к эталону>; REV=origin/main
 rm -rf kit-src && mkdir kit-src
-git -C "$REPO" archive "$REV" --format=tar gauntlet .claude CLAUDE.md .github/workflows/gauntlet.yml | tar -x -C kit-src
+git -C "$REPO" archive "$REV" --format=tar gauntlet .claude CLAUDE.md .github/workflows/gauntlet.yml \
+  .github/workflows/gauntlet-kit.yml | tar -x -C kit-src
 ```
 
 Тот же `git archive` в формате `tar.gz` — локальный бэкап владельца (`gauntlet-<проект>-<дата>.tar.gz`).
@@ -1249,10 +1264,11 @@ UNPACK = (
     "каталоге вне репозитория: набор попадает в проект только после адаптации под стек.\n\n"
     + FENCE + "python\n" + EXTRACTOR + FENCE + "\n\n"
     "Запуск: `python3 extract_bundle.py gauntlet-kit-bundle.md`. После распаковки: `chmod +x gauntlet/hooks/*.sh\n"
-    "gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md` и `.github/workflows/gauntlet.yml`\n"
-    "в эталоне уже установлены (`install.sh` их когда-то перенёс из `gauntlet/claude` и `gauntlet/ci`); для новой\n"
-    "установки положите их обратно в `gauntlet/claude/` и `gauntlet/ci/`: их переносит `install.sh` последним шагом\n"
-    "установки (раздел 8.1, шаг 3 инструкции). Корневой `CLAUDE.md` в бандле — шаблон: описание модулей заполняется по репозиторию.\n"
+    "gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md`, `.github/workflows/gauntlet.yml` и\n"
+    "`.github/workflows/gauntlet-kit.yml` в эталоне уже установлены (`install.sh` их когда-то перенёс из\n"
+    "`gauntlet/claude` и `gauntlet/ci`); для новой установки положите их обратно в `gauntlet/claude/` и\n"
+    "`gauntlet/ci/`: их переносит `install.sh` последним шагом установки (раздел 8.1, шаг 3 инструкции).\n"
+    "Корневой `CLAUDE.md` в бандле — шаблон: описание модулей заполняется по репозиторию.\n"
 )
 old = open(old_bundle, encoding="utf-8").read()
 header = old.split("\n## Как распаковать", 1)[0].split("\n")   # описание + список изменений прежнего бандла

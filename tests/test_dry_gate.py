@@ -1,5 +1,6 @@
-"""DryGate.java on synthetic CPD reports (the XML shape PMD 7.27.0 writes): the changed-file scope."""
+"""DryGate.java on synthetic CPD reports (the XML shape PMD 7.27.0 writes): the changed-file scope, the report."""
 import os
+import pathlib
 import tempfile
 import unittest
 from xml.sax.saxutils import quoteattr
@@ -71,6 +72,23 @@ class ChangedScope(unittest.TestCase):
         r = self.gate(cpd(self.dir, (ORIGINAL, "src/main/java/a/Other.java")))
         self.assertEqual(r.code, 1, r)
         self.assertIn("1 in scope (all sources)", r.out)
+
+    def test_a_report_with_a_doctype_is_not_read(self):
+        # CPD writes its report without a DOCTYPE. The gate skipped only an external DTD: an external parameter
+        # entity declared in the DOCTYPE defined an entity with a file's content, and the gate printed that as the
+        # path of a duplicated file (XXE, issue #3).
+        secret = kit.write(os.path.join(self.dir, "secret.txt"), "TOP-SECRET-4711")
+        dtd = kit.write(os.path.join(self.dir, "evil.dtd"),
+                        f'<!ENTITY % file SYSTEM "{pathlib.Path(secret).as_uri()}">\n'
+                        "<!ENTITY % define \"<!ENTITY content '%file;'>\">\n%define;\n")
+        xml = cpd(self.dir, ("&content;", "src/main/java/a/Other.java")).replace(
+            quoteattr(os.path.join(self.dir, "&content;")), '"&content;"').replace(
+            "<pmd-cpd ", f'<!DOCTYPE pmd-cpd [<!ENTITY % ext SYSTEM "{pathlib.Path(dtd).as_uri()}"> %ext;]>\n<pmd-cpd ', 1)
+        r = self.gate(xml)
+        self.assertEqual(r.code, 2, r)
+        self.assertIn("cannot read", r.out)
+        self.assertIn("DOCTYPE", r.out)
+        self.assertNotIn("TOP-SECRET-4711", r.out)
 
 
 if __name__ == "__main__":

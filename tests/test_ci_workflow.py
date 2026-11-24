@@ -5,6 +5,7 @@ GITHUB_OUTPUT, the JAVA_HOME_<major>_<ARCH> variables setup-java exports, and ./
 """
 import os
 import re
+import shutil
 import stat
 import tempfile
 import unittest
@@ -15,21 +16,30 @@ PLAN = "Resolve the guarded builds and their Java versions"
 BASE = "Resolve the base branch"
 RUN = "Run the gauntlet in every guarded build"
 
-# a wrapper that records how it was called and, like Gradle, reads whatever stdin offers
+
+# a wrapper that records how it was called and, like Gradle, reads whatever stdin offers. `gauntlet` prints a
+# "> Task" line for every gate task, as Gradle does with --console=plain - except the names listed in the file
+# left-out (a build script that left them out of the graph; "*" = all of them)
 GRADLEW = """#!/usr/bin/env bash
 cat >/dev/null
 echo "$(basename "$PWD")|$*|JAVA_HOME=$JAVA_HOME|GATE=$GAUNTLET_GATE_JAVA_HOME|java=$(command -v java)" >> "$CALLS"
 [ ! -f fail ] || exit 1
-"""
+if [ "$1" = gauntlet ]; then
+  for task in %s; do
+    grep -qxF -e "$task" -e '*' left-out 2>/dev/null || echo "> Task :$task"
+  done
+  echo 'BUILD SUCCESSFUL in 1s'
+fi
+""" % " ".join(kit.stop_gate().gate_tasks("gauntlet"))
 
 
-def workflow():
-    return kit.read(os.path.join(kit.kit(), ".github", "workflows", "gauntlet.yml"))
+def workflow(name="gauntlet.yml"):
+    return kit.read(os.path.join(kit.kit(), ".github", "workflows", name))
 
 
-def step_script(name):
-    """The `run: |` block of the named step, dedented - a tiny reader for this one file, no YAML library."""
-    lines = workflow().split("\n")
+def step_script(name, text=None):
+    """The `run: |` block of the named step, dedented - a tiny reader for the kit's workflows, no YAML library."""
+    lines = (text if text is not None else workflow()).split("\n")
     start = lines.index(f"      - name: {name}")
     run = next(i for i in range(start + 1, len(lines)) if lines[i].strip() == "run: |")
     indent = len(lines[run]) - len(lines[run].lstrip())
@@ -51,6 +61,8 @@ class Workspace:
         self.calls = os.path.join(tmp, "calls")
         self.jdks = os.path.join(tmp, "jdks")
         os.makedirs(self.temp)
+        os.makedirs(os.path.join(self.root, "gauntlet", "hooks"))
+        shutil.copy(os.path.join(kit.kit(), "gauntlet", "hooks", "stop_gate.py"), os.path.join(self.root, "gauntlet", "hooks"))
         kit.write(os.path.join(self.root, "gauntlet/config/gauntlet.properties"),
                   f"module={modules}\nbaseRef=origin/develop\nproject.java.version=17\ngate.java.version=21\n")
         for module in [m.strip() for m in modules.split(",") if m.strip()] or ["."]:
@@ -300,8 +312,8 @@ class RunStep(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
 
-    def planned(self, modules, plan):
-        ws = Workspace(self.tmp.name, modules)
+    def planned(self, modules, plan, tmp=None):
+        ws = Workspace(tmp or self.tmp.name, modules)
         kit.write(os.path.join(ws.temp, "gauntlet-plan"), "".join("\t".join(row) + "\n" for row in plan))
         return ws
 
@@ -344,6 +356,33 @@ class RunStep(unittest.TestCase):
         r = ws.step(RUN, GAUNTLET_BASE_REF="origin/main")
         self.assertEqual(r.code, 1, r)
         self.assertEqual([c.split("|")[0] for c in ws.called()], ["core"] + ["adapter"] * 3)
+
+    def test_a_green_build_that_ran_no_gate_fails_the_job_but_the_next_build_still_runs(self):
+        # one line in build.gradle - gradle.startParameter.excludedTaskNames.addAll(['gauntletFast', 'gauntlet']) - and
+        # Gradle ran no gate, printed BUILD SUCCESSFUL and exited 0: the job was green
+        ws = self.planned("core,adapter", [["core", "17", "21"], ["adapter", "17", "21"]])
+        kit.write(os.path.join(ws.root, "core", "left-out"), "*\n")
+        r = ws.step(RUN, GAUNTLET_BASE_REF="origin/main")
+        self.assertEqual(r.code, 1, r)
+        self.assertIn("gauntlet: Gradle finished gauntlet without running gauntlet, gauntletFast, mutationGate", r.out)
+        self.assertIn("::error::gauntlet in 'core': Gradle did not run every gate task", r.out)
+        self.assertNotIn("in 'adapter'", r.out)
+        self.assertEqual([c.split("|")[0] for c in ws.called()], ["core"] * 3 + ["adapter"] * 3)
+
+    def test_a_gate_task_the_build_left_out_is_named(self):
+        for n, task in enumerate(kit.stop_gate().gate_tasks("gauntlet")):
+            with self.subTest(task):
+                ws = self.planned("", [[".", "17", "21"]], tmp=os.path.join(self.tmp.name, str(n)))
+                kit.write(os.path.join(ws.root, "left-out"), task + "\n")
+                r = ws.step(RUN, GAUNTLET_BASE_REF="origin/main")
+                self.assertEqual(r.code, 1, r)
+                self.assertIn(f"gauntlet: Gradle finished gauntlet without running {task} - no", r.out)
+
+    def test_every_gate_task_named_is_a_green_build(self):
+        ws = self.planned("", [[".", "17", "21"]])
+        r = ws.step(RUN, GAUNTLET_BASE_REF="origin/main")
+        self.assertEqual(r.code, 0, r)
+        self.assertIn("> Task :integrityCheck", r.out)          # the output still reaches the log
 
     def test_version_without_an_installed_jdk_fails(self):
         ws = self.planned("", [[".", "11", "21"]])

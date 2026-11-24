@@ -3,7 +3,7 @@
 История ревизий метода Gauntlet и бандла эталонного набора. Документы в репозитории версионируются вместе:
 ревизия инструкции `gauntlet-method-universal.md` и ревизия бандла `gauntlet-kit-bundle.md` совпадают.
 
-## Ревизия 4.4 — 2026-11-23
+## Ревизия 4.4 — 2026-11-24
 
 Проверки по результату вместо эвристик по тексту (issue #4) и давние дефекты из ревью `7061885` (issue #3). Правки
 внесены в бандл; универсальная инструкция меняет только ревизию. Все правки только ужесточают: ни один порог, тест
@@ -94,10 +94,10 @@
 | `.github/workflows/gauntlet.yml` | 7658 | 8414 |
 | `gauntlet/CLAUDE.md` | 65401 | 66971 |
 | `gauntlet/INSTALL.md` | 17017 | 22275 |
-| `gauntlet/README.md` | 95176 | 121013 |
+| `gauntlet/README.md` | 95176 | 121534 |
 | `gauntlet/config/gauntlet.properties` | 6709 | 7227 |
 | `gauntlet/config/integrity-allowlist.txt` | 445 | 872 |
-| `gauntlet/gauntlet.gradle` | 71481 | 90538 |
+| `gauntlet/gauntlet.gradle` | 71481 | 91846 |
 | `gauntlet/hooks/guard.py` | 112844 | 112883 |
 | `gauntlet/hooks/selftest.py` | 136597 | 137719 |
 | `gauntlet/hooks/session_start.sh` | 3116 | 3492 |

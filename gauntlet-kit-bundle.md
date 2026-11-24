@@ -1,4 +1,4 @@
-# Бандл эталонного набора gauntlet (ревизия 4.4 от 2026-11-23)
+# Бандл эталонного набора gauntlet (ревизия 4.4 от 2026-11-24)
 
 Этот файл — самодостаточный источник эталона для протокола `start` из инструкции «Метод Gauntlet». Он
 содержит файлы набора после очистки от имён и примеров эталонного проекта (раздел 8.4 инструкции; ревизия 4 снята с ветки эталона, в которой смержены все правки набора по 2026-10-05): хуки
@@ -588,7 +588,7 @@ ArchUnit-тест, шаблоны, установку и документаци�
   регрессионный набор репозитория прошёл в GitHub Actions (`.github/workflows/kit-tests.yml`, ubuntu-24.04,
   266 тестов); workflow самого набора (`gauntlet.yml`) там не исполняется: его шаги проверены локально как shell.
 
-**Изменения против ревизии 4.3 (ревизия 4.4, 2026-11-23) — проверки по результату вместо эвристик по тексту.**
+**Изменения против ревизии 4.3 (ревизия 4.4, 2026-11-24) — проверки по результату вместо эвристик по тексту.**
 - `.github/workflows/gauntlet-kit.yml` (новый; `install.sh` ставит его рядом с `gauntlet.yml`): на каждый PR —
   `pull_request_target`, сравнение с merge base только git'ом, без кода PR; красный, когда изменён путь, который
   guard охраняет как человеческий. Вердикт — check run `gauntlet kit unchanged` на голове PR (Checks API,
@@ -656,7 +656,7 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md`, `
 - `CLAUDE.md` (279 байт)
 - `gauntlet/CLAUDE.md` (66971 байт)
 - `gauntlet/INSTALL.md` (22275 байт)
-- `gauntlet/README.md` (121013 байт)
+- `gauntlet/README.md` (121534 байт)
 - `gauntlet/archtest/gauntlet/architecture/ArchitectureTest.java` (7999 байт)
 - `gauntlet/config/architecture.properties` (1420 байт)
 - `gauntlet/config/checkstyle.xml` (4593 байт)
@@ -665,7 +665,7 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md`, `
 - `gauntlet/config/integrity-allowlist.txt` (872 байт)
 - `gauntlet/config/pit-runerror-allowlist.txt` (1485 байт)
 - `gauntlet/config/pmd-ruleset.xml` (11398 байт)
-- `gauntlet/gauntlet.gradle` (90538 байт)
+- `gauntlet/gauntlet.gradle` (91846 байт)
 - `gauntlet/hooks/guard.py` (112883 байт)
 - `gauntlet/hooks/selftest.py` (137719 байт)
 - `gauntlet/hooks/session_start.sh` (3492 байт)
@@ -2200,8 +2200,8 @@ Auto-fix (кнопка в CI status bar сессии): на упавший CI и
 | `cd` в каталог, который хук не вычислял (`cd "$(git rev-parse --show-toplevel)" && echo … >> gauntlet/config/gauntlet.properties`, `cd "$CLAUDE_PROJECT_DIR"`, `cd -`, `popd`), и перенаправление, принятое за аргумент (`git push origin 2>&1` на базовой ветке — «refspec» `2>`; `echo '…' \| bash 2>&1`) | каталог после `cd` вычисляется для `~`, `$HOME`, `$PWD`, `$CLAUDE_PROJECT_DIR` и корня git; после `cd -`, `popd` и неизвестной цели команда судится по всем каталогам, где она уже была, и по корню проекта; перенаправления и here-string не входят в аргументы команды |
 | цель перенаправления, склеенная из кусков или собранная глобом (`> 'gauntlet'/config/…`, `> gaunt\let/…`, `> "$CLAUDE_PROJECT_DIR"/gauntlet/…`, `> gauntle?/config/…`), запись через `>&файл` и `>\|` | цель судится как слово, которое из неё делает bash: кавычки и `\` сняты, куски склеены, известные хуку переменные раскрыты, глоб сопоставлен с файлами; `>&` и `1>&` со словом — запись, и с переменной тоже, `>\|` — запись; число и `-` после `>&` и любое слово после другого дескриптора (`2>&"$saved_stderr"`) — дескриптор; экранированный `\>` — символ, и `\|` и `&` после него — конвейер и конец команды; сверено с настоящим bash |
 | не запускать падающий тест фильтром задачи `Test` (`test { exclude '**/OrdersTest*' }`, `test { if (ci) { exclude … } }`, `filter { includePatterns = … }`, `includeEngines`, категории JUnit 4, группы TestNG) | для `test` и `archTest` результат судит `testCensus`: каждый тестовый класс, который задача скомпилировала, обязан быть в её JUnit XML (прошёл, упал или пропущен), иначе находка T6. Так видна любая форма фильтра в скрипте, который убирает класс целиком (фильтр метода — раздел 9), фильтр тестовой платформы вне скрипта (`PostDiscoveryFilter` через `META-INF/services` в тестовых ресурсах), движок, которого у задачи нет (тесты JUnit 4 без vintage), TestNG `@Test(enabled = false)`. Фильтр сценариев `acceptanceTest` ловит перепись сценариев (F2), `gherkinMutantsRun` судится по своему потоку; `integrityCheck` B2 остаётся ранним сигналом по тексту скрипта. B2 знает имена выбора тестов Gradle и узнаёт задачу по тексту скрипта. `exclude` и `include` — находка там, где они настраивают задачу `Test`, которую гоняет гейт (`test`, `archTest`, `acceptanceTest`, `gherkinMutantsRun`, `withType(Test)`), в том числе внутри `filter`, `doFirst`, `if` (условие на имя задачи выбирает её, только когда блок настраивает несколько задач `Test`); `includes`/`excludes` — когда их пишут, и со следующей строки тоже. Остальные имена — находка везде, кроме задачи `Test`, которую скрипт называет и гейт не запускает. Те же слова у `jar`, копирования, source set и зависимостей — не находка; чего B2 не видит — раздел 9 |
-| сузить `testClassesDirs` (отфильтрованное дерево файлов, `files()`) или оставить тестовый исходник вне компиляции (`sourceSets.test.java.exclude`, `compileTestJava { exclude }`) | `testCensus`: задача, которая запускает не все классы своего source set, — отказ; исходник `.java` из каталогов source set, который задача компиляции не получила, — находка T6 «not compiled» |
-| выключить исполнение шагов Cucumber (`cucumber.execution.dry-run`) или его поиск фич (`cucumber.junit-platform.discovery.as-root-engine=false`) | набор сам задаёт `dry-run=false` и `as-root-engine=true` провайдером аргументов `acceptanceTest` и `gherkinMutantsRun` и после прогона сверяет, с чем Gradle их запустил |
+| сузить `testClassesDirs` (отфильтрованное дерево файлов, `files()`, `sourceSets.test.output.classesDirs.setFrom(…)`) или оставить тестовый исходник вне компиляции (`sourceSets.test.java.exclude`, `compileTestJava { exclude }`, `srcDirs = []`) | `testCensus`: задача, которая запускает не все классы из каталогов, куда пишут задачи компиляции её source set, — отказ; исходник `.java` из каталогов source set и из `src/<set>/java`, который задача компиляции не получила, — находка T6 «not compiled» |
+| выключить исполнение шагов Cucumber (`cucumber.execution.dry-run`) или его поиск фич (`cucumber.junit-platform.discovery.as-root-engine=false`) | набор сам задаёт `dry-run=false` и `as-root-engine=true` провайдером аргументов `acceptanceTest` и `gherkinMutantsRun` и после прогона сверяет, с чем Gradle их запустил; `-Dcucumber.*` в `_JAVA_OPTIONS` окружения задачи (JVM читает его после командной строки) — отказ |
 | вывести задачу тестов из прогона, пропустить её или выключить её XML-отчёт (`-x test`, `gradle.startParameter.excludedTaskNames`, `onlyIf`, `enabled = false`, `reports.junitXml.required = false`) | `testCensus` отказывается («not part of this build», «switches them off») или при SKIPPED называет каждый класс; результаты прошлого прогона на диске он не судит: выполнена, UP-TO-DATE или FROM-CACHE — это результаты этих самых входов, а фильтры — входы |
 | step-определение игнорирует параметр | `gherkinMutation` |
 | мутант «убит» не изменённым значением, а сломанным стендом: упала фикстура, сценарий зависит от соседнего, строку нельзя прогнать дважды на одном стенде, параллельный прогон проекта поставил оба контроля раньше мутанта, значение отверг сам Cucumber | `gherkinMutation`: каждая мутируемая строка «Примеров» прогоняется без изменений дважды — до мутантов (`cN`) и после них (`zN`), оба контроля обязаны пройти; мутанты и контроли идут в одном JVM, по одному сценарию, в порядке имён файлов, как бы проект ни запускал свою приёмку (параллельный Cucumber в `junit-platform.properties` или в `tasks.withType(Test)`, `cucumber.execution.order`, `maxParallelForks`, `forkEvery`), а если `doFirst` проекта всё же перебил это, прогон после себя падает и называет настройку. Как прогон шёл на деле, судится по потоку сообщений Cucumber этого прогона (по файлу на JVM теста, и у каждого раунда повторных попыток свой): у каждой попытки каждого мутанта и контроля есть начало и конец, и их столько же, сколько в JUnit XML; в одном JVM два сценария не идут одновременно; каждый мутант начался после конца `cN` и кончился до начала `zN`, в том же JVM; нет потока, он пуст или не читается — ошибка, а не вердикт. Так закрыты и пути мимо аргументов JVM: `_JAVA_OPTIONS` в окружении задачи, файл аргументов, провайдер, который после прогона отвечает иначе, `doLast` проекта, вернувший настройки. kill — только падение, брошенное step-определением, на первом шаге, который использует мутированную колонку, или позже. Падение раньше этого шага, падение мутанта колонки, которую не использует ни один шаг, значение, которое Cucumber не смог конвертировать или которое отверг transformer (`@ParameterType` и т. п.), неудавшийся glue-объект, неоднозначный шаг, хук или фикстура — ошибка, а не kill |
@@ -2565,7 +2565,8 @@ CI на GitHub. Оттуда — правки ревизии 3: RUN_ERROR в `mu
 - `testCensus` находит класс и там, где его не запускают нарочно, и тогда помогает строка
   `<glob пути исходника> T6 # причина` в `config/integrity-allowlist.txt`. Такие случаи:
   - тесты, которые гоняет другая задача `Test` над тем же source set (`test { exclude '**/*IT*' }` и задача
-    `integrationTest`), тег-фильтр на `test`;
+    `integrationTest`), тег-фильтр на `test`; тесты из `src/test/java`, которые компилирует другой source set
+    (`integrationTest` с `srcDir 'src/test/java'`, `include '**/*IT.java'`), — T6 «not compiled for test»;
   - `@TestFactory` без динамических тестов, `@ParameterizedTest(allowZeroInvocations = true)` с пустым источником;
   - TestNG `@Test(enabled = false)`;
   - тесты фреймворка или движка, которого у задачи нет (JUnit 4 без vintage);
@@ -4284,7 +4285,11 @@ tasks.register('testCensus', Exec) {
             // (testClassesDirs.asFileTree.matching { exclude ... }, files()) keeps test classes out of the run, and
             // the census would judge only what is left. More directories than the source set's are judged too.
             def testSet = sourceSets.getByName(name == 'test' ? 'test' : 'archTest')
-            def compiled = testSet.output.classesDirs.files
+            // where the source set's compile tasks write: the build controls testClassesDirs and the source set's
+            // output.classesDirs alike (output.classesDirs.setFrom(files()) emptied both), not where javac writes
+            def compiled = ['java', 'kotlin', 'groovy']
+                    .collect { tasks.findByName(testSet.getCompileTaskName(it))?.destinationDirectory?.getOrNull()?.asFile }
+                    .findAll { it != null } as Set
             def listed = task.testClassesDirs.files
             if (!listed.containsAll(compiled)) {
                 throw new GradleException("gauntlet: ${task.path} runs the test classes in ${listed ?: 'nothing'}, " +
@@ -4300,9 +4305,12 @@ tasks.register('testCensus', Exec) {
             // A test source its compile task leaves out (sourceSets.test.java.exclude, compileTestJava { exclude })
             // has no class: nothing above could miss it, and nothing would ever run it. Java sources: the source
             // set's directories on disk against what the compile task compiles.
+            // The conventional directory (src/test/java) counts even when the build moved the source set's
+            // directories elsewhere (srcDirs = []): a test there would compile and run in a plain build.
             def compileInputs = tasks.getByName(testSet.compileJavaTaskName).source.files
-            def notCompiled = testSet.java.srcDirs.findAll { it.isDirectory() }
-                    .collectMany { dir -> fileTree(dir) { include '**/*.java' }.files as List }
+            def notCompiled = ((testSet.java.srcDirs as List) + [file("src/${testSet.name}/java")]).unique()
+                    .findAll { it.isDirectory() }
+                    .collectMany { dir -> fileTree(dir) { include '**/*.java' }.files as List }.unique()
                     .findAll { !(it.name in ['package-info.java', 'module-info.java']) && !(it in compileInputs) }
             args '--not-compiled-file', pathList("census-${name}-not-compiled", notCompiled*.absolutePath)
             // Executed, UP-TO-DATE or FROM-CACHE: the directory holds the results of these very inputs (a run deletes
@@ -4402,6 +4410,12 @@ def lastSystemProperty = { Test task, String key ->
     def values = task.allJvmArgs.findAll { it.startsWith("-D${key}=") }
     values ? values[-1].substring(key.length() + 3) : 'unset'
 }
+// _JAVA_OPTIONS of the test JVM's environment: the JVM reads it after the command line, so a -Dcucumber.* there beats
+// every -D the kit passes (dry-run, the plugin, the order), and Gradle's argument list does not show it
+def cucumberInJavaOptions = { Test task ->
+    def options = task.environment['_JAVA_OPTIONS']?.toString() ?: ''
+    (options =~ /-Dcucumber\.[^\s=]+=?\S*/).collect { "_JAVA_OPTIONS ${it}".toString() }
+}
 def acceptanceMessages = buildDirFile('cucumber-messages/acceptanceTest')
 
 tasks.register('acceptanceTest', Test) {
@@ -4432,12 +4446,12 @@ tasks.register('acceptanceTest', Test) {
     // provider (one registered before apply from) would let a dry run pass every scenario.
     doLast { Test task ->
         def wrong = cucumberRun.findAll { key, value -> lastSystemProperty(task, key) != value }
-                .collect { key, value -> "${key}=${lastSystemProperty(task, key)}" }
+                .collect { key, value -> "${key}=${lastSystemProperty(task, key)}" } + cucumberInJavaOptions(task)
         if (wrong) {
             throw new GradleException("gauntlet: acceptanceTest ran with ${wrong.join(', ')}: the gates judge scenarios " +
                     "whose steps executed. A doFirst of the project's own changed what the kit set (one registered " +
-                    "before apply from: tasks.withType(Test), a convention plugin, allprojects, an init script) - keep " +
-                    "it off acceptanceTest.")
+                    "before apply from: tasks.withType(Test), a convention plugin, allprojects, an init script), or " +
+                    "_JAVA_OPTIONS of the task's environment overrides it - keep both off acceptanceTest.")
         }
     }
 }
@@ -4746,13 +4760,13 @@ tasks.register('gherkinMutantsRun', Test) {
                 cucumberRun.collectEntries { key, value -> [(key): last(key)] }
         def wrong = ([maxParallelForks: 1, forkEvery: 0, 'cucumber.execution.parallel.enabled': 'false',
                       'cucumber.execution.order': 'lexical'] + cucumberRun).findAll { key, value -> used[key] != value }
-                .collect { key, value -> "${key}=${used[key]}" }
+                .collect { key, value -> "${key}=${used[key]}" } + cucumberInJavaOptions(it)
         if (wrong) {
             throw new GradleException("gauntlet: gherkinMutantsRun ran with ${wrong.join(', ')}: its controls prove " +
                     "nothing unless one JVM runs one scenario at a time, in the order of the file names. A doFirst " +
                     "of the project's own changed what the kit set (one registered before apply from: " +
-                    "tasks.withType(Test), a convention plugin, allprojects, an init script) - keep it off " +
-                    "gherkinMutantsRun.")
+                    "tasks.withType(Test), a convention plugin, allprojects, an init script), or _JAVA_OPTIONS of " +
+                    "the task's environment overrides it - keep both off gherkinMutantsRun.")
         }
     }
 }

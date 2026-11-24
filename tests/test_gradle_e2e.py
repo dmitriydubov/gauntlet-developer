@@ -791,10 +791,13 @@ class AcceptanceCensus(GradleCase):
         plain = kit.read(build)
         for version in (CUCUMBER, "8.0.1"):
             kit.set_property(self.lab, "cucumber.version", version)
-            for where, script, platform in (
+            for where, script, platform, failure in (
                     ("the build script", "tasks.withType(Test).configureEach { systemProperty "
-                                         "'cucumber.execution.dry-run', 'true' }\n", None),
-                    ("junit-platform.properties", "", "cucumber.execution.dry-run=true\n")):
+                                         "'cucumber.execution.dry-run', 'true' }\n", None, "expected: <"),
+                    ("junit-platform.properties", "", "cucumber.execution.dry-run=true\n", "expected: <"),
+                    ("_JAVA_OPTIONS of the task", "tasks.withType(Test).configureEach { environment '_JAVA_OPTIONS', "
+                                                  "'-Dcucumber.execution.dry-run=true' }\n", None,
+                     "acceptanceTest ran with _JAVA_OPTIONS -Dcucumber.execution.dry-run=true")):
                 with self.subTest(cucumber=version, dry_run=where):
                     kit.write(build, plain + script)
                     if platform:
@@ -804,7 +807,7 @@ class AcceptanceCensus(GradleCase):
                     r = self.gradle("acceptanceTest", "-Pgauntlet.scope=all")
                     self.assert_build(r, False)
                     self.assertRegex(r.out, r"(?m)^> Task :acceptanceTest FAILED$")
-                    self.assertIn("expected: <", r.out)                 # the glue ran: its assertion failed
+                    self.assertIn(failure, r.out)       # the glue ran and its assertion failed, or the run is refused
         kit.write(build, plain)
         self.file(GLUE + "DiscountSteps.java", DISCOUNT_STEPS % "assertEquals(expected, total)")
         for version, platform in ((CUCUMBER, "cucumber.plugin=pretty,\n"), ("8.0.1", "cucumber.plugin=pretty,\n"),
@@ -1812,7 +1815,11 @@ class Census(GradleCase):
                 ("a filtered file tree", "test { testClassesDirs = testClassesDirs.asFileTree.matching { "
                                          "getExcludes().add('**/SlowOrdersTest*') } }", "", ":test"),
                 ("an empty collection", "test { testClassesDirs = files() }", "", ":test"),
-                ("archTest emptied after the kit", "", "archTest { testClassesDirs = files() }\n", ":archTest")):
+                ("archTest emptied after the kit", "", "archTest { testClassesDirs = files() }\n", ":archTest"),
+                ("the source set's classes directories emptied", "sourceSets.test.output.classesDirs.setFrom(files())",
+                 "", ":test"),
+                ("archTest's source set emptied after the kit", "",
+                 "sourceSets.archTest.output.classesDirs.setFrom(files())\n", ":archTest")):
             with self.subTest(case):
                 self.build(extra)
                 kit.write(os.path.join(self.lab, "build.gradle"), kit.read(os.path.join(self.lab, "build.gradle")) + after_the_kit)
@@ -1830,6 +1837,12 @@ class Census(GradleCase):
                               "this test source out of the compilation", r.out)
                 self.assertIn("Test census: FAILED - 0 test class(es) compiled but not run, 1 test source(s) not compiled; "
                               f"test classes run (ran/compiled): test {CENSUS_COUNTED - 1}/{CENSUS_COUNTED - 1}", r.out)
+        with self.subTest("the source set's directories moved away from src/test/java"):
+            self.build("sourceSets { test { java { srcDirs = [] } } }")
+            r = self.gradle("testCensus")
+            self.assert_build(r, False)
+            self.assertIn(f"INTEGRITY T6 {DOMAIN_TEST}SlowOrdersTest.java  not compiled for test", r.out)
+            self.build("compileTestJava { exclude '**/SlowOrdersTest.java' }")
         with self.subTest("an allowlist line accepts a source left out"):
             allowlist = os.path.join(self.lab, "gauntlet/config/integrity-allowlist.txt")
             shipped = kit.read(allowlist)

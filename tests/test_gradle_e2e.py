@@ -1334,7 +1334,7 @@ class ChangedScope(GradleCase):
         self.commit("a comment that ends with a lone CR")
         r = self.gradle("mutationGate")
         self.assert_build(r, False)                                     # the weak test leaves survivors
-        self.assertNotIn("no changed main classes", r.out)
+        self.assertNotIn(":pitest skipped by the kit", r.out)
         self.assertRegex(r.out, r">> Generated [1-9]\d* mutations")
 
     def test_changed_class_in_a_second_root_of_the_main_source_set(self):
@@ -2182,6 +2182,35 @@ class GateRan(GradleCase):
                 r = self.stops()
                 self.assertEqual(r.code, 2, r)
                 self.assertIn(f"gauntlet: Gradle finished gauntletFast without running {named}", r.out)
+
+    def test_a_build_script_that_switches_a_gate_off_or_ignores_its_verdict(self):
+        # review of 4.4: a SKIPPED gate counted as run - and a skipped integrityCheck cannot name the line that skipped
+        # it; ignoreExitValue on every Exec task let each gate pass on its own findings
+        self.start_session()
+        skipped = DOMAIN_TEST + "SkippedTest.java"
+        build = kit.read(os.path.join(self.lab, "build.gradle"))
+        for what, before, after, finding, named in (
+                ("integrityCheck disabled after the kit", "", "tasks.named('integrityCheck') { enabled = false }\n", True,
+                 "without running integrityCheck - no"),
+                ("integrityCheck skipped by an onlyIf of the project's", "",
+                 "tasks.named('integrityCheck') { onlyIf { false } }\n", True, "without running integrityCheck - no"),
+                ("crapGate switched off in a form B1 does not read",
+                 "tasks.configureEach { if (name == 'crapGate') { enabled false } }\n", "", False,
+                 "without running crapGate - no"),
+                ("every Exec gate ignores its exit value", "tasks.withType(Exec).configureEach { ignoreExitValue = true }\n",
+                 "", True, "ended with exit value 1, and the build ignores exit values")):
+            with self.subTest(what):
+                if finding:     # a test the agent switched off: finding T1, which only a running integrityCheck reports
+                    self.file(skipped, "package com.example.service.domain;\n\nimport org.junit.jupiter.api.Disabled;\n"
+                              "import org.junit.jupiter.api.Test;\n\nclass SkippedTest {\n    @Disabled(\"later\")\n"
+                              "    @Test\n    void later() {\n    }\n}\n")
+                elif os.path.exists(os.path.join(self.lab, skipped)):
+                    os.remove(os.path.join(self.lab, skipped))
+                self.file("build.gradle", build.replace("apply from: 'gauntlet/gauntlet.gradle'\n",
+                                                        before + "apply from: 'gauntlet/gauntlet.gradle'\n" + after))
+                r = self.stops()
+                self.assertEqual(r.code, 2, r)
+                self.assertIn(named, r.out)
 
     def test_the_whole_fast_gate_is_green_for_the_stop_hook(self):
         self.start_session()

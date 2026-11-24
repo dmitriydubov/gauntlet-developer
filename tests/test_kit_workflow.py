@@ -97,7 +97,7 @@ class Origin:
         script = kit.write(os.path.join(root, "step.sh"), ci.step_script(STEP, workflow()))
         summary = os.path.join(root, "summary.md")
         env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
-        env.update(PR_NUMBER=str(number), BASE_BRANCH=base, HEAD_SHA=head_sha, FETCH_TOKEN="",
+        env.update(PR_NUMBER=str(number), BASE_BRANCH=base, DEFAULT_BRANCH="main", HEAD_SHA=head_sha, FETCH_TOKEN="",
                    GITHUB_STEP_SUMMARY=summary, RUNNER_TEMP=root, REPORT_TOKEN="", GITHUB_REPOSITORY="owner/repo")
         calls = os.path.join(root, "gh-calls")
         if report:
@@ -266,12 +266,12 @@ class KitCheck(unittest.TestCase):
         self.assert_green(self.origin.run(number, shas[1]))
         self.assert_green(self.origin.run(number, "0" * 40))      # pushed away since: the head as it is now
 
-    def assert_reported(self, r, conclusion, head_sha):
+    def assert_reported(self, r, conclusion, head_sha, name="gauntlet kit unchanged"):
         """The verdict reached the pull request's head commit as the check run the branch protection requires."""
         args = r.reported
         self.assertEqual(args[:4], ["api", "--silent", "-X", "POST"], args)
         self.assertEqual(args[4], "repos/owner/repo/check-runs")
-        self.assertIn("name=gauntlet kit unchanged", args)
+        self.assertIn(f"name={name}", args)
         self.assertIn(f"head_sha={head_sha}", args)
         self.assertIn("status=completed", args)
         self.assertIn(f"conclusion={conclusion}", args)
@@ -291,6 +291,20 @@ class KitCheck(unittest.TestCase):
         r = self.origin.run(number, shas[-1], report=True)
         self.assertEqual(r.code, 0, r)
         self.assertIn("No gauntlet kit file changed", self.assert_reported(r, "success", shas[-1]))
+
+    def test_a_pull_request_into_another_branch_reports_under_a_name_of_its_own(self):
+        # review of 4.4: the verdict is keyed by the head commit. A second pull request of the same head into a branch
+        # without the kit posted "success" on that commit, and the later check run of the name the default branch
+        # requires decided its merge
+        number, shas = self.origin.pull_request(edit("gauntlet/config/gauntlet.properties", "crap.threshold=97\n"))
+        r = self.origin.run(number, shas[-1], report=True)
+        self.assertEqual(r.code, 1, r)
+        self.assert_reported(r, "failure", shas[-1])
+        self.origin.branch("release", "main", edit("NOTES.md", "release line\n"))
+        r = self.origin.run(number, shas[-1], base="release", report=True)
+        self.assertEqual(r.code, 1, r)
+        self.assert_reported(r, "failure", shas[-1], name="gauntlet kit unchanged (release)")
+        self.assertNotIn("name=gauntlet kit unchanged", r.reported)
 
     def test_without_a_token_the_check_run_is_not_created_and_the_job_still_judges(self):
         number, shas = self.origin.pull_request(edit("gauntlet/config/gauntlet.properties", "crap.threshold=98\n"))
@@ -341,7 +355,8 @@ class WorkflowText(unittest.TestCase):
         self.assertNotRegex(self.text, r"\n  pull_request:")
         self.assertNotRegex(self.text, r"\n    (paths|paths-ignore|branches|branches-ignore):")   # required: always reports
         self.assertRegex(self.text, r"\n    name: kit files +#")      # the required check is the check run it creates
-        self.assertIn("-f name='gauntlet kit unchanged' -f head_sha=\"$sha\"", self.script)
+        self.assertIn('-f name="$check" -f head_sha="$sha"', self.script)
+        self.assertIn('check="gauntlet kit unchanged"', self.script)
 
     def test_the_token_reads_the_code_and_writes_only_the_check(self):
         self.assertEqual(self.text.count("permissions:"), 1)              # no job widens it

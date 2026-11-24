@@ -54,6 +54,16 @@
    `session_start.sh` читает `baseRef` кодом `stop_gate.py`.
 6. **Dry run JUnit Platform** (`junit.platform.execution.dryRun.enabled=true`, найден при переписи: каждый тест
    «пропущен», ни один не запускался) — находка P1 в `junit-platform.properties` и B3 в скрипте сборки.
+7. **По независимому ревью сведённых правок:** dry run Cucumber и `discovery.as-root-engine` набор задаёт сам и
+   сверяет после прогона; суженный `testClassesDirs` и один каталог JUnit XML у `test` и `archTest` — отказ
+   переписи, тестовый исходник вне компиляции — T6; Jackson для Cucumber 8 — без версии, с ограничением «предпочитаю»
+   (Spring Boot 4 с `io.spring.dependency-management` снова зелёный); лимиты размера JAXP JDK 24+ сняты во всех
+   читателях XML; список `cucumber.plugin` собирается по элементам. Гейт, который набор не пропускает сам,
+   засчитывается только выполненным (`tasks.named('integrityCheck') { enabled = false }` после `apply` был
+   зелёным), пропуск набора — только с его строкой `skipped by the kit`; код выхода инструмента сверяется после
+   прогона (`ignoreExitValue`); `gauntlet.properties` не в UTF-8 больше не роняет Stop-хук; PR в другую ветку
+   отчитывается под именем `gauntlet kit unchanged (<ветка>)`; инструменты запускаются с `-Dfile.encoding=UTF-8`
+   (JVM гейта 17 в локали POSIX).
 
 ### Где именно (по файлам)
 
@@ -80,22 +90,22 @@
 
 | Файл | 4.3 | 4.4 |
 |---|---|---|
-| `.github/workflows/gauntlet-kit.yml` | — | 9810 |
+| `.github/workflows/gauntlet-kit.yml` | — | 10218 |
 | `.github/workflows/gauntlet.yml` | 7658 | 8414 |
-| `gauntlet/CLAUDE.md` | 65401 | 66516 |
-| `gauntlet/INSTALL.md` | 17017 | 22192 |
-| `gauntlet/README.md` | 95176 | 118515 |
+| `gauntlet/CLAUDE.md` | 65401 | 66971 |
+| `gauntlet/INSTALL.md` | 17017 | 22275 |
+| `gauntlet/README.md` | 95176 | 121013 |
 | `gauntlet/config/gauntlet.properties` | 6709 | 7227 |
 | `gauntlet/config/integrity-allowlist.txt` | 445 | 872 |
-| `gauntlet/gauntlet.gradle` | 71481 | 88486 |
+| `gauntlet/gauntlet.gradle` | 71481 | 90538 |
 | `gauntlet/hooks/guard.py` | 112844 | 112883 |
 | `gauntlet/hooks/selftest.py` | 136597 | 137719 |
 | `gauntlet/hooks/session_start.sh` | 3116 | 3492 |
-| `gauntlet/hooks/stop_gate.py` | 22315 | 27251 |
+| `gauntlet/hooks/stop_gate.py` | 22315 | 29033 |
 | `gauntlet/install.sh` | 12194 | 16911 |
 | `gauntlet/tools/CrapGate.java` | 32267 | 33988 |
 | `gauntlet/tools/DryGate.java` | 7694 | 8887 |
-| `gauntlet/tools/GherkinMutator.java` | 77741 | 114214 |
+| `gauntlet/tools/GherkinMutator.java` | 77741 | 114611 |
 | `gauntlet/tools/IntegrityCheck.java` | 77388 | 77690 |
 | `gauntlet/tools/PitSummary.java` | 11633 | 12720 |
 | `gauntlet/tools/TestCensus.java` | — | 37511 |

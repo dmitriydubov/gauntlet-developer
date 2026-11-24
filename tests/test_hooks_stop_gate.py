@@ -206,6 +206,24 @@ class GreenExitWithoutTheGates(HookCase):
         self.assertIn("gauntlet: Gradle finished mutationGate without running pitest - no", r.stderr)
 
 
+class SettingsInAnotherEncoding(HookCase):
+
+    def test_a_properties_byte_that_is_not_utf8_does_not_kill_the_hook(self):
+        # review of 4.4: a comment saved as ISO-8859-1 in gauntlet.properties raised UnicodeDecodeError on every stop,
+        # the hook exited 1, and Claude Code let the agent stop with the gate never run - Gradle reads the file fine
+        p = Project(self.tmp.name)
+        properties = os.path.join(p.root, "gauntlet/config/gauntlet.properties")
+        with open(properties, "ab") as f:
+            f.write("# Gr\u00fc\u00dfe aus M\u00fcnchen\n".encode("latin-1"))
+        p.git("-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-q", "-am", "a latin-1 comment")
+        r = p.hook({"session_id": "s2", "hook_event_name": "SessionStart"}, "--record-start")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        p.change()
+        r = p.stop(first=True)
+        self.assertEqual(r.returncode, 2, r.stderr)         # red through the attempts: the gate ran, CRAP FAIL
+        self.assertIn("CRAP FAIL com.example.X#y", r.stderr)
+
+
 class VerifyRan(unittest.TestCase):
     """--verify-ran: the CI run step's judgement of a green Gradle output, the same as the hook's."""
 
@@ -217,11 +235,18 @@ class VerifyRan(unittest.TestCase):
                                "--verify-ran", task, "--log", f.name], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                               text=True)
 
-    def test_every_gate_task_with_any_outcome(self):
-        names = kit.stop_gate().gate_tasks("gauntlet")
-        outcomes = ["", " UP-TO-DATE", " NO-SOURCE", " SKIPPED", " FROM-CACHE"]
-        output = "".join(f"> Task :{n}{outcomes[i % len(outcomes)]}\n" for i, n in enumerate(names))
-        r = self.verify("gauntlet", output + "BUILD SUCCESSFUL in 9s\n")
+    def test_every_gate_task_with_an_outcome_the_kit_allows_it(self):
+        gate = kit.stop_gate()
+        outcomes = [" UP-TO-DATE", " NO-SOURCE", " SKIPPED", " FROM-CACHE", ""]
+        lines = []
+        for i, n in enumerate(gate.gate_tasks("gauntlet")):
+            if n in gate.MUST_EXECUTE:                      # executed on every run: no outcome
+                lines.append(f"> Task :{n}")
+            elif n in gate.KIT_SKIPS:                       # skipped only with the kit's own reason
+                lines += [f"gauntlet: :{n} skipped by the kit - nothing in scope", f"> Task :{n} SKIPPED"]
+            else:
+                lines.append(f"> Task :{n}{outcomes[i % len(outcomes)]}")
+        r = self.verify("gauntlet", "\n".join(lines) + "\nBUILD SUCCESSFUL in 9s\n")
         self.assertEqual((r.returncode, r.stdout), (0, ""))
 
     def test_a_missing_task_and_a_line_that_only_mentions_it(self):
@@ -231,6 +256,42 @@ class VerifyRan(unittest.TestCase):
         r = self.verify("gauntlet", output)
         self.assertEqual(r.returncode, 1, r.stdout)
         self.assertIn("without running integrityCheck - no", r.stdout)
+
+    def test_an_outcome_that_says_the_build_switched_a_gate_off(self):
+        # review of 4.4: "> Task :integrityCheck SKIPPED" counted as run - tasks.named('integrityCheck') { enabled = false }
+        # after apply switched every B and T rule off, and the skipped task could not name the line that skipped it
+        executed = "".join(f"> Task :{n}\n" for n in kit.stop_gate().gate_tasks("gauntletFast"))
+        kit_line = "gauntlet: :{0} skipped by the kit - nothing in scope\n> Task :{0} SKIPPED\n"
+        red = {
+            "integrityCheck SKIPPED": ("integrityCheck", "> Task :integrityCheck SKIPPED\n"),
+            "crapGate NO-SOURCE": ("crapGate", "> Task :crapGate NO-SOURCE\n"),
+            "dryGate UP-TO-DATE": ("dryGate", "> Task :dryGate UP-TO-DATE\n"),
+            "testCensus FROM-CACHE": ("testCensus", "> Task :testCensus FROM-CACHE\n"),
+            "checkstyleGate SKIPPED, no reason of the kit's": ("checkstyleGate", "> Task :checkstyleGate SKIPPED\n"),
+            "the kit's reason of another task": ("pmdGate", "gauntlet: :checkstyleGate skipped by the kit - x\n"
+                                                            "> Task :pmdGate SKIPPED\n"),
+        }
+        for what, (task, line) in red.items():
+            with self.subTest(what):
+                r = self.verify("gauntletFast", executed.replace(f"> Task :{task}\n", line))
+                self.assertEqual(r.returncode, 1, r.stdout)
+                self.assertIn(f"without running {task} - no", r.stdout)
+        green = {
+            "checkstyleGate skipped by the kit": executed.replace("> Task :checkstyleGate\n", kit_line.format("checkstyleGate")),
+            "acceptanceTest skipped by the kit": executed.replace("> Task :acceptanceTest\n", kit_line.format("acceptanceTest")),
+            "test NO-SOURCE": executed.replace("> Task :test\n", "> Task :test NO-SOURCE\n"),
+            "jacocoTestReport SKIPPED (no execution data)": executed.replace("> Task :jacocoTestReport\n",
+                                                                             "> Task :jacocoTestReport SKIPPED\n"),
+            "archTest UP-TO-DATE": executed.replace("> Task :archTest\n", "> Task :archTest UP-TO-DATE\n"),
+            "a module inside a multi-project build": executed.replace("> Task :", "> Task :core:"),
+        }
+        for what, output in green.items():
+            with self.subTest(what):
+                r = self.verify("gauntletFast", output)
+                self.assertEqual((r.returncode, r.stdout), (0, ""))
+        with self.subTest("a task path"):
+            r = self.verify(":app:gauntletFast", executed.replace("> Task :", "> Task :app:"))
+            self.assertEqual((r.returncode, r.stdout), (0, ""))
 
     def test_an_unreadable_log_is_no_verdict(self):
         r = subprocess.run([sys.executable, os.path.join(kit.kit(), "gauntlet", "hooks", "stop_gate.py"),

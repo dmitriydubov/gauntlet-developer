@@ -610,6 +610,14 @@ ArchUnit-тест, шаблоны, установку и документаци�
 - `tools/PitSummary.java`, `DryGate.java`, `GherkinMutator.java`: отчёт с DOCTYPE не читается; `CrapGate.java`: без
   внешних параметрических сущностей, порог — конечное число ≥ 0. `gauntlet.gradle`: `GAUNTLET_GATE_JAVA_HOME` и
   `-Pgauntlet.gateJavaHome` — не ниже Java 17, по ответу их `java`.
+- Независимое ревью сведённых правок (четыре области, каждая находка воспроизведена на Gradle 8.14.3): набор сам
+  задаёт Cucumber `dry-run=false` и `discovery.as-root-engine=true`; перепись отказывает суженному
+  `testClassesDirs` и общему каталогу JUnit XML, исходник вне компиляции — T6; Jackson для Cucumber 8 — без версии
+  (Spring Boot 4 с dependency-management снова зелёный); лимиты JAXP JDK 24+ сняты во всех читателях XML; гейт,
+  который набор не пропускает сам, засчитывается только выполненным, пропуск набора — только со строкой
+  `skipped by the kit`; код выхода инструмента сверяется после прогона (`ignoreExitValue`); инструменты
+  запускаются с `-Dfile.encoding=UTF-8`; `gauntlet.properties` не в UTF-8 не роняет Stop-хук; PR в другую ветку
+  отчитывается под именем `gauntlet kit unchanged (<ветка>)`.
 - `README.md` (разделы 2, 3, 5, 7, 9), `INSTALL.md`, `gauntlet/CLAUDE.md` — описание синхронизировано.
 - Проверки: ЗАПОЛНИТЬ ПОСЛЕ ПОЛНОГО ПРОГОНА.
 
@@ -643,12 +651,12 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md`, `
 - `.claude/agents/reviewer.md` (7509 байт)
 - `.claude/agents/specifier.md` (5312 байт)
 - `.claude/settings.json` (2543 байт)
-- `.github/workflows/gauntlet-kit.yml` (9810 байт)
+- `.github/workflows/gauntlet-kit.yml` (10218 байт)
 - `.github/workflows/gauntlet.yml` (8414 байт)
 - `CLAUDE.md` (279 байт)
-- `gauntlet/CLAUDE.md` (66516 байт)
-- `gauntlet/INSTALL.md` (22192 байт)
-- `gauntlet/README.md` (118515 байт)
+- `gauntlet/CLAUDE.md` (66971 байт)
+- `gauntlet/INSTALL.md` (22275 байт)
+- `gauntlet/README.md` (121013 байт)
 - `gauntlet/archtest/gauntlet/architecture/ArchitectureTest.java` (7999 байт)
 - `gauntlet/config/architecture.properties` (1420 байт)
 - `gauntlet/config/checkstyle.xml` (4593 байт)
@@ -657,17 +665,17 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md`, `
 - `gauntlet/config/integrity-allowlist.txt` (872 байт)
 - `gauntlet/config/pit-runerror-allowlist.txt` (1485 байт)
 - `gauntlet/config/pmd-ruleset.xml` (11398 байт)
-- `gauntlet/gauntlet.gradle` (88486 байт)
+- `gauntlet/gauntlet.gradle` (90538 байт)
 - `gauntlet/hooks/guard.py` (112883 байт)
 - `gauntlet/hooks/selftest.py` (137719 байт)
 - `gauntlet/hooks/session_start.sh` (3492 байт)
-- `gauntlet/hooks/stop_gate.py` (27251 байт)
+- `gauntlet/hooks/stop_gate.py` (29033 байт)
 - `gauntlet/install.sh` (16911 байт)
 - `gauntlet/templates/acceptanceTest/java/com/example/service/acceptance/CucumberSpringConfiguration.java` (615 байт)
 - `gauntlet/templates/acceptanceTest/resources/features/example_discount.feature` (1258 байт)
 - `gauntlet/tools/CrapGate.java` (33988 байт)
 - `gauntlet/tools/DryGate.java` (8887 байт)
-- `gauntlet/tools/GherkinMutator.java` (114214 байт)
+- `gauntlet/tools/GherkinMutator.java` (114611 байт)
 - `gauntlet/tools/IntegrityCheck.java` (77690 байт)
 - `gauntlet/tools/PitSummary.java` (12720 байт)
 - `gauntlet/tools/TestCensus.java` (37511 байт)
@@ -1024,6 +1032,8 @@ before any code is written; the coder must then make your scenarios pass without
 # own check run belongs to the default branch's commit (pull_request_target), where branch protection does not look
 # for the pull request's required checks. Only a GitHub App - here the workflow's token - can create a check run; an
 # agent acting with the human's credentials cannot. Make that check required, with GitHub Actions as its source.
+# A pull request into another branch reports "gauntlet kit unchanged (<branch>)": a second pull request of the same
+# head into a branch without the kit must not post a later "success" under the name the default branch requires.
 name: gauntlet kit
 
 on:
@@ -1054,6 +1064,7 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           FETCH_TOKEN: ${{ github.token }}
           REPORT_TOKEN: ${{ github.token }}
         run: |
@@ -1079,6 +1090,8 @@ jobs:
           # The verdict as the check run "gauntlet kit unchanged" on the head commit of the pull request: $2 is its
           # title, the file $3 its summary. Without a token or gh it only warns: the required check then never
           # reports, which blocks a merge where the check is required instead of passing it.
+          check="gauntlet kit unchanged"
+          [ "$BASE_BRANCH" = "$DEFAULT_BRANCH" ] || check="$check ($BASE_BRANCH)"
           report() {
             local sha=$HEAD_SHA
             [ -n "$sha" ] || sha=$(git rev-parse refs/gauntlet/head)
@@ -1087,7 +1100,7 @@ jobs:
               return 0
             fi
             GH_TOKEN=$REPORT_TOKEN gh api --silent -X POST "repos/$GITHUB_REPOSITORY/check-runs" \
-              -f name='gauntlet kit unchanged' -f head_sha="$sha" -f status=completed -f conclusion="$1" \
+              -f name="$check" -f head_sha="$sha" -f status=completed -f conclusion="$1" \
               -f "output[title]=$2" -F "output[summary]=@$3"
           }
           verdict=$(mktemp "${RUNNER_TEMP:-/tmp}/gauntlet-kit-verdict.XXXXXX")
@@ -1546,10 +1559,13 @@ Gradle-сборки живут в этих каталогах: `./gradlew …` �
    в build-скриптах, удалённых или ослабленных assert'ов. `integrityCheck` это ловит; человек видит каждую
    попытку в diff. `INTEGRITY T6 <путь>  compiled but not run by test  |  <класс>` значит, что-то не пускает
    этот класс в прогон: фильтр в скрипте сборки или в тестовых ресурсах, движок, которого нет у задачи, TestNG
-   `enabled = false`, `-x`; `… not compiled for test` — исходник оставлен вне компиляции (exclude у source set или
-   у задачи компиляции). Убери причину; allowlist — у человека. `gauntlet: Gradle finished … without
-   running …` значит, сборка оставила задачи гейта вне прогона (`gradle.startParameter.excludedTaskNames`,
-   набор не подключён): верни их.
+   `enabled = false`, пропущенная задача тестов (`onlyIf`, `enabled = false`); `… not compiled for test` — исходник
+   оставлен вне компиляции (exclude у source set или у задачи компиляции); `gauntlet: :test is not part of this
+   build` — задачу убрали из сборки (`-x`, `excludedTaskNames`). Убери причину; allowlist — у человека.
+   `gauntlet: Gradle finished … without running …` значит, сборка оставила задачу гейта вне прогона
+   (`gradle.startParameter.excludedTaskNames`, набор не подключён), выключила или пропустила её (`enabled = false`,
+   `onlyIf`); `… ended with exit value …, and the build ignores exit values` — сборка прячет вердикт инструмента
+   (`ignoreExitValue`). Верни, как было.
 3. **Фичи — это спецификация** (`<module>/src/acceptanceTest/resources/features/`, на русском,
    `# language: ru`). Пишет их только сабагент `specifier`, утверждает только человек — в чате. Код должен удовлетворять спецификации, а не наоборот.
 4. **TDD.** На каждое поведение: сфокусированный падающий unit-тест, который упал бы на правдоподобной
@@ -1871,8 +1887,9 @@ PIT оставляет тесту прежние вердикты. Гейт от
   приёмка идёт по одному форку, мутанты — в одном JVM по одному сценарию, и набор проверяет это по потоку
   сообщений Cucumber.
 - Гейты читают поток сообщений Cucumber (`cucumber.plugin` `message:`): набор добавляет его к плагинам проекта
-  из `systemProperty 'cucumber.plugin'` задачи или из `junit-platform.properties`. Свои плагины Cucumber задавай
-  там, а не через `-D` в `jvmArgs`: такой `-D` заменяет поток, и гейт красный. Cucumber 8 пишет поток только с
+  из `systemProperty 'cucumber.plugin'` задачи (туда же Gradle кладёт `-D` из `jvmArgs`) или из
+  `junit-platform.properties`. Свои плагины Cucumber задавай там, а не провайдером аргументов: его `-D` набор
+  перекрывает, и плагин пропадает. Cucumber 8 пишет поток только с
   Jackson: набор добавляет `tools.jackson.core:jackson-databind` без версии в свои зависимости приёмки по
   умолчанию (версию задаёт BOM или dependency-management проекта). Если сборка сама создаёт source set
   `acceptanceTest` или его зависимости раньше строки `apply`, добавь Jackson сам:
@@ -2104,7 +2121,9 @@ gate-версия — проектная), ставит все нужные JDK 
 регистре. Учитываются добавление, правка, удаление, переименование (оба конца), смена режима и типа. Он
 запускается как `pull_request_target`: файл workflow берётся из основной ветки, поэтому PR не выключит
 проверку, поправив её. Код PR он не запускает: забирает базу и голову PR (и из форка) как объекты git и
-сравнивает их только git. Вердикт — check run `gauntlet kit unchanged` на голове PR. Собственный check run
+сравнивает их только git. Вердикт — check run `gauntlet kit unchanged` на голове PR; у PR в другую ветку —
+`gauntlet kit unchanged (<ветка>)`, чтобы второй PR той же головы в ветку без набора не перебил вердикт для
+основной. Собственный check run
 job'а при `pull_request_target` висит на коммите основной ветки, где защита ветки его не ищет. Создать check
 run может только GitHub App, здесь — токен workflow (`checks: write`). Со своими учётными данными
 пользователь, а значит и агент, его не создаст; workflow, добавленный в PR, — может (раздел 9). Сделайте
@@ -2157,7 +2176,8 @@ Auto-fix (кнопка в CI status bar сессии): на упавший CI и
 |---|---|
 | поднять порог, выключить задачу, поправить роль | `gauntlet/`, `.claude/`, `CLAUDE.md`, workflow защищены guard-хуком; правки `build.gradle*`, `buildSrc/`, `gradle/*` вроде `enabled = false`, фильтров тестов, `afterEvaluate` находит `integrityCheck` (правила B1–B5); результат судит CI: `gauntlet kit unchanged` красный на любом PR, который меняет файлы набора относительно merge base, — guard остаётся ранней растяжкой |
 | поправить в PR саму CI-проверку набора | `pull_request_target` исполняет копию workflow из основной ветки, а правка workflow в PR сама попадает в список изменённых файлов набора |
-| оставить гейты вне сборки: `gradle.startParameter.excludedTaskNames << 'gauntletFast'` (или любой задачи гейта) в `build.gradle`, сборка без набора, `System.exit` в скрипте — Gradle печатал `BUILD SUCCESSFUL`, не запустив ни одного гейта | Stop-хук и CI судят зелёный код выхода по тому, что Gradle выполнил: в выводе `--console=plain` обязана быть строка `> Task …` у каждой задачи гейта (`GATE_TASKS` в `hooks/stop_gate.py`), кроме тех, что хук сам исключил на время неутверждённой спецификации; иначе прогон красный и называет задачи |
+| оставить гейты вне сборки: `gradle.startParameter.excludedTaskNames << 'gauntletFast'` (или любой задачи гейта) в `build.gradle`, сборка без набора — Gradle печатал `BUILD SUCCESSFUL`, не запустив ни одного гейта | Stop-хук и CI судят зелёный код выхода по тому, что Gradle выполнил: в выводе `--console=plain` обязана быть строка `> Task …` у каждой задачи гейта (`GATE_TASKS` в `hooks/stop_gate.py`), кроме тех, что хук сам исключил на время неутверждённой спецификации; иначе прогон красный и называет задачи |
+| выключить задачу гейта или сделать вид, что она прошла: `tasks.named('integrityCheck') { enabled = false }` после строки `apply` (выключенный `integrityCheck` не назовёт строку, которая его выключила), `onlyIf`, `enabled false`, пустой вход, который пропускает задачу, `ignoreExitValue = true` у задач `Exec` | гейты, которые набор не пропускает сам (`integrityCheck`, `testCensus`, `acceptanceCheck`, `crapGate`, `dryGate`, `gauntletScope`, Gherkin-мутации), засчитываются, только если Gradle их выполнил: SKIPPED, NO-SOURCE, UP-TO-DATE или FROM-CACHE у них — красный. Задача, которую набор пропускает, когда судить нечего, печатает `gauntlet: <задача> skipped by the kit - <причина>`; SKIPPED без этой строки — красный. Код выхода инструмента гейт сверяет после прогона, и `ignoreExitValue` его не скрывает |
 | подогнать спецификацию под код | после коммита спецификации guard отклоняет её правку; `--amend`, `rebase`, `revert`, `reset --hard`, `push --force`/`--mirror`/`--all`, `checkout -B`, `branch -f`/`-D` запрещены: guard ловит их семантически (в т. ч. внутри `bash -c`, `eval`, обёрток `sudo`/`env`, в сокращённой записи длинных опций, которую git принимает, — `commit --amen`, `push --mirro`, `branch --delet`, `switch --force-creat` — и за глобальной опцией вроде `git --namespace x …`), а `permissions.deny` дублирует прямые формы префиксом. Префиксный deny и эвристика guard обходятся хитрой командой — настоящая опора для базовой ветки: GitHub branch protection + CI + diff PR, который читает человек |
 | смержить самому | `gh pr merge` и API-merge запрещены; push в базовую ветку — тоже (и невозможен через GitHub-прокси облака) |
 | `@Disabled`, `@Ignore`, `assume*`, `disabledWithoutDocker` | `integrityCheck` T1–T5 |
@@ -2179,7 +2199,7 @@ Auto-fix (кнопка в CI status bar сессии): на упавший CI и
 | команда, которую guard читал иначе, чем оболочка: апостроф в комментарии или в теле heredoc (`# don't forget` и следующей строкой `git push --force`), перенос строки через `\` (`cp src/A.java \` + `gauntlet/config/`), `<<` в строке или в арифметике, программа через heredoc, here-string или pipe (`bash <<EOF`, `python3 - <<EOF`, `bash <<< '…'`, `echo '…' \| python3`), подстановка в теле heredoc, `find … -exec sed -i` | до правил команда читается одним проходом: комментарии убираются, строки с `\` склеиваются, тело heredoc выносится из командной строки и судится как программа того, кто его читает (для `cat` и `tee` это данные), шаблон `case` не закрывает подоболочку; чтение сверено с настоящим bash; скрипт `sed`, программа `awk` и условия `find` — не пути, а `find` пишет, когда пишет команда его `-exec` |
 | `cd` в каталог, который хук не вычислял (`cd "$(git rev-parse --show-toplevel)" && echo … >> gauntlet/config/gauntlet.properties`, `cd "$CLAUDE_PROJECT_DIR"`, `cd -`, `popd`), и перенаправление, принятое за аргумент (`git push origin 2>&1` на базовой ветке — «refspec» `2>`; `echo '…' \| bash 2>&1`) | каталог после `cd` вычисляется для `~`, `$HOME`, `$PWD`, `$CLAUDE_PROJECT_DIR` и корня git; после `cd -`, `popd` и неизвестной цели команда судится по всем каталогам, где она уже была, и по корню проекта; перенаправления и here-string не входят в аргументы команды |
 | цель перенаправления, склеенная из кусков или собранная глобом (`> 'gauntlet'/config/…`, `> gaunt\let/…`, `> "$CLAUDE_PROJECT_DIR"/gauntlet/…`, `> gauntle?/config/…`), запись через `>&файл` и `>\|` | цель судится как слово, которое из неё делает bash: кавычки и `\` сняты, куски склеены, известные хуку переменные раскрыты, глоб сопоставлен с файлами; `>&` и `1>&` со словом — запись, и с переменной тоже, `>\|` — запись; число и `-` после `>&` и любое слово после другого дескриптора (`2>&"$saved_stderr"`) — дескриптор; экранированный `\>` — символ, и `\|` и `&` после него — конвейер и конец команды; сверено с настоящим bash |
-| не запускать падающий тест фильтром задачи `Test` (`test { exclude '**/OrdersTest*' }`, `test { if (ci) { exclude … } }`, `filter { includePatterns = … }`, `includeEngines`, категории JUnit 4, группы TestNG) | для `test` и `archTest` результат судит `testCensus`: каждый тестовый класс, который задача скомпилировала, обязан быть в её JUnit XML (прошёл, упал или пропущен), иначе находка T6. Так видна любая форма фильтра в скрипте, фильтр тестовой платформы вне скрипта (`PostDiscoveryFilter` через `META-INF/services` в тестовых ресурсах), движок, которого у задачи нет (тесты JUnit 4 без vintage), TestNG `@Test(enabled = false)`. `integrityCheck` B2 остаётся ранним сигналом по тексту скрипта и единственным — для `acceptanceTest` и `gherkinMutantsRun`. B2 знает имена выбора тестов Gradle и узнаёт задачу по тексту скрипта. `exclude` и `include` — находка там, где они настраивают задачу `Test`, которую гоняет гейт (`test`, `archTest`, `acceptanceTest`, `gherkinMutantsRun`, `withType(Test)`), в том числе внутри `filter`, `doFirst`, `if` (условие на имя задачи выбирает её, только когда блок настраивает несколько задач `Test`); `includes`/`excludes` — когда их пишут, и со следующей строки тоже. Остальные имена — находка везде, кроме задачи `Test`, которую скрипт называет и гейт не запускает. Те же слова у `jar`, копирования, source set и зависимостей — не находка; чего B2 не видит — раздел 9 |
+| не запускать падающий тест фильтром задачи `Test` (`test { exclude '**/OrdersTest*' }`, `test { if (ci) { exclude … } }`, `filter { includePatterns = … }`, `includeEngines`, категории JUnit 4, группы TestNG) | для `test` и `archTest` результат судит `testCensus`: каждый тестовый класс, который задача скомпилировала, обязан быть в её JUnit XML (прошёл, упал или пропущен), иначе находка T6. Так видна любая форма фильтра в скрипте, который убирает класс целиком (фильтр метода — раздел 9), фильтр тестовой платформы вне скрипта (`PostDiscoveryFilter` через `META-INF/services` в тестовых ресурсах), движок, которого у задачи нет (тесты JUnit 4 без vintage), TestNG `@Test(enabled = false)`. Фильтр сценариев `acceptanceTest` ловит перепись сценариев (F2), `gherkinMutantsRun` судится по своему потоку; `integrityCheck` B2 остаётся ранним сигналом по тексту скрипта. B2 знает имена выбора тестов Gradle и узнаёт задачу по тексту скрипта. `exclude` и `include` — находка там, где они настраивают задачу `Test`, которую гоняет гейт (`test`, `archTest`, `acceptanceTest`, `gherkinMutantsRun`, `withType(Test)`), в том числе внутри `filter`, `doFirst`, `if` (условие на имя задачи выбирает её, только когда блок настраивает несколько задач `Test`); `includes`/`excludes` — когда их пишут, и со следующей строки тоже. Остальные имена — находка везде, кроме задачи `Test`, которую скрипт называет и гейт не запускает. Те же слова у `jar`, копирования, source set и зависимостей — не находка; чего B2 не видит — раздел 9 |
 | сузить `testClassesDirs` (отфильтрованное дерево файлов, `files()`) или оставить тестовый исходник вне компиляции (`sourceSets.test.java.exclude`, `compileTestJava { exclude }`) | `testCensus`: задача, которая запускает не все классы своего source set, — отказ; исходник `.java` из каталогов source set, который задача компиляции не получила, — находка T6 «not compiled» |
 | выключить исполнение шагов Cucumber (`cucumber.execution.dry-run`) или его поиск фич (`cucumber.junit-platform.discovery.as-root-engine=false`) | набор сам задаёт `dry-run=false` и `as-root-engine=true` провайдером аргументов `acceptanceTest` и `gherkinMutantsRun` и после прогона сверяет, с чем Gradle их запустил |
 | вывести задачу тестов из прогона, пропустить её или выключить её XML-отчёт (`-x test`, `gradle.startParameter.excludedTaskNames`, `onlyIf`, `enabled = false`, `reports.junitXml.required = false`) | `testCensus` отказывается («not part of this build», «switches them off») или при SKIPPED называет каждый класс; результаты прошлого прогона на диске он не судит: выполнена, UP-TO-DATE или FROM-CACHE — это результаты этих самых входов, а фильтры — входы |
@@ -2522,7 +2542,8 @@ CI на GitHub. Оттуда — правки ревизии 3: RUN_ERROR в `mu
 
   Такой фильтр виден в diff скрипта сборки, который читает человек.
 - `testCensus` судит класс, а не метод. Фильтр, после которого у класса запускается хоть один тест
-  (`excludeTestsMatching '*.OrdersTest.slowCase'`, тег на одном методе), он не видит.
+  (`excludeTestsMatching '*.OrdersTest.slowCase'`, тег на одном методе), он не видит. Исходники вне компиляции он
+  сверяет только для `.java`: тест на Kotlin или Groovy, исключённый из компиляции, не виден.
 - Для `testCensus` пропущенный тест считается запущенным. Класс, все тесты которого пропущены (`@Disabled`,
   условие, `assume*`), судят только T1–T5, по тексту. Dry run JUnit Platform
   (`junit.platform.execution.dryRun.enabled=true` в тестовых ресурсах или системным свойством) отчитывается о
@@ -2554,9 +2575,10 @@ CI на GitHub. Оттуда — правки ревизии 3: RUN_ERROR в `mu
   отфильтрованный `test` отдельно. `-x test`, `-x archTest`, `reports.junitXml.required = false` и один каталог
   JUnit XML у `test` и `archTest` (`tasks.withType(Test) { reports.junitXml.outputLocation = … }`: прогон
   `archTest` удаляет результаты `test`) — отказ: уберите их или дайте каждой задаче свой каталог.
-- Проверка «Gradle выполнил каждую задачу гейта» читает строки `> Task` в выводе Gradle. Обойти её можно
-  только сознательно, и это видно в diff скрипта сборки: задачи-заглушки с именами гейтов в сборке, которая
-  не подключает набор, или напечатанные строки `> Task …`. Компиляцию (`compileJava`, `compileTestJava`)
+- Проверка «Gradle выполнил каждую задачу гейта» читает строки `> Task` в выводе Gradle и строки набора
+  `skipped by the kit`. Обойти её можно только сознательно, и это видно в diff скрипта сборки: задачи-заглушки с
+  именами гейтов в сборке, которая не подключает набор, напечатанные строки `> Task …` или `skipped by the kit`.
+  Исход `test`, `archTest` и `jacocoTestReport` она не судит: их судят перепись тестов и CRAP-гейт. Компиляцию (`compileJava`, `compileTestJava`)
   она не требует: сборка, которая её исключает, локально судит классы прошлого прогона, а CI начинает с
   чистой копии. Прогон станет красным при уровне лога, скрывающем строки задач
   (`org.gradle.logging.level=quiet` или `warn` в `gradle.properties`, `-q` в `GAUNTLET_GRADLE_ARGS`), и при
@@ -2590,22 +2612,24 @@ CI на GitHub. Оттуда — правки ревизии 3: RUN_ERROR в `mu
   экосистеме Cucumber такие JAR не встречаются.
 - JVM гейта должна быть не ниже Java, под которую компилируется проект: `archTest`, `acceptanceTest` и PIT
   загружают классы проекта на ней. Gate 17 при проекте на 21 — `UnsupportedClassVersionError` в `archTest`.
-- `PitSummary` и `DryGate` не читают отчёт с DOCTYPE (PIT 1.22.1 и PMD 7.27.0 его не пишут), `CrapGate` читает
-  DOCTYPE JaCoCo без внешних сущностей. Отчёт, подложенный в обход задач набора, — ошибка, а не вердикт. Лимиты
+- `PitSummary`, `DryGate`, `TestCensus` и `GherkinMutator` (файл `TEST-*.xml`) не читают отчёт с DOCTYPE — это
+  ошибка, а не вердикт (PIT 1.22.1, PMD 7.27.0 и Gradle его не пишут). `CrapGate` читает DOCTYPE JaCoCo без внешних
+  сущностей; внутренняя сущность подложенного отчёта им читается. Лимиты
   размера JAXP в JDK 24+ (каждое `&lt;` или `&quot;` в атрибуте идёт в счёт 100 000 на документ) инструменты
   снимают: большой отчёт JaCoCo или JUnit XML на JVM гейта 25 читается (проверено на `CrapGate` и `TestCensus`).
-- JVM гейта 17 в локали не UTF-8 (`LANG=C`, Windows cp1252): `GherkinMutator.java`, в исходнике которого есть
-  кириллица, не компилируется, и задачи Gherkin падают. Задайте UTF-8 (`LANG=C.UTF-8`) или `gate.java.version` 18+
-  (там UTF-8 — кодировка по умолчанию).
+- Инструменты запускаются как исходники с `-Dfile.encoding=UTF-8`: Java 17 читает исходник в кодировке платформы,
+  и в локали POSIX (как в облачной сессии) `GherkinMutator.java` с кириллицей не компилировался. Запуск
+  `java GherkinMutator.java` вручную на Java 17 без UTF-8 локали по-прежнему падает — добавьте тот же флаг.
 - Исходники не в UTF-8 требуют явного `options.encoding`: без него гейт читает их как UTF-8 и падает с находкой E1
   (INSTALL, раздел 4).
 - Прогон мутантов сверяется с точными значениями: `-Dcucumber.execution.parallel.enabled=FALSE`, `forkEvery = 100`
   или удалённые провайдеры аргументов JVM в `doFirst` проекта гейт отклоняет, хотя прогон шёл последовательно, —
   держите такой `doFirst` в стороне от `gherkinMutantsRun`.
 - Гейты задают `cucumber.plugin` у `acceptanceTest` и `gherkinMutantsRun`, сохраняя плагины проекта из
-  `systemProperty` задачи и `junit-platform.properties`. `-D`, который проект передаёт иначе (`jvmArgs`,
-  провайдеры, `_JAVA_OPTIONS`), заменяет поток сообщений, и гейт красный: задавайте плагины в
-  `junit-platform.properties` или `systemProperty`.
+  `systemProperty` задачи (туда же Gradle кладёт `-D` из `jvmArgs`) и `junit-platform.properties`. Провайдер
+  аргументов проекта с `-Dcucumber.plugin` набор перекрывает, и плагин проекта молча пропадает. Поток заменяют
+  только `_JAVA_OPTIONS` и провайдер, который добавил `doFirst` проекта, зарегистрированный раньше набора, — тогда
+  гейт красный. Задавайте плагины в `junit-platform.properties` или `systemProperty`.
 - `acceptanceTest` идёт по одному форку: параллельные форки Cucumber не делят сценарии, каждый гонял все, и вместе
   они портили один поток. `doFirst` проекта, который снова включает параллельные форки, может сделать поток
   нечитаемым — красный прогон, который зависит от времени.
@@ -3402,6 +3426,16 @@ def glue = setting('acceptance.glue', '')
 def basePackage = setting('basePackage', '')
 def excludedClassGlobs = listSetting('exclude.classes', '*Application,*MapperImpl')  // not 'excludedClasses': a local of that name would shadow pitest.excludedClasses
 def tools = gauntletFile('tools').absolutePath
+// The tools run as source files, and Java 17 reads a source file in the platform's charset: under a POSIX locale (the
+// cloud session's) GherkinMutator.java, whose Russian keywords are not ASCII, did not compile. From Java 18 on UTF-8
+// is the default; this makes 17 read the sources - and default to - the same.
+def sourceUtf8 = '-Dfile.encoding=UTF-8'
+// A gate the kit skips itself says why, in the build's output: the Stop hook and CI count a SKIPPED gate as run only
+// with this line. A project's enabled = false, or an onlyIf of its own, skips the task without one.
+def skippedByTheKit = { Task task, String reason ->
+    task.logger.lifecycle("gauntlet: ${task.path} skipped by the kit - ${reason}")
+    return false
+}
 def buildDirFile = { String path -> layout.buildDirectory.file(path).get().asFile }
 
 // ------------------------------------------------------------------------------ changed files
@@ -4044,7 +4078,7 @@ tasks.register('integrityCheck', Exec) {
     group = 'gauntlet'
     description = 'Finds disabled tests, coverage/mutation evasion, inline suppressions and gate tampering.'
     executable javaBin
-    args "${tools}/IntegrityCheck.java", '--root', projectDir.absolutePath, '--features', featuresPath,
+    args sourceUtf8, "${tools}/IntegrityCheck.java", '--root', projectDir.absolutePath, '--features', featuresPath,
             '--allowlist', configFile('integrity-allowlist.txt').absolutePath
     doFirst {
         // every source tree with the charset of the task that compiles it: a UTF-16 test tree read as UTF-8
@@ -4083,7 +4117,7 @@ tasks.register('checkstyleGate', JavaExec) {
     ignoreExitValue = true
     def complaints = new ByteArrayOutputStream()     // stderr: where Checkstyle names a file it could not parse
     errorOutput = complaints
-    onlyIf { !targets().isEmpty() }
+    onlyIf { task -> !targets().isEmpty() || skippedByTheKit(task, 'no Java source in scope') }
     doFirst {
         args targets()*.absolutePath
         complaints.reset()
@@ -4146,7 +4180,7 @@ tasks.register('pmdGate', JavaExec) {
     args 'check', '--format', 'xml', '--report-file', report.absolutePath,
             '--no-fail-on-violation', '--no-cache', '--no-progress', '--show-suppressed'
     ignoreExitValue = true   // the verdict comes from the XML report, like checkstyleGate
-    onlyIf { !scanTargets().isEmpty() }
+    onlyIf { task -> !scanTargets().isEmpty() || skippedByTheKit(task, 'no Java source in scope') }
     doFirst {
         // PMD splits every value of --rulesets, --dir and --relativize-paths-with at commas: under "/home/me/Acme, Inc"
         // it loaded no rules, and a changed "Ledger,Copy.java" left it no file - "PMD: OK" on nothing. The ruleset and
@@ -4219,7 +4253,7 @@ tasks.register('testCensus', Exec) {
     description = 'Fails when a test class that test or archTest compiled did not run (judged by their JUnit XML results).'
     dependsOn censusTasks
     executable javaBin
-    args "${tools}/TestCensus.java", '--project-dir', projectDir.absolutePath,
+    args sourceUtf8, "${tools}/TestCensus.java", '--project-dir', projectDir.absolutePath,
             '--allowlist', configFile('integrity-allowlist.txt').absolutePath
     doFirst {
         // One results directory for both: a Test run deletes the TEST-*.xml it finds there, so archTest's run took
@@ -4346,8 +4380,9 @@ def platformProperties = { File entry ->
 }
 // The cucumber.plugin of the task's test JVMs: the project's own plugins stay - of a system property of the task, else
 // of the first junit-platform.properties on its classpath, where JUnit Platform reads them - and the stream joins them.
-// A value the project passes another way (-D in jvmArgs) is replaced. Cucumber splits the list at commas: a stream
-// under a directory named with one goes relative to the working directory of the JVM.
+// Gradle keeps a -D of jvmArgs as a system property, so it stays; a project's argument provider is overridden.
+// Cucumber splits the list at commas: a stream under a directory named with one goes relative to the working
+// directory of the JVM.
 def cucumberPlugins = { Test task, File stream ->
     def own = task.systemProperties['cucumber.plugin']?.toString()
     if (own == null) {
@@ -4377,7 +4412,7 @@ tasks.register('acceptanceTest', Test) {
     // input a change to only the feature files leaves acceptanceTest UP-TO-DATE and the new spec never runs.
     inputs.dir(featuresDir).optional().withPathSensitivity(PathSensitivity.RELATIVE)
     testLogging { events 'failed'; exceptionFormat = 'full' }
-    onlyIf { hasFeatures(featuresDir) }
+    onlyIf { task -> hasFeatures(featuresDir) || skippedByTheKit(task, 'no feature file') }
     mustRunAfter 'archTest'
     finalizedBy 'acceptanceCheck'
     // acceptanceCheck must judge this run only, never results a previous run left behind
@@ -4413,7 +4448,7 @@ tasks.register('acceptanceCheck', Exec) {
             'when feature files exist but no scenario ran, or when a scenario they define did not run.'
     def results = buildDirFile('test-results/acceptanceTest')
     executable javaBin
-    args "${tools}/GherkinMutator.java", 'no-skipped', '--results', results.absolutePath,
+    args sourceUtf8, "${tools}/GherkinMutator.java", 'no-skipped', '--results', results.absolutePath,
             '--features', featuresDir.absolutePath, '--messages', acceptanceMessages.absolutePath,
             '--root', projectDir.absolutePath, '--allowlist', configFile('integrity-allowlist.txt').absolutePath
     doFirst {
@@ -4455,7 +4490,7 @@ tasks.register('crapGate', Exec) {
     dependsOn 'jacocoTestReport', 'gauntletScope'
     mustRunAfter 'acceptanceTest'
     executable javaBin
-    args "${tools}/CrapGate.java", '--report', buildDirFile('reports/jacoco/test/jacocoTestReport.xml').absolutePath,
+    args sourceUtf8, "${tools}/CrapGate.java", '--report', buildDirFile('reports/jacoco/test/jacocoTestReport.xml').absolutePath,
             '--threshold', setting('crap.threshold', '8'), '--allowlist', configFile('crap-allowlist.txt').absolutePath,
             '--exclude', excludedClassGlobs.join(',')
     doFirst {
@@ -4490,7 +4525,7 @@ tasks.register('cpdReport', JavaExec) {
     inputs.files(roots).withPropertyName('mainSourceRoots')
     inputs.property('sourceEncoding', providers.provider { sourceEncoding() })
     outputs.file(report)
-    onlyIf { !roots.get().isEmpty() }
+    onlyIf { task -> !roots.get().isEmpty() || skippedByTheKit(task, 'no main source root') }
     doFirst {
         // positional after "--": CPD splits a --dir value at commas, not a positional one (see pmdGate)
         args(['--encoding', sourceEncoding(), '--'] + roots.get()*.absolutePath)
@@ -4504,7 +4539,7 @@ tasks.register('dryGate', Exec) {
     dependsOn 'cpdReport', 'gauntletScope'
     mustRunAfter 'crapGate'
     executable javaBin
-    args "${tools}/DryGate.java", '--report', buildDirFile('reports/cpd/cpd.xml').absolutePath,
+    args sourceUtf8, "${tools}/DryGate.java", '--report', buildDirFile('reports/cpd/cpd.xml').absolutePath,
             '--project-dir', projectDir.absolutePath, '--max', setting('dry.maxDuplications', '0')
     doFirst {
         def only = changedMainJava()
@@ -4590,12 +4625,8 @@ plugins.withId('info.solidsoft.pitest') {
         if (scope != 'all') {
             // the changed types are known when the task is about to run (gauntletScope and the compiler ran)
             targetClasses.set(providers.provider { changedClassGlobs() as Set })
-            onlyIf {
-                if (changedClassGlobs() || changedClassProblems()) {
-                    return true
-                }
-                logger.lifecycle('gauntlet: no changed main classes - mutation testing skipped')
-                return false
+            onlyIf { task ->
+                changedClassGlobs() || changedClassProblems() || skippedByTheKit(task, 'no changed main class')
             }
             doFirst { requireChangedClasses() }   // a wrongly derived target would make PIT find "no mutations" and pass
         }
@@ -4606,9 +4637,9 @@ tasks.register('pitSummary', Exec) {
     group = 'gauntlet'
     description = 'Lists surviving, uncovered and unverified (RUN_ERROR) mutants and oversized files from the PIT ' +
             'report; fails on a RUN_ERROR mutant outside config/pit-runerror-allowlist.txt.'
-    onlyIf { scope == 'all' || changedClassGlobs() }
+    onlyIf { task -> scope == 'all' || changedClassGlobs() || skippedByTheKit(task, 'no changed main class') }
     executable javaBin
-    args "${tools}/PitSummary.java", '--report', buildDirFile('reports/pitest/mutations.xml').absolutePath,
+    args sourceUtf8, "${tools}/PitSummary.java", '--report', buildDirFile('reports/pitest/mutations.xml').absolutePath,
             '--max-per-file', setting('pit.maxMutationsPerFile', '100'),
             '--allowlist', configFile('pit-runerror-allowlist.txt').absolutePath
 }
@@ -4642,7 +4673,7 @@ tasks.register('gherkinMutants', Exec) {
         mustRunAfter 'pitest'
     }
     executable javaBin
-    args "${tools}/GherkinMutator.java", 'generate', '--features', featuresPath, '--out', mutantsDir.absolutePath
+    args sourceUtf8, "${tools}/GherkinMutator.java", 'generate', '--features', featuresPath, '--out', mutantsDir.absolutePath
     doFirst {
         def changed = changedFiles()
         if (changed != null) {
@@ -4675,7 +4706,7 @@ tasks.register('gherkinMutantsRun', Test) {
     reports.html.required = false
     outputs.upToDateWhen { false }
     jacoco { enabled = false }
-    onlyIf { hasFeatures(mutantsDir) }
+    onlyIf { task -> hasFeatures(mutantsDir) || skippedByTheKit(task, 'no Examples value in scope') }
     def stream = cucumberMessages(it, mutantMessages)
     doFirst { Test task ->
         // failing scenarios are what this run is for: a project-wide failFast would stop it after the first kill
@@ -4731,7 +4762,7 @@ tasks.register('gherkinMutation', Exec) {
     description = 'Gherkin acceptance mutation: every mutated Examples value must make a scenario fail.'
     dependsOn 'gherkinMutantsRun'
     executable javaBin
-    args "${tools}/GherkinMutator.java", 'verdict', '--mutants', mutantsDir.absolutePath, '--results', mutantResults.absolutePath,
+    args sourceUtf8, "${tools}/GherkinMutator.java", 'verdict', '--mutants', mutantsDir.absolutePath, '--results', mutantResults.absolutePath,
             '--messages', mutantMessages.absolutePath
     // The glue the mutant run loaded, as compiled - its classpath (configureCucumber): a failure thrown by a transformer
     // (@ParameterType, ...) is a rejected value, not a kill. Cucumber names a glue method by its class and method, and
@@ -4742,6 +4773,23 @@ tasks.register('gherkinMutation', Exec) {
 }
 
 // ------------------------------------------------------------------------------ aggregates
+
+// A gate's verdict is its tool's exit code. A build that sets ignoreExitValue on them (tasks.withType(Exec) { ... }
+// before the kit) let every finding pass; judged after the run, where no doFirst can change the setting any more.
+// checkstyleGate and pmdGate ignore the exit value themselves and judge their XML reports.
+['integrityCheck', 'testCensus', 'acceptanceCheck', 'crapGate', 'cpdReport', 'dryGate', 'pitSummary', 'gherkinMutants',
+ 'gherkinMutation'].each { name ->
+    tasks.named(name) { task ->
+        task.doLast {
+            def exit = task.executionResult.getOrNull()?.exitValue
+            if (exit != null && exit != 0) {
+                throw new GradleException("gauntlet: ${task.path} ended with exit value ${exit}, and the build ignores " +
+                        "exit values (ignoreExitValue = true): a gate's verdict is its tool's exit code. Remove that " +
+                        "setting.")
+            }
+        }
+    }
+}
 
 tasks.register('gauntletFast') {
     group = 'gauntlet'
@@ -9330,9 +9378,9 @@ CONTINUATION_MARGIN_S = 10 * 60   # added to the total run budget (modules * tim
 # What a verdict of the gate rests on: the task the hook (or CI) runs and every gauntlet task under it, as
 # gauntlet/gauntlet.gradle wires them. Gradle prints "> Task <path>" (--console=plain, lifecycle log level) for each
 # task it ran, found up to date or skipped, and nothing for a task the build left out of its task graph - a build
-# script that adds it to gradle.startParameter.excludedTaskNames, a build that no longer applies the kit - or never
-# reached (System.exit in a build script). The exit code alone believed such a build: one line in build.gradle left
-# out every gate and Gradle still printed BUILD SUCCESSFUL.
+# script that adds it to gradle.startParameter.excludedTaskNames, a build that no longer applies the kit. The exit
+# code alone believed such a build: one line in build.gradle left out every gate and Gradle still printed BUILD
+# SUCCESSFUL.
 GATE_TASKS = {
     "gauntletFast": ["gauntletScope", "integrityCheck", "checkstyleGate", "pmdGate", "test", "archTest", "testCensus",
                      "acceptanceTest", "acceptanceCheck", "jacocoTestReport", "crapGate", "cpdReport", "dryGate"],
@@ -9340,7 +9388,18 @@ GATE_TASKS = {
     "gherkinMutation": ["gauntletScope", "acceptanceTest", "gherkinMutants", "gherkinMutantsRun"],
     "gauntlet": ["gauntletFast", "mutationGate", "gherkinMutation"],
 }
-TASK_LINE = re.compile(r"^> Task (?:\S*:)?([^\s:]+)(?:\s|$)", re.M)   # the name after the last ':' of the path
+# "> Task :core:integrityCheck UP-TO-DATE": the name after the last ':' of the path, and the outcome if there is one
+TASK_LINE = re.compile(r"^> Task (?:\S*:)?([^\s:]+)(?:[ \t]+([A-Z][A-Z-]*))?[ \t]*\r?$", re.M)
+# A gate the kit skips itself (no feature file, nothing in scope) says so: gauntlet.gradle, skippedByTheKit
+KIT_SKIP_LINE = re.compile(r"^gauntlet: (?:\S*:)?([^\s:]+) skipped by the kit - ", re.M)
+# Gates with no onlyIf of the kit's own and no outputs: Gradle executes them on every run. SKIPPED, NO-SOURCE,
+# UP-TO-DATE or FROM-CACHE there means the build switched them off - tasks.named('integrityCheck') { enabled = false }
+# after apply, an onlyIf of its own, an empty input that skips, outputs that are up to date - and the skipped
+# integrityCheck cannot name the line that skipped it.
+MUST_EXECUTE = {"gauntletScope", "integrityCheck", "testCensus", "acceptanceCheck", "crapGate", "dryGate",
+                "gherkinMutants", "gherkinMutation"}
+# Gates the kit itself skips when there is nothing to judge: SKIPPED counts as run only with the kit's own line
+KIT_SKIPS = {"checkstyleGate", "pmdGate", "cpdReport", "acceptanceTest", "pitest", "pitSummary", "gherkinMutantsRun"}
 
 
 def main():
@@ -9601,26 +9660,35 @@ def summarize(output, limit=12000):
 
 
 def gate_tasks(task):
-    """The task and every gauntlet task under it (GATE_TASKS), each once."""
-    names = [task]
+    """The task and every gauntlet task under it (GATE_TASKS), each once. A task path (:app:gauntletFast) is its name."""
+    names = [task.rsplit(":", 1)[-1]]
     for name in names:                      # the list grows while it is read: a breadth-first walk
         names += [n for n in GATE_TASKS.get(name, []) if n not in names]
     return names
 
 
 def not_run(task, output, excluded=()):
-    """The gate tasks of `task` that Gradle printed no "> Task" line for, except those the hook left out itself."""
-    ran = set(TASK_LINE.findall(output))
+    """The gate tasks of `task` that Gradle did not run, except those the hook left out itself: no "> Task" line, or one
+    whose outcome says the build switched the gate off (MUST_EXECUTE, KIT_SKIPS)."""
+    kit_skipped = set(KIT_SKIP_LINE.findall(output))
+    ran = set()
+    for name, outcome in TASK_LINE.findall(output):
+        if name in MUST_EXECUTE and outcome:
+            continue
+        if name in KIT_SKIPS and outcome == "SKIPPED" and name not in kit_skipped:
+            continue
+        ran.add(name)
     return [n for n in gate_tasks(task) if n not in ran and n not in excluded]
 
 
 def not_run_message(task, missing):
-    return (f"gauntlet: Gradle finished {task} without running {', '.join(missing)} - no \"> Task\" line names "
-            f"{'it' if len(missing) == 1 else 'them'}. The build left {'it' if len(missing) == 1 else 'them'} out "
-            f"(gradle.startParameter.excludedTaskNames in a build script, -x), no longer applies "
-            f"gauntlet/gauntlet.gradle, or ended early (System.exit in a build script); or the log level hides task "
-            f"lines (org.gradle.logging.level in gradle.properties, -q). The gate is red until Gradle runs every one "
-            f"of them.")
+    them = "it" if len(missing) == 1 else "them"
+    return (f"gauntlet: Gradle finished {task} without running {', '.join(missing)} - no \"> Task\" line shows "
+            f"{them} executed. The build left {them} out (gradle.startParameter.excludedTaskNames in a build script, -x), "
+            f"skipped {them} (enabled = false, an onlyIf of its own: SKIPPED without the kit's own reason, NO-SOURCE, "
+            f"UP-TO-DATE of a gate that always executes) or no longer applies gauntlet/gauntlet.gradle; or the log "
+            f"level hides task lines (org.gradle.logging.level in gradle.properties, -q). The gate is red until Gradle "
+            f"runs every one of them.")
 
 
 def verify_ran(task, log):
@@ -9803,8 +9871,10 @@ def safe(value):
 
 
 def read(path):
+    # a byte that is not UTF-8 (a comment saved as ISO-8859-1 or CP1251) is replaced, as Gradle replaces it: a hook
+    # that died on it exited 1, and Claude Code let the agent stop without the gate ever running
     try:
-        with open(path, encoding="utf-8") as f:
+        with open(path, encoding="utf-8", errors="replace") as f:
             return f.read().strip()
     except OSError:
         return ""
@@ -12932,7 +13002,11 @@ public class GherkinMutator {
                     list.add((Element) cases.item(i));
                 }
             } catch (Exception unreadable) {
-                // not a JUnit XML report - ignore
+                // Gradle writes every TEST-*.xml itself: one that does not read (a DOCTYPE, cut off) would drop its
+                // scenarios from the verdict silently. Another XML file in the directory is no report - ignored.
+                if (xml.getFileName().toString().startsWith("TEST-")) {
+                    throw new IOException("cannot read the test results " + xml + ": " + unreadable.getMessage(), unreadable);
+                }
             }
         }
         return list;

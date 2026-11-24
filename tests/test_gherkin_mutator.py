@@ -1412,7 +1412,8 @@ class NoSkippedTest(Sandbox):
     def test_an_external_entity_in_a_results_file_is_not_read(self):
         # issue #3: the JUnit XML reader expanded a DOCTYPE's external entity - a file anywhere on the machine became
         # part of the results it judged, and its text part of the output. Gradle's JUnit XML declares no DOCTYPE (checked
-        # on 7.23.0 and 8.0.1 runs): one that does is not read.
+        # on 7.23.0 and 8.0.1 runs): one that does is not read - and, a result file of Gradle's own name that does not
+        # read, it is no verdict at all (review of 4.4: skipped silently, it took its scenarios out of the judgement)
         write(self.path("features/doubling.feature"), DOUBLING)
         write(self.path("elsewhere/secret.xml"), '<testcase name="TOP-SECRET-7" classname="planted"><skipped/></testcase>')
         write(os.path.join(self.results, "TEST-planted.xml"),
@@ -1421,12 +1422,15 @@ class NoSkippedTest(Sandbox):
               '<testsuite name="Cucumber" tests="1">&leak;</testsuite>\n')
         code, out = self.no_skipped()
         self.assertNotIn("TOP-SECRET-7", out)
-        self.assertIn("but no scenario ran", out)               # the planted file counts for nothing
-        self.assertEqual(1, code, out)
+        self.assertEqual(2, code, out)                          # "cannot read the test results ..." on stderr
         write_results(self.results, [("Example #1.1", PASSED), ("Example #1.2", PASSED)])    # next to Gradle's own
         code, out = self.no_skipped()
-        self.assertIn("Acceptance: 2 scenario(s), none skipped - OK", out)
         self.assertNotIn("TOP-SECRET-7", out)
+        self.assertEqual(2, code, out)
+        os.remove(os.path.join(self.results, "TEST-planted.xml"))
+        write(os.path.join(self.results, "notes.xml"), "not xml at all")      # not a result file of Gradle's name
+        code, out = self.no_skipped()
+        self.assertIn("Acceptance: 2 scenario(s), none skipped - OK", out)
         self.assertEqual(0, code, out)
 
 

@@ -73,6 +73,11 @@ def unchecked_reasons(block):
     return [re.sub(r"\s*\(.*?\)", "", reason).strip() for reason in m.group(1).split("|")]
 
 
+def paragraphs(text):
+    """The paragraphs of a Markdown text, each '- ' item one of them, with their wrapped lines joined by one space."""
+    return [re.sub(r"\s*\n\s*", " ", p).strip() for p in re.split(r"\n[ \t]*\n|\n(?=- )", text) if p.strip()]
+
+
 def front_matter(rel):
     m = re.match(r"---\n(.*?)\n---\n", kit_text(rel), re.S)
     assert m, f"{rel} has no front matter"
@@ -176,6 +181,15 @@ class RoleFormats(unittest.TestCase):
     def test_the_hardener_quotes_the_gate_lines_before_and_after_and_the_mutant_each_test_kills(self):
         final = chapter(os.path.join(AGENTS, "hardener.md"), "Final message")
         self.assertIn("the mutant it kills", final)
+        # the mutant it kills: for each test added or sharpened, not for some
+        kills = " ".join(p for p in paragraphs(final) if "the mutant it kills" in p)
+        self.assertRegex(kills, r"\b(?:[Ee]ach|[Ee]very) test\b", "the hardener is not asked for each test's mutant")
+        # before and after: what names the gate's summary lines asks for them from the first run and from the last run
+        # (a label «Before and after» over the last run alone is not both)
+        gate = " ".join(p for p in paragraphs(final) if "`PIT summary: …`" in p)
+        self.assertTrue(gate, f"the hardener's Final message does not name the `PIT summary: …` line:\n{final}")
+        self.assertRegex(gate, r"\bfirst run\b", "the hardener is not asked for the gate lines of its first run")
+        self.assertRegex(gate, r"\blast run\b", "the hardener is not asked for the gate lines of its last run")
         named = re.findall(r"`([\w ]+): …`", final)
         self.assertIn("PIT summary", named)
         # the lines are the ones the gate prints: the main agent compares them with the gate's own output
@@ -225,9 +239,10 @@ class Route(unittest.TestCase):
 
     def test_item_27_of_the_method_names_exactly_the_route_values_of_the_kit(self):
         values = sorted(property_values())
+        # the method cites the route as «раздел 1.1, п. 27»: no item 27 is red, not a skip - tests/run.py counts
+        # a skipped test as passed, and the values would go unchecked
         item = method_item("1.1", 27)
-        if item is None:
-            self.skipTest("the method has no item 27 in section 1.1 (the subagent route of revision 4.5)")
+        self.assertIsNotNone(item, "section 1.1 of the method has no item 27 (the subagent route of revision 4.5)")
         self.assertIn("`subagents.route`", item, "item 27 of section 1.1 of the method does not name the key")
         # the values are what item 27 puts in backticks as a bare lowercase word, a role name (`checker`) aside
         named = sorted(set(re.findall(r"`([a-z]+)`", item)) - role_names())

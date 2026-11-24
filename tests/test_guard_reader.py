@@ -17,6 +17,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 import kit
@@ -327,14 +328,21 @@ class RedirectionsAgainstBash(unittest.TestCase):
                 files[path] = kit.read(path)
         return files
 
-    def written_by_bash(self, command):
+    def written_by_bash(self, command, expect_write=False):
         shutil.rmtree(self.work)
         kit.write(os.path.join(self.work, "gauntlet", "config", "gauntlet.properties"), "original\n")
         os.makedirs(os.path.join(self.work, "notes dir"))
         before = self.tree()
         subprocess.run(["bash", "-c", command], cwd=self.work, env=dict(os.environ, CLAUDE_PROJECT_DIR=self.work),
                        timeout=60, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        return {path for path, text in self.tree().items() if before.get(path) != text}
+        # A process substitution (`>(cat > f)`) writes asynchronously: bash may exit before it does,
+        # and under load the corpus check flaked. Wait for the write when one is expected.
+        deadline = time.monotonic() + 5
+        while True:
+            written = {path for path, text in self.tree().items() if before.get(path) != text}
+            if written or not expect_write or time.monotonic() > deadline:
+                return written
+            time.sleep(0.05)
 
     def judged_by_guard(self, command):
         """The files the guard judges as written by a redirection, read the way command_violation reads them."""
@@ -350,7 +358,7 @@ class RedirectionsAgainstBash(unittest.TestCase):
     def test_every_file_bash_writes_is_judged(self):
         for command in REDIRECTIONS:
             with self.subTest(command=command):
-                written = self.written_by_bash(command)
+                written = self.written_by_bash(command, expect_write=True)
                 self.assertTrue(written, "the corpus is wrong: bash wrote nothing")
                 self.assertEqual(sorted(written - self.judged_by_guard(command)), [], "bash wrote it, the guard did not judge it")
 

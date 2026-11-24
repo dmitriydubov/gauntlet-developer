@@ -36,7 +36,7 @@ class BundleContainer(unittest.TestCase):
 
     def test_manifest_lists_exactly_the_unpacked_files(self):
         self.assertEqual(sorted(self.manifest), sorted(self.files))
-        self.assertEqual(len(self.manifest), 32)
+        self.assertEqual(len(self.manifest), 35)
 
     def test_manifest_sizes_are_the_sizes_on_disk(self):
         wrong = {p: (size, os.path.getsize(self.files[p])) for p, size in self.manifest.items()

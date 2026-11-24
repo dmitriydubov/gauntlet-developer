@@ -3,6 +3,130 @@
 История ревизий метода Gauntlet и бандла эталонного набора. Документы в репозитории версионируются вместе:
 ревизия инструкции `gauntlet-method-universal.md` и ревизия бандла `gauntlet-kit-bundle.md` совпадают.
 
+## Ревизия 4.4 — 2026-11-24
+
+Проверки по результату вместо эвристик по тексту (issue #4) и давние дефекты из ревью `7061885` (issue #3). Правки
+внесены в бандл; универсальная инструкция меняет только ревизию. Все правки только ужесточают: ни один порог, тест
+или правило не сняты; новые красные с обходным путём перечислены в README набора, раздел 9.
+
+### Что было до правок (база, ревизия 4.3)
+
+- **Запись в файлы набора мимо guard ничто не судило.** guard читает команды агента, а список команд записи не бывает
+  полным (`sort -o`, `gzip`, `javac -d`, переменная в цели перенаправления).
+- **B2 узнавал фильтр тестов только по тексту скрипта.** Переменная, `tasks['test']`, `matching { }`, параметр
+  замыкания, ветка `case`, Kotlin `when`, фильтр тестовой платформы вне скрипта (`PostDiscoveryFilter`) — тест не
+  запускался, гейт был зелёный. На Gradle: из 30 форм Groovy и 9 Kotlin B2 не видел 21 и 4.
+- **Сценарии приёмки, убранные фильтром, не считались.** `excludeTags` тестовой платформы или более узкий
+  `cucumber.features`: «Acceptance: 11 scenario(s), none skipped - OK» при 15 определённых.
+- **Порядок прогона мутантов судился по аргументам JVM.** `_JAVA_OPTIONS`, файл аргументов, провайдер, который
+  отвечает иначе после прогона, `doLast` проекта — шесть путей, при которых контроли шли раньше мутанта, все зелёные.
+- **Stop-хук и CI судили по коду выхода Gradle.** Одна строка в `build.gradle`,
+  `gradle.startParameter.excludedTaskNames.addAll(['gauntletFast', 'gauntlet'])`, убирала все гейты из графа:
+  `BUILD SUCCESSFUL`, агент отпущен, CI зелёный.
+- **Давние дефекты (issue #3):** Stop-хук выходил с кодом 1 при ошибке ОС и отпускал агента; шаблон нёс
+  `module=core,adapter`; `install.sh` писал через символическую ссылку `.claude`, падал посреди установки на
+  `settings.json` не той формы, оставлял хук набора дважды; подложенный отчёт печатал локальный файл через XXE в
+  `PitSummary`, `DryGate`, `CrapGate` и `GherkinMutator`; `crap.threshold=NaN` проходил любой метод;
+  `GAUNTLET_GATE_JAVA_HOME` обходил минимум Java 17; `session_start.sh` читал `baseRef` только через `=`.
+
+### Что изменилось
+
+1. **`.github/workflows/gauntlet-kit.yml`** (новый, ставится `install.sh`): `pull_request_target`, сравнение PR с
+   merge base только git'ом, без кода PR; красный, когда изменён путь, который guard охраняет как человеческий.
+   Вердикт — check run `gauntlet kit unchanged` на голове PR через Checks API (`checks: write`). Человек делает
+   обязательными `gauntlet` и `gauntlet kit unchanged` с источником GitHub Actions; своё изменение набора мержит
+   в обход.
+2. **`testCensus`** (новый инструмент `TestCensus.java`, в `gauntletFast`): каждый тестовый класс, который
+   скомпилировали `test` и `archTest`, есть в их JUnit XML; иначе находка T6, которую принимает только строка
+   allowlist'а. Задача вне графа или выключенный XML-отчёт — отказ.
+3. **Поток сообщений Cucumber.** `gherkinMutation` судит порядок прогона мутантов по потоку этого прогона (по файлу на
+   JVM): начало и конец каждой попытки, ни одного перекрытия в одном JVM, каждый мутант между своими контролями.
+   `acceptanceCheck` сверяет сценарии, которые определяют фичи, с потоком: неисполненные — находка F2. `acceptanceTest`
+   идёт по одному форку; с Cucumber 8 набор добавляет Jackson в свои зависимости приёмки по умолчанию.
+4. **Stop-хук и CI требуют строку `> Task` у каждой задачи гейта** (`GATE_TASKS` в `stop_gate.py`, CI вызывает
+   `stop_gate.py --verify-ran gauntlet`) после зелёного кода выхода.
+5. **issue #3:** ошибка ОС в Stop-хуке — красный прогон через счётчик попыток, вывод не в UTF-8 декодируется с
+   заменой, вне git — сообщение «не запускался»; шаблон с пустым `module`, `install.sh` отказывается до любых
+   изменений на записи `module` без каталога, на ссылке `.claude`, `.claude/settings.json` или `.claude/agents`, на
+   `settings.json` не той формы и оставляет один хук набора; `PitSummary`, `DryGate` и `GherkinMutator` не читают
+   отчёт с DOCTYPE, `CrapGate` не загружает внешних параметрических сущностей; порог CRAP — конечное число ≥ 0;
+   `GAUNTLET_GATE_JAVA_HOME` и `-Pgauntlet.gateJavaHome` проверяются на Java 17+ по ответу их `java`;
+   `session_start.sh` читает `baseRef` кодом `stop_gate.py`.
+6. **Dry run JUnit Platform** (`junit.platform.execution.dryRun.enabled=true`, найден при переписи: каждый тест
+   «пропущен», ни один не запускался) — находка P1 в `junit-platform.properties` и B3 в скрипте сборки.
+7. **По независимому ревью сведённых правок:** dry run Cucumber и `discovery.as-root-engine` набор задаёт сам и
+   сверяет после прогона; суженный `testClassesDirs` и один каталог JUnit XML у `test` и `archTest` — отказ
+   переписи, тестовый исходник вне компиляции — T6; Jackson для Cucumber 8 — без версии, с ограничением «предпочитаю»
+   (Spring Boot 4 с `io.spring.dependency-management` снова зелёный); лимиты размера JAXP JDK 24+ сняты во всех
+   читателях XML; список `cucumber.plugin` собирается по элементам. Гейт, который набор не пропускает сам,
+   засчитывается только выполненным (`tasks.named('integrityCheck') { enabled = false }` после `apply` был
+   зелёным), пропуск набора — только с его строкой `skipped by the kit`; код выхода инструмента сверяется после
+   прогона (`ignoreExitValue`); `gauntlet.properties` не в UTF-8 больше не роняет Stop-хук; PR в другую ветку
+   отчитывается под именем `gauntlet kit unchanged (<ветка>)`; инструменты запускаются с `-Dfile.encoding=UTF-8`
+   (JVM гейта 17 в локали POSIX).
+
+### Где именно (по файлам)
+
+**`gauntlet-method-universal.md`:** шапка (ревизия 4.4, дата, ссылка на бандл 4.4).
+
+**`gauntlet-kit-bundle.md`** (встроенные файлы эталона):
+- новые: `.github/workflows/gauntlet-kit.yml`, `gauntlet/tools/TestCensus.java`;
+- `gauntlet/gauntlet.gradle` (задача `testCensus`, поток сообщений Cucumber у `acceptanceTest` и `gherkinMutantsRun`,
+  проверка JVM из `GAUNTLET_GATE_JAVA_HOME`);
+- `gauntlet/tools/GherkinMutator.java`, `CrapGate.java`, `DryGate.java`, `PitSummary.java`, `IntegrityCheck.java` (B4
+  знает `testCensus`; P1 и B3 — dry run JUnit Platform);
+- `gauntlet/hooks/stop_gate.py`, `session_start.sh`, `guard.py` и `selftest.py` (второй workflow набора — зона
+  человека; 2656 проверок);
+- `gauntlet/install.sh`, `.github/workflows/gauntlet.yml`, `gauntlet/config/gauntlet.properties`,
+  `gauntlet/config/integrity-allowlist.txt` (T6 и F2);
+- `gauntlet/README.md`, `INSTALL.md`, `gauntlet/CLAUDE.md`.
+
+**`tests/`:** новые модули `test_test_census.py`, `test_kit_workflow.py`, `test_hooks_stop_gate.py`,
+`test_hooks_session_start.py`, `test_pit_summary.py`; новые сценарии на Gradle в `test_gradle_e2e.py`.
+
+### Манифест бандла
+
+Пересчитаны размеры по фактическому содержимому; файлов в манифесте 32 (два новых).
+
+| Файл | 4.3 | 4.4 |
+|---|---|---|
+| `.github/workflows/gauntlet-kit.yml` | — | 10218 |
+| `.github/workflows/gauntlet.yml` | 7658 | 8414 |
+| `gauntlet/CLAUDE.md` | 65401 | 66971 |
+| `gauntlet/INSTALL.md` | 17017 | 22275 |
+| `gauntlet/README.md` | 95176 | 123753 |
+| `gauntlet/config/gauntlet.properties` | 6709 | 7227 |
+| `gauntlet/config/integrity-allowlist.txt` | 445 | 872 |
+| `gauntlet/gauntlet.gradle` | 71481 | 91846 |
+| `gauntlet/hooks/guard.py` | 112844 | 112883 |
+| `gauntlet/hooks/selftest.py` | 136597 | 137719 |
+| `gauntlet/hooks/session_start.sh` | 3116 | 3492 |
+| `gauntlet/hooks/stop_gate.py` | 22315 | 29033 |
+| `gauntlet/install.sh` | 12194 | 16911 |
+| `gauntlet/tools/CrapGate.java` | 32267 | 33988 |
+| `gauntlet/tools/DryGate.java` | 7694 | 8887 |
+| `gauntlet/tools/GherkinMutator.java` | 77741 | 114611 |
+| `gauntlet/tools/IntegrityCheck.java` | 77388 | 77690 |
+| `gauntlet/tools/PitSummary.java` | 11633 | 12720 |
+| `gauntlet/tools/TestCensus.java` | — | 37511 |
+
+Остальные 13 файлов не правились.
+
+### Проверено
+
+- `python3 tests/run.py --gradle` по бандлу, распакованному скриптом из его шапки: 385 тестов, из них 65 сценариев
+  на настоящем Gradle 8.14.3 (было 49), 1 пропущен (нужен JDK старше 16). Три сценария прогона мутантов ждали
+  прежнего поведения при `_JAVA_OPTIONS` (теперь отказ раньше вердикта) — ожидания обновлены, перезапущены зелёными;
+  набор после прогона не менялся.
+- `python3 gauntlet/hooks/selftest.py` — 2656 проверок, 0 падений, три раскладки.
+- Каждая правка — в обе стороны: её сценарий падает на ревизии до правки и проходит с ней (census, поток Cucumber,
+  проверка «Gradle выполнил гейт», Spring Boot 4, лимиты JAXP на JDK 25, выключенный гейт, `ignoreExitValue`).
+- Независимое ревью сведённых правок: четыре ревьюера и проверяющий, 26 находок, каждая воспроизведена; все
+  исправлены или записаны в README, раздел 9; три неполных исправления, которые нашёл проверяющий, доделаны и
+  проверены так же.
+- Не исполнялось здесь: сам GitHub (check run на голове PR, защита ветки, `pull_request_target`) — шаги workflow
+  проверены как shell на настоящих git-репозиториях.
+
 ## Ревизия 4.3 — 2026-11-20
 
 Ревью всего набора на ошибки (инструменты, хуки, настройки, пример, документация) и правки по всем находкам.

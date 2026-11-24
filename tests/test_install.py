@@ -2,6 +2,7 @@
 import json
 import os
 import shutil
+import sys
 import tempfile
 import unittest
 
@@ -11,6 +12,14 @@ P = '"$CLAUDE_PROJECT_DIR/gauntlet/hooks/'          # how the kit itself spells 
 GUARD = f'python3 {P}guard.py"'
 FAST = f'python3 {P}stop_gate.py" --task gauntletFast --max-attempts 3 --timeout 1700'
 MUTATION = f'python3 {P}stop_gate.py" --task mutationGate --max-attempts 2 --timeout 3300'
+# the guarded builds as the Stop hook resolves them after the install (its MODULES; [] = the build at the root)
+HOOK_MODULES = ("import importlib.util, json, sys\n"
+                "sys.dont_write_bytecode = True\n"
+                "spec = importlib.util.spec_from_file_location('stop_gate', 'gauntlet/hooks/stop_gate.py')\n"
+                "stop_gate = importlib.util.module_from_spec(spec)\n"
+                "spec.loader.exec_module(stop_gate)\n"
+                "stop_gate.configure_module()\n"
+                "print(json.dumps(stop_gate.MODULES))\n")
 
 
 def hook(command, **fields):
@@ -59,6 +68,15 @@ class InstallCase(unittest.TestCase):
 
     def project(self, **kw):
         return Project(self.tmp.name, **kw)
+
+    def assert_refused_before_any_change(self, p, r, message):
+        self.assertEqual(r.code, 1, r)
+        self.assertIn(message, r.out)
+        self.assertFalse(os.path.exists(p.path(".claude/agents")), "a refusal left .claude/agents behind")
+        self.assertFalse(os.path.exists(p.path(".github")))
+        self.assertFalse(os.path.exists(p.path("CLAUDE.md")))
+        self.assertTrue(os.path.isdir(p.path("gauntlet/claude")))
+        self.assertTrue(os.path.isdir(p.path("gauntlet/ci")))
 
 
 class FreshInstall(InstallCase):
@@ -228,6 +246,161 @@ class UserHooksStayUntouched(InstallCase):
                                                  "hooks": [hook(auditor), hook(MUTATION, timeout=3600)]}]}})
         self.assertEqual(p.install().code, 0)
         self.assertEqual(p.hooks("SubagentStop"), [("^(hardener|reviewer)$", auditor, None), ("^hardener$", MUTATION, 7200)])
+
+    def test_kit_hook_held_twice_runs_once_and_the_user_s_own_repeats_stay(self):
+        # Stop ran the gate twice per stop when the user's file held the kit's hook twice
+        user, old = "./tools/audit-stop", f'python3 {P}stop_gate.py" --task gauntletFast --timeout 1500'
+        cases = (
+            ("Stop", [{"hooks": [hook(FAST)]}, {"hooks": [hook(old, timeout=1600)]}], [(None, FAST, 1800)]),
+            ("Stop", [{"hooks": [hook(FAST), hook(FAST)]}], [(None, FAST, 1800)]),
+            ("Stop", [{"hooks": [hook(user), hook(FAST)]}, {"hooks": [hook(FAST)]}],
+             [(None, user, None), (None, FAST, 1800)]),
+            ("Stop", [{"hooks": [hook(user)]}, {"hooks": [hook(user)]}],
+             [(None, user, None), (None, user, None), (None, FAST, 1800)]),
+            ("SubagentStop", [{"matcher": "^(hardener|reviewer)$", "hooks": [hook(user), hook(MUTATION)]},
+                              {"matcher": "^hardener$", "hooks": [hook(MUTATION, timeout=3600)]}],
+             [("^(hardener|reviewer)$", user, None), ("^hardener$", MUTATION, 7200)]),
+        )
+        for event, groups, expected in cases:
+            with self.subTest(groups=groups), tempfile.TemporaryDirectory() as tmp:
+                p = Project(tmp)
+                p.settings({"hooks": {event: groups}})
+                r = p.install()
+                self.assertEqual(r.code, 0, r)
+                self.assertEqual(p.hooks(event), expected)
+                self.assertNotIn({"hooks": []}, p.settings()["hooks"][event])
+
+
+class KitWorkflow(InstallCase):
+    """.github/workflows/gauntlet-kit.yml - the check that a pull request leaves the kit alone - lands like the gate."""
+
+    def kit_workflow(self):
+        return kit.read(os.path.join(kit.kit(), ".github", "workflows", "gauntlet-kit.yml"))
+
+    def test_installed_next_to_the_gate(self):
+        p = self.project()
+        r = p.install()
+        self.assertEqual(r.code, 0, r)
+        self.assertEqual(kit.read(p.path(".github/workflows/gauntlet-kit.yml")), self.kit_workflow())
+        self.assertIn("  added  .github/workflows/gauntlet-kit.yml\n", r.out)
+        self.assertFalse(os.path.exists(p.path("gauntlet/ci")))
+
+    def test_changed_copy_arrives_as_a_copy_to_merge(self):
+        p = self.project()
+        kit.write(p.path(".github/workflows/gauntlet-kit.yml"), "name: mine\n")
+        r = p.install()
+        self.assertEqual(r.code, 0, r)
+        self.assertEqual(kit.read(p.path(".github/workflows/gauntlet-kit.yml")), "name: mine\n")
+        self.assertEqual(kit.read(p.path(".github/workflows/gauntlet-kit.yml.gauntlet.new")), self.kit_workflow())
+        p.restore_sources()
+        shutil.copy(p.path(".github/workflows/gauntlet-kit.yml.gauntlet.new"), p.path(".github/workflows/gauntlet-kit.yml"))
+        r = p.install()
+        self.assertIn("  kept   .github/workflows/gauntlet-kit.yml (already current)\n", r.out)
+
+
+class Modules(InstallCase):
+    """INSTALL step 0: module= lists the guarded builds; a build at the root leaves it empty."""
+
+    def test_template_installs_on_a_root_build_as_shipped(self):
+        # the template shipped module=core,adapter: on a root build the installer only warned, and the Stop hook then
+        # watched two directories that do not exist and let every stop pass without Gradle
+        root = kit.copy_kit(os.path.join(self.tmp.name, "project"))
+        kit.write(os.path.join(root, "build.gradle"), 'apply from: "gauntlet/gauntlet.gradle"\n')
+        r = kit.run(["bash", "gauntlet/install.sh"], cwd=root)
+        self.assertEqual(r.code, 0, r)
+        self.assertNotIn("!!", r.out)
+        modules = kit.run([sys.executable, "-c", HOOK_MODULES], cwd=root)
+        self.assertEqual((modules.code, json.loads(modules.out)), (0, []))
+
+    def test_listed_directory_that_is_not_there_is_refused_before_any_change(self):
+        for modules, gone, file in (("core,adapter", "adapter", False), ("core", "core", False),
+                                    ("core,adapter", "core", True)):
+            with self.subTest(modules=modules, gone=gone, file=file), tempfile.TemporaryDirectory() as tmp:
+                p = Project(tmp, modules=modules)
+                shutil.rmtree(p.path(gone))
+                if file:
+                    kit.write(p.path(gone), "not a directory\n")
+                r = p.install()
+                self.assert_refused_before_any_change(
+                    p, r, f"module= in gauntlet/config/gauntlet.properties names no directory of this repository: '{gone}'.")
+
+    def test_old_template_value_on_a_root_build_names_every_missing_directory(self):
+        p = self.project(modules="core,adapter", build=False)
+        kit.write(p.path("build.gradle"), 'apply from: "gauntlet/gauntlet.gradle"\n')
+        r = p.install()
+        self.assert_refused_before_any_change(p, r, "names no directory of this repository: 'core' 'adapter'.")
+
+
+class SettingsThatCannotBeMerged(InstallCase):
+    """The preflight checks the shape the merge needs, not only the JSON syntax: a merge that failed half-way had
+    already created .claude/agents, and one that did not fail wrote a mangled file."""
+
+    SHAPES = (
+        ('{"hooks": null}', '"hooks" is null, not an object'),
+        ('{"hooks": []}', '"hooks" is an array, not an object'),
+        ('{"hooks": {"Stop": null}}', '"hooks"."Stop" is null, not an array'),
+        ('{"hooks": {"Stop": {"hooks": []}}}', '"hooks"."Stop" is an object, not an array'),
+        ('{"hooks": {"Stop": [null]}}', '"hooks"."Stop"[0] is null, not an object'),
+        ('{"hooks": {"Stop": [{"hooks": {}}]}}', '"hooks"."Stop"[0]."hooks" is an object, not an array'),
+        ('{"hooks": {"Stop": [{"hooks": ["./audit"]}]}}', '"hooks"."Stop"[0]."hooks"[0] is a string, not an object'),
+        ('{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": 5}]}]}}',
+         '"hooks"."Stop"[0]."hooks"[0]."command" is a number, not a string'),
+        ('{"hooks": {"PostToolUse": null}}', '"hooks"."PostToolUse" is null, not an array'),
+        ('{"permissions": null}', '"permissions" is null, not an object'),
+        ('{"permissions": {"allow": "Bash(git:*)"}}', '"permissions"."allow" is not an array of strings'),
+        ('{"permissions": {"deny": [1]}}', '"permissions"."deny" is not an array of strings'),
+        ('[]', 'it holds an array, not an object'),
+        ('"settings"', 'it holds a string, not an object'),
+    )
+
+    def test_refused_before_any_change(self):
+        for text, reason in self.SHAPES:
+            with self.subTest(settings=text), tempfile.TemporaryDirectory() as tmp:
+                p = Project(tmp)
+                kit.write(p.path(".claude/settings.json"), text)
+                r = p.install()
+                self.assert_refused_before_any_change(p, r, f".claude/settings.json cannot be merged: {reason}.")
+                self.assertEqual(kit.read(p.path(".claude/settings.json")), text)
+
+    def test_settings_path_that_is_a_directory(self):
+        p = self.project()
+        os.makedirs(p.path(".claude/settings.json"))
+        r = p.install()
+        self.assert_refused_before_any_change(p, r, ".claude/settings.json cannot be merged: it cannot be read")
+
+
+def snapshot(path):
+    """Every file under path (or the file itself) with its content."""
+    if os.path.isfile(path):
+        return {"": kit.read(path)}
+    return {os.path.relpath(os.path.join(d, f), path): kit.read(os.path.join(d, f))
+            for d, _, files in os.walk(path) for f in files}
+
+
+class SymbolicLinks(InstallCase):
+    """The guard judges a file by its real path: a linked .claude/settings.json was writable for every agent (Write
+    and `echo > .claude/settings.json` were allowed), and the installer wrote the hooks through the link."""
+
+    def test_refused_and_never_written_through(self):
+        for link, directory in ((".claude/settings.json", False), (".claude", True), (".claude/agents", True)):
+            for inside in (False, True):
+                with self.subTest(link=link, inside=inside), tempfile.TemporaryDirectory() as tmp:
+                    p = Project(tmp)
+                    target = p.path("config/claude") if inside else os.path.join(tmp, "shared")
+                    if directory:
+                        os.makedirs(target)
+                    else:
+                        kit.write(target, "{}\n")
+                    os.makedirs(os.path.dirname(p.path(link)), exist_ok=True)
+                    os.symlink(target, p.path(link))
+                    before = snapshot(target)
+                    r = p.install()
+                    self.assertEqual(r.code, 1, r)
+                    self.assertIn(f"{link} is a symbolic link (to {target})", r.out)
+                    self.assertEqual(snapshot(target), before)
+                    self.assertTrue(os.path.isdir(p.path("gauntlet/claude")))
+                    self.assertFalse(os.path.exists(p.path(".github")))
+                    self.assertFalse(os.path.exists(p.path("CLAUDE.md")))
 
 
 if __name__ == "__main__":

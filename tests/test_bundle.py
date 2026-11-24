@@ -36,7 +36,7 @@ class BundleContainer(unittest.TestCase):
 
     def test_manifest_lists_exactly_the_unpacked_files(self):
         self.assertEqual(sorted(self.manifest), sorted(self.files))
-        self.assertEqual(len(self.manifest), 30)
+        self.assertEqual(len(self.manifest), 32)
 
     def test_manifest_sizes_are_the_sizes_on_disk(self):
         wrong = {p: (size, os.path.getsize(self.files[p])) for p, size in self.manifest.items()
@@ -116,7 +116,7 @@ class RevisionMarks(unittest.TestCase):
     def test_changelog_size_table_matches_the_manifest(self):
         number = self.revision.group(1)
         section = self.changelog.split(f"## Ревизия {number} ", 1)[1].split("\n## Ревизия ", 1)[0]
-        table = re.findall(r"^\| `(.+?)` \| (\d+) \| (\d+) \|$", section, re.M)
+        table = re.findall(r"^\| `(.+?)` \| (\d+|—) \| (\d+) \|$", section, re.M)     # — : a new file
         self.assertTrue(table, "the changelog entry has no size table")
         sizes = manifest(self.bundle)
         wrong = {path: (int(new), sizes.get(path)) for path, _, new in table if sizes.get(path) != int(new)}

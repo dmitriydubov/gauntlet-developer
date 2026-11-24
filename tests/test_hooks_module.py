@@ -147,7 +147,8 @@ class ModuleSpelling(unittest.TestCase):
                     rel = os.path.relpath(os.path.normpath(os.path.join(ws.root, row[0])), ws.root)
                     entered += [rel] if rel not in entered else []
                 expected = [] if entered == ["."] else entered      # the build at the root alone is no module
-                shutil.copytree(os.path.join(kit.kit(), "gauntlet", "hooks"), os.path.join(ws.root, "gauntlet", "hooks"))
+                shutil.copytree(os.path.join(kit.kit(), "gauntlet", "hooks"), os.path.join(ws.root, "gauntlet", "hooks"),
+                                dirs_exist_ok=True)     # the CI workspace holds stop_gate.py already (--verify-ran)
                 r = kit.run([sys.executable, "-c", HOOKS_MODULES], cwd=ws.root)
                 self.assertEqual(r.code, 0, r)
                 self.assertEqual(json.loads(r.out), [expected, expected])

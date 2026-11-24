@@ -356,6 +356,21 @@ def java_major(java):
     return int(m.group(1)) if m else None
 
 
+def jvm_homes():
+    """JVM homes by the major version their java names in `java -version`, also one without a release file (Ubuntu's
+    JDK 8 has none, so jdk_homes() leaves it out): where JAVA_HOME_<major>_<ARCH> point, then under /usr/lib/jvm."""
+    homes = {}
+    candidates = [home for name, home in sorted(os.environ.items()) if re.fullmatch(r"JAVA_HOME(_\d+_\w+)?", name)]
+    candidates += sorted(glob.glob("/usr/lib/jvm/*/"))
+    for home in candidates:
+        java = os.path.join(home, "bin", "java")
+        said = kit.run([java, "-version"]).out if os.access(java, os.X_OK) else ""
+        m = re.search(r'(?m)^\S+ version "(?:1\.)?(\d+)', said)
+        if m:
+            homes.setdefault(int(m.group(1)), os.path.realpath(home))
+    return homes
+
+
 def class_java(path):
     """The Java version a class file is compiled for (JVMS 4.1: major_version - 44)."""
     with open(path, "rb") as f:
@@ -436,10 +451,13 @@ class WholeGauntlet(GradleCase):
         r = self.gradle("gauntlet", "-Pgauntlet.scope=all", "--continue")
         self.assert_build(r, True)
         for line in ("Integrity check: OK", "Checkstyle: OK", "PMD: OK", "Acceptance: 3 scenario(s), none skipped - OK",
+                     "Test census: OK - test classes run (ran/compiled): test 1/1, archTest 1/1",
                      "CRAP gate: OK", "DRY gate: OK", "PIT summary: 2 mutant(s) {KILLED=2}",
                      "Gherkin mutation: 9 mutant(s) - 9 killed, 0 survived, 0 error(s); 6 control(s) - 6 passed",
                      "Gherkin mutation: OK"):
             self.assertIn(line, r.out)
+        # what the Stop hook and CI demand of a green run: Gradle's own "> Task" line for every gate task
+        self.assertEqual(kit.stop_gate().not_run("gauntlet", r.out), [])
 
     def test_hollow_step_definition_leaves_survivors(self):
         self.project(steps_assert="assertEquals(true, total > 0)")
@@ -447,6 +465,26 @@ class WholeGauntlet(GradleCase):
         self.assert_build(r, False)
         self.assertIn("MUTANT SURVIVED", r.out)
         self.assertIn("6 control(s) - 6 passed", r.out)
+
+    def test_shipped_example_passes_by_cucumber_s_message_streams_on_cucumber_7_and_8(self):
+        # The acceptance census and the order of the mutant run are judged by Cucumber's message stream. Cucumber 8
+        # writes it only with Jackson on the classpath (the kit's default acceptance dependencies bring Jackson 3);
+        # without it the run fails before any scenario.
+        self.project()
+        for version in (CUCUMBER, "8.0.1"):
+            with self.subTest(cucumber=version):
+                kit.set_property(self.lab, "cucumber.version", version)
+                r = self.gradle("gherkinMutation", "-Pgauntlet.scope=all")
+                self.assert_build(r, True)
+                for line in ("Acceptance census: 3 of 3 scenario(s) in 1 feature file(s) ran",
+                             "Acceptance: 3 scenario(s), none skipped - OK",
+                             "Gherkin mutation: 9 mutant(s) - 9 killed, 0 survived, 0 error(s); 6 control(s) - 6 passed",
+                             "Gherkin mutation: OK"):
+                    self.assertIn(line, r.out)
+                self.assertNotIn("run order", r.out)
+                for stream in ("build/cucumber-messages/acceptanceTest/jvm-1.ndjson",
+                               "build/gherkin-mutation/messages/jvm-1.ndjson"):
+                    self.assertIn(f'"version":"{version}"', kit.read(os.path.join(self.lab, stream)).replace(" ", ""))
 
 
 class GherkinVerdict(GradleCase):
@@ -604,6 +642,31 @@ class GherkinRetry(GradleCase):
                 self.assertRegex(r.out, r"MUTANT ERROR +c1 control \(unmutated scenario\) ran more than once with "
                                         r"different results")
 
+    def test_every_retry_round_is_judged_by_its_own_message_stream(self):
+        # each round runs in a JVM of its own and would write the stream anew: the kit keeps one stream per JVM. Here
+        # an argument file runs both rounds in parallel on the quota stand - the mutant "killed" on both attempts, the
+        # controls passed on both, and the gate passed (issue #4). Gradle lists the file, not the -D inside it.
+        self.project(example=False)
+        argfile = self.file("build-args/parallel.args", "".join(f"-D{key}={value}\n" for key, value in PARALLEL.items()))
+        build = os.path.join(self.lab, "build.gradle")
+        kit.write(build, kit.read(build).replace("apply from: 'gauntlet/gauntlet.gradle'\n", RETRY % (
+            f"    doFirst {{ jvmArgumentProviders.add({{ ['@{argfile}'] }} as CommandLineArgumentProvider) }}") +
+            "\napply from: 'gauntlet/gauntlet.gradle'\n"))
+        kit.write(build, kit.read(build).replace("    id 'java'\n", "    id 'java'\n    id 'org.gradle.test-retry' version '1.6.2'\n"))
+        self.file(GLUE + "CreditSteps.java", CREDIT_STEPS)
+        self.file(GLUE + "PurchaseSteps.java", PURCHASE_STEPS)
+        self.file(FEATURES + "credits.feature", CREDITS)
+        self.commit("credits, retried")
+        for merge in ("true", "false"):
+            with self.subTest(mergeReruns=merge):
+                r = self.gradle("gherkinMutation", "-Pgauntlet.scope=all", f"-PmergeReruns={merge}")
+                self.assert_build(r, False)
+                self.assertNotIn("Gherkin mutation: OK", r.out)
+                streams = sorted(os.listdir(os.path.join(self.lab, "build/gherkin-mutation/messages")))
+                self.assertEqual(["jvm-1.ndjson", "jvm-2.ndjson"], streams)        # a round each
+                for stream in streams:
+                    self.assertRegex(r.out, r"MUTANT ERROR +run order: \S+ and \S+ ran at the same time \(" + stream)
+
     def test_a_mutant_that_failed_before_the_value_on_a_retry_is_no_kill(self):
         # m1 fails in its Then step (line 6, after <amount> on line 5) and, on the retry, in its Given step (line 4):
         # the first failure was kept, a kill (review of 2c1cd0b)
@@ -616,6 +679,219 @@ class GherkinRetry(GradleCase):
                 self.assertIn("Gherkin mutation: 2 mutant(s) - 1 killed, 0 survived, 1 error(s); 2 control(s) - 2"
                               " passed", r.out)
                 self.assertRegex(r.out, r"MUTANT ERROR +m1 ran more than once with different results")
+
+
+ANY_STEPS = """package com.example.service.acceptance;
+
+import io.cucumber.java.en.Given;
+
+public class AnySteps {
+    @Given("^step (.*)$")
+    public void any(String text) {
+    }
+}
+"""
+CENSUS_FEATURES = {     # next to the kit's example: Outlines with several Examples tables, Rules, a subdirectory
+    "outlines.feature": "Feature: Outlines\n\n  Scenario: Plain one\n    Given step one\n\n"
+                        "  Scenario Outline: Two tables\n    Given step <a>\n\n    Examples: first\n      | a |\n      | 1 |\n"
+                        "      | 2 |\n\n    @slow\n    Examples: second\n      | a |\n      | 3 |\n      | 4 |\n      | 5 |\n\n"
+                        "  Scenario Outline: Header only\n    Given step <a>\n\n    Examples:\n      | a |\n\n"
+                        "  Scenario: No steps of its own\n",
+    "rules.feature": "Feature: Rules\n  Background:\n    Given step background\n\n  Rule: First rule\n    Background:\n"
+                     "      Given step rule background\n\n    Scenario: In the first rule\n      Given step r1\n\n"
+                     "    Scenario Outline: Outline in a rule\n      Given step <b>\n\n      Examples:\n        | b |\n"
+                     "        | x |\n        | y |\n\n  Rule: Second rule\n\n    @slow\n    Scenario: In the second rule\n"
+                     "      Given step r2\n",
+    "sub/dir/nested.feature": "Feature: Nested\n\n  Scenario: Deep down\n    Given step deep\n",
+}
+
+
+SPRING_BOOT_4 = """plugins {
+    id 'java'
+    id 'org.springframework.boot' version '4.0.7'
+    id 'io.spring.dependency-management' version '1.1.7'
+    id 'info.solidsoft.pitest' version '1.19.0'
+}
+group = 'com.example'
+repositories { mavenCentral() }
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+test { useJUnitPlatform() }
+apply from: 'gauntlet/gauntlet.gradle'
+"""
+SPRING_APPLICATION = """package com.example.service;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class DemoApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(DemoApplication.class, args);
+    }
+}
+"""
+
+
+class SpringBoot(GradleCase):
+    """The reference stack as Spring Initializr makes it: Spring Boot 4 with the dependency-management plugin, the kit's
+    defaults (acceptance.spring=true, Cucumber 8.0.1). Review of 4.4: the Jackson the kit adds for Cucumber 8's message
+    stream came in its own version next to Boot's jackson-core, and Cucumber failed at start on every run."""
+
+    def test_spring_boot_4_with_dependency_management_runs_the_acceptance_gates(self):
+        self.project()
+        kit.set_property(self.lab, "acceptance.spring", "true")
+        kit.set_property(self.lab, "cucumber.version", "8.0.1")
+        self.file("build.gradle", SPRING_BOOT_4)
+        self.file("src/main/java/com/example/service/DemoApplication.java", SPRING_APPLICATION)
+        template = "gauntlet/templates/acceptanceTest/java/com/example/service/acceptance/CucumberSpringConfiguration.java"
+        self.file(GLUE + "CucumberSpringConfiguration.java", kit.read(os.path.join(self.lab, template)))
+        self.commit("spring boot 4")
+        r = self.gradle("gherkinMutation", "-Pgauntlet.scope=all", "--continue")
+        self.assert_build(r, True)
+        self.assertIn("Acceptance census: 3 of 3 scenario(s) in 1 feature file(s) ran", r.out)
+        self.assertIn("Gherkin mutation: 9 mutant(s) - 9 killed, 0 survived, 0 error(s); 6 control(s) - 6 passed", r.out)
+        deps = self.gradle("dependencies", "--configuration", "acceptanceTestRuntimeClasspath")
+        self.assertRegex(deps.out, r"tools\.jackson\.core:jackson-databind -> 3\.\d+\.\d+")   # the version Boot manages
+
+
+class AcceptanceCensus(GradleCase):
+    """acceptanceCheck: every scenario the feature files define must have run (issue #4). A filter that drops
+    scenarios silently - includeTags/excludeTags of the test platform, a narrower cucumber.features - left the gate
+    green; Cucumber's own filters report the scenarios skipped, and fail as before. The census counts what Cucumber
+    compiles and runs, as its message stream and the JUnit XML report it."""
+
+    def cucumber_counts(self):
+        """Cucumber's own report of the acceptance run: per feature file, the pickles it compiled and those that ran."""
+        compiled, ran = {}, {}
+        for path in glob.glob(os.path.join(self.lab, "build/cucumber-messages/acceptanceTest/*.ndjson")):
+            pickles, cases, started = {}, {}, {}
+            for line in kit.read(path).splitlines():
+                envelope = json.loads(line)
+                if "pickle" in envelope:
+                    pickles[envelope["pickle"]["id"]] = os.path.basename(envelope["pickle"]["uri"])
+                elif "testCase" in envelope:
+                    cases[envelope["testCase"]["id"]] = envelope["testCase"]["pickleId"]
+                elif "testCaseStarted" in envelope:
+                    started[envelope["testCaseStarted"]["id"]] = envelope["testCaseStarted"]["testCaseId"]
+                elif "testCaseFinished" in envelope:
+                    name = pickles[cases[started[envelope["testCaseFinished"]["testCaseStartedId"]]]]
+                    ran[name] = ran.get(name, 0) + 1
+            for name in pickles.values():
+                compiled[name] = compiled.get(name, 0) + 1
+        return compiled, ran
+
+    def test_the_project_s_cucumber_settings_cannot_skip_the_steps_or_the_scenarios(self):
+        # review of 4.4: a dry run (cucumber.execution.dry-run) passed every step without running the glue, and the
+        # census counted the scenarios as run; a trailing comma of the project's plugin list broke Cucumber once the
+        # kit appended its stream; discovery.as-root-engine=false (a @Suite setup) let Cucumber discover nothing
+        self.project(steps_assert="assertEquals(expected + 1, total)")      # every scenario fails when its glue runs
+        properties = os.path.join(self.lab, "src/acceptanceTest/resources/junit-platform.properties")
+        build = os.path.join(self.lab, "build.gradle")
+        plain = kit.read(build)
+        for version in (CUCUMBER, "8.0.1"):
+            kit.set_property(self.lab, "cucumber.version", version)
+            for where, script, platform, failure in (
+                    ("the build script", "tasks.withType(Test).configureEach { systemProperty "
+                                         "'cucumber.execution.dry-run', 'true' }\n", None, "expected: <"),
+                    ("junit-platform.properties", "", "cucumber.execution.dry-run=true\n", "expected: <"),
+                    ("_JAVA_OPTIONS of the task", "tasks.withType(Test).configureEach { environment '_JAVA_OPTIONS', "
+                                                  "'-Dcucumber.execution.dry-run=true' }\n", None,
+                     "acceptanceTest ran with _JAVA_OPTIONS -Dcucumber.execution.dry-run=true")):
+                with self.subTest(cucumber=version, dry_run=where):
+                    kit.write(build, plain + script)
+                    if platform:
+                        kit.write(properties, platform)
+                    elif os.path.exists(properties):
+                        os.remove(properties)
+                    r = self.gradle("acceptanceTest", "-Pgauntlet.scope=all")
+                    self.assert_build(r, False)
+                    self.assertRegex(r.out, r"(?m)^> Task :acceptanceTest FAILED$")
+                    self.assertIn(failure, r.out)       # the glue ran and its assertion failed, or the run is refused
+        kit.write(build, plain)
+        self.file(GLUE + "DiscountSteps.java", DISCOUNT_STEPS % "assertEquals(expected, total)")
+        for version, platform in ((CUCUMBER, "cucumber.plugin=pretty,\n"), ("8.0.1", "cucumber.plugin=pretty,\n"),
+                                  ("8.0.1", "cucumber.junit-platform.discovery.as-root-engine=false\n")):
+            with self.subTest(cucumber=version, properties=platform.strip()):
+                kit.set_property(self.lab, "cucumber.version", version)
+                kit.write(properties, platform)
+                r = self.gradle("acceptanceTest", "-Pgauntlet.scope=all")
+                self.assert_build(r, True)
+                self.assertIn("Acceptance census: 3 of 3 scenario(s) in 1 feature file(s) ran", r.out)
+
+    def test_every_scenario_the_feature_files_define_ran_or_is_finding_f2(self):
+        self.project()
+        self.file(GLUE + "AnySteps.java", ANY_STEPS)
+        for rel, text in CENSUS_FEATURES.items():
+            self.file(FEATURES + rel, text)
+        self.commit("feature files for a census")
+        build = os.path.join(self.lab, "build.gradle")
+        plain = kit.read(build)
+        properties = os.path.join(self.lab, "src/acceptanceTest/resources/junit-platform.properties")
+        files = {"example_discount.feature": "", "outlines.feature": "", "rules.feature": "", "nested.feature": "sub/dir/"}
+        variants = {    # the project's build script after the kit, junit-platform.properties, how the run fails
+            "no filter": ("", None, None),
+            "excludeTags of the test platform": ("tasks.named('acceptanceTest') { useJUnitPlatform { excludeTags 'slow' } }\n",
+                                                 None, "F2"),
+            "a narrower cucumber.features": ("tasks.named('acceptanceTest') { systemProperty 'cucumber.features', "
+                                             f"file('{FEATURES}sub').absolutePath }}\n", None, "F2"),
+            "cucumber.filter.tags": ("", "cucumber.filter.tags=not @slow\n", "skipped"),
+            "cucumber.filter.name": ("tasks.named('acceptanceTest') { systemProperty 'cucumber.filter.name', "
+                                     "'^(Plain one|Deep down)$' }\n", None, "skipped"),
+            "excludeTags accepted by the human": ("tasks.named('acceptanceTest') { useJUnitPlatform { excludeTags 'slow' } }\n",
+                                                  None, "accepted"),
+        }
+        for version in (CUCUMBER, "8.0.1"):
+            kit.set_property(self.lab, "cucumber.version", version)
+            defined = None
+            for what, (script, platform, failure) in variants.items():
+                with self.subTest(cucumber=version, variant=what):
+                    kit.write(build, plain + script)
+                    if platform:
+                        kit.write(properties, platform)
+                    elif os.path.exists(properties):
+                        os.remove(properties)
+                    allowlist = os.path.join(self.lab, "gauntlet/config/integrity-allowlist.txt")
+                    kit.write(allowlist, "".join(f"{FEATURES}{rel}  F2\n" for rel in ("outlines.feature", "rules.feature"))
+                              if failure == "accepted" else "")
+                    self.commit(f"{version}: {what}")
+                    r = self.gradle("acceptanceTest", "-Pgauntlet.scope=all")
+                    compiled, ran = self.cucumber_counts()
+                    if defined is None:             # the run without a filter: Cucumber compiles every feature file
+                        defined = compiled
+                        self.assertEqual({"example_discount.feature": 3, "outlines.feature": 7, "rules.feature": 4,
+                                          "nested.feature": 1}, defined)
+                        xml = "".join(kit.read(p) for p in glob.glob(os.path.join(self.lab, "build/test-results/acceptanceTest/*.xml")))
+                        self.assertEqual(sum(defined.values()), xml.count("<testcase "))
+                    total = f"{sum(ran.values())} of {sum(defined.values())} scenario(s) in 4 feature file(s) ran"
+                    self.assert_build(r, failure in (None, "accepted"))
+                    if failure == "accepted":
+                        missing = sum(defined.values()) - sum(ran.values())
+                        self.assertIn(f"Acceptance census: {total}; {missing} did not run, accepted by the integrity"
+                                      " allowlist (F2)", r.out)
+                    else:
+                        self.assertIn(f"Acceptance census: {total}", r.out)
+                    for name, prefix in files.items():
+                        line = (f"ACCEPTANCE F2 {FEATURES}{prefix}{name}  {ran.get(name, 0)} of {defined[name]} scenario(s)"
+                                " ran")
+                        if failure in ("F2", "skipped") and ran.get(name, 0) < defined[name]:
+                            self.assertIn(line, r.out)
+                        else:
+                            self.assertNotIn(f"ACCEPTANCE F2 {FEATURES}{prefix}{name} ", r.out)
+                    if failure == "skipped":        # Cucumber's own filters: reported skipped, as before
+                        self.assertIn("scenario(s) skipped", r.out)
+                    if what == "a narrower cucumber.features":
+                        self.assertIn(f"ACCEPTANCE F2 {FEATURES}outlines.feature  0 of 7 scenario(s) ran - Cucumber did not"
+                                      " load the file", r.out)
+                        self.assertIn(f"ACCEPTANCE F2 {FEATURES}outlines.feature:3  did not run  |  Plain one", r.out)
+                    if what == "excludeTags of the test platform":
+                        self.assertIn(f"ACCEPTANCE F2 {FEATURES}rules.feature:23  did not run  |  In the second rule", r.out)
+                        # what the gate passed on: the JUnit XML holds 11 scenarios, none skipped
+                        xml = "".join(kit.read(p) for p in glob.glob(os.path.join(self.lab, "build/test-results/acceptanceTest/*.xml")))
+                        self.assertEqual((11, 0), (xml.count("<testcase "), xml.count("<skipped")))
 
 
 class GherkinScope(GradleCase):
@@ -797,27 +1073,112 @@ class GherkinHarness(GradleCase):
             arguments = ", ".join(f"'-D{key}={value}'" for key, value in properties.items())
             return "        jvmArgumentProviders.add({ [" + arguments + "] } as CommandLineArgumentProvider)\n"
 
-        variants = {    # the project's doFirst, Cucumber, what the kit names
+        # The same doFirst reaches acceptanceTest. Without the kit's provider Cucumber writes no message stream there,
+        # and the acceptance census fails first; its forks run every scenario in each of two JVMs, and when the two
+        # write the one stream at the same time, the census cannot read it (--continue: the mutant run still runs, and
+        # is refused as before).
+        variants = {    # the project's doFirst, Cucumber, what the kit names, what the acceptance census says
             "a provider that runs the scenarios in parallel": (provider(PARALLEL), CUCUMBER,
-                                                               "cucumber.execution.parallel.enabled=true"),
+                                                               "cucumber.execution.parallel.enabled=true", None),
             "forks": ("        maxParallelForks = 2\n        forkEvery = 1\n", CUCUMBER,
-                      "maxParallelForks=2, forkEvery=1"),
+                      "maxParallelForks=2, forkEvery=1", "ACCEPTANCE ERROR cannot read the message stream "),    # or OK
             "a provider of a random order on Cucumber 8": (
                 provider({"cucumber.execution.order": "random", "cucumber.execution.order.random.seed": "7"}), "8.0.1",
-                "cucumber.execution.order=random"),
+                "cucumber.execution.order=random", None),
+            # without the kit's provider acceptanceTest itself is refused first (review of 4.4: dry-run and the root
+            # engine are the kit's there too), and the mutant run never starts
             "the kit's provider removed": ("        jvmArgumentProviders.clear()\n", CUCUMBER,
-                                           "cucumber.execution.parallel.enabled=unset, cucumber.execution.order=unset"),
+                                           "acceptanceTest ran with cucumber.execution.dry-run=unset, "
+                                           "cucumber.junit-platform.discovery.as-root-engine=unset: the gates judge",
+                                           "ACCEPTANCE ERROR no Cucumber message stream in "),
         }
-        for what, (block, version, named) in variants.items():
+        for what, (block, version, named, census) in variants.items():
             with self.subTest(what):
                 kit.write(build, plain.replace(apply, "tasks.withType(Test).configureEach {\n    doFirst {\n" + block
                                                + "    }\n}\n" + apply, 1))
                 kit.set_property(self.lab, "cucumber.version", version)
                 self.commit(what)
+                r = self.gradle("gherkinMutation", "-Pgauntlet.scope=all", "--continue")
+                self.assert_build(r, False)
+                self.assertIn("gauntlet: " + named if named.startswith("acceptanceTest ") else
+                              "gauntlet: gherkinMutantsRun ran with " + named + ": its controls prove nothing", r.out)
+                self.assertNotIn("Gherkin mutation: OK", r.out)
+                counted = "Acceptance census: 1 of 1 scenario(s) in 1 feature file(s) ran" in r.out
+                if what == "forks":         # whether the two JVMs wrote at the same time
+                    self.assertTrue(counted or census in r.out, r.out[-3000:])
+                elif census:
+                    self.assertIn(census, r.out)
+                else:
+                    self.assertTrue(counted, r.out[-3000:])
+
+    def credits_project(self, version=CUCUMBER):
+        """The quota stand: c1 and m1 use up the two purchases, z1 is refused unless the scenarios ran one at a time."""
+        self.project(example=False)
+        kit.set_property(self.lab, "cucumber.version", version)
+        self.file(GLUE + "CreditSteps.java", CREDIT_STEPS)
+        self.file(GLUE + "PurchaseSteps.java", PURCHASE_STEPS)
+        self.file(FEATURES + "credits.feature", CREDITS)
+        self.commit("credits")
+        return os.path.join(self.lab, "build.gradle")
+
+    @staticmethod
+    def before_the_kit(script, block):
+        """The build script with a tasks.withType(Test) block above the apply line: its doFirst runs after the kit's,
+        its doLast before the kit's."""
+        apply = "apply from: 'gauntlet/gauntlet.gradle'"
+        return script.replace(apply, "tasks.withType(Test).configureEach {\n" + block + "}\n" + apply, 1)
+
+    def results(self):
+        """The JUnit XML of the mutant run."""
+        return "".join(kit.read(p) for p in glob.glob(os.path.join(self.lab, "build/gherkin-mutation/results/*.xml")))
+
+    def test_a_mutant_run_that_ran_otherwise_than_its_arguments_say_is_judged_by_what_it_did(self):
+        # The kit checked the arguments Gradle lists for the mutant run, after the run. Past them (review of 7061885,
+        # issue #4): _JAVA_OPTIONS in the task's environment, which the JVM reads after its command line; an argument
+        # file (@file, -XX:VMOptionsFile) whose -D Gradle never lists; a provider that answers otherwise at launch than
+        # when the kit asks after the run; a doLast of the project, run before the kit's, that takes its provider back.
+        # The scenarios ran in parallel, the stand's quota failed the mutant - a "kill" of a step that ignores
+        # <credits> -, and the gate passed. Cucumber's message stream of the run shows what it did.
+        build = self.credits_project()
+        plain = kit.read(build)
+        arguments = [f"-D{key}={value}" for key, value in PARALLEL.items()]
+        listed = ", ".join(f"'{argument}'" for argument in arguments)
+        argfile = self.file("build-args/parallel.args", "\n".join(arguments) + "\n")
+        random = "-Dcucumber.execution.order=random -Dcucumber.execution.order.random.seed=7"
+        variants = {    # the project's tasks.withType(Test) block, Cucumber, whether the scenarios ran in parallel
+            "_JAVA_OPTIONS in the task's environment": (f"    environment '_JAVA_OPTIONS', '{' '.join(arguments)}'\n",
+                                                        CUCUMBER, True),
+            "an argument file": (f"    doFirst {{ jvmArgumentProviders.add({{ ['@{argfile}'] }} as "
+                                 "CommandLineArgumentProvider) }\n", CUCUMBER, True),
+            "a VM options file": (f"    doFirst {{ jvmArgumentProviders.add({{ ['-XX:VMOptionsFile={argfile}'] }} as "
+                                  "CommandLineArgumentProvider) }\n", CUCUMBER, True),
+            "a provider that answers otherwise when asked again": ("    doFirst {\n        def asked = 0\n"
+                f"        jvmArgumentProviders.add({{ asked++ == 0 ? [{listed}] : [] }} as CommandLineArgumentProvider)\n"
+                "    }\n", CUCUMBER, True),
+            "a doLast of the project that takes its provider back": (f"    def parallel = {{ [{listed}] }} as "
+                "CommandLineArgumentProvider\n    doFirst { jvmArgumentProviders.add(parallel) }\n"
+                "    doLast { jvmArgumentProviders.remove(parallel) }\n", CUCUMBER, True),
+            "a random order in _JAVA_OPTIONS on Cucumber 8": (f"    environment '_JAVA_OPTIONS', '{random}'\n", "8.0.1",
+                                                               False),
+        }
+        for what, (block, version, parallel) in variants.items():
+            with self.subTest(what):
+                kit.write(build, self.before_the_kit(plain, block))
+                kit.set_property(self.lab, "cucumber.version", version)
+                self.commit(what)
                 r = self.gradle("gherkinMutation", "-Pgauntlet.scope=all")
                 self.assert_build(r, False)
-                self.assertIn("gauntlet: gherkinMutantsRun ran with " + named + ": its controls prove nothing", r.out)
                 self.assertNotIn("Gherkin mutation: OK", r.out)
+                if "_JAVA_OPTIONS" in what:     # refused after the run, before the verdict (review of 4.4): the same
+                    # tasks.withType(Test) block reaches acceptanceTest, which is refused first
+                    self.assertRegex(r.out, r"gauntlet: (acceptanceTest|gherkinMutantsRun) ran with _JAVA_OPTIONS -Dcucumber\.")
+                    continue
+                self.assertNotIn("gherkinMutantsRun ran with", r.out)          # the arguments Gradle lists were the kit's
+                self.assertIn("Gherkin mutation: 1 mutant(s) - ", r.out)      # the verdict ran, and judged the order
+                self.assertEqual(parallel, "purchase on ForkJoinPool-" in self.results())
+                if parallel:
+                    self.assertRegex(r.out, r"MUTANT ERROR +run order: \S+ and \S+ ran at the same time \(jvm-1\.ndjson: ")
+                self.assertRegex(r.out, r"MUTANT ERROR +run order: m1 did not run between its controls c1 and z1 - ")
 
     def test_a_stand_failure_in_a_step_whose_text_holds_a_line_break_kills_nothing(self):
         # the address cell holds \n, so the Given's text - and Cucumber's step frame - holds a line break. The stand
@@ -987,7 +1348,7 @@ class ChangedScope(GradleCase):
         self.commit("a comment that ends with a lone CR")
         r = self.gradle("mutationGate")
         self.assert_build(r, False)                                     # the weak test leaves survivors
-        self.assertNotIn("no changed main classes", r.out)
+        self.assertNotIn(":pitest skipped by the kit", r.out)
         self.assertRegex(r.out, r">> Generated [1-9]\d* mutations")
 
     def test_changed_class_in_a_second_root_of_the_main_source_set(self):
@@ -1139,6 +1500,45 @@ class GateJvm(GradleCase):
         self.assert_jvm(r, "gate executable: ", homes[gate])
         self.assert_ran_on(r, homes[gate], "checkstyleGate", "archTest", "acceptanceTest")
         self.assert_ran_on(r, homes[project], "test")
+
+    def test_a_gate_home_older_than_the_kit_s_code_is_named(self):
+        # GAUNTLET_GATE_JAVA_HOME names the JVM itself, and the gate skipped the minimum gate.java.version has for
+        # it (issue #3): on JDK 8 the gate tasks failed with that JVM's own errors - a main class not found, a class
+        # version - and gauntletInfo named JDK 8 as the gate. The home's java is asked for its version when a gate task
+        # starts; a build without gate tasks does not start it.
+        homes = jvm_homes()
+        old = max((version for version in homes if version < 17), default=None)
+        fit = sorted(version for version in homes if version >= 17)
+        if old is None or not fit:
+            self.skipTest("needs a JVM older than 17 and a JDK 17+")
+        # the kit's ArchUnit test is compiled as the project's classes are and runs on the gate JVM: a gate of Java 17
+        # loads them when the project compiles for 17
+        self.project(build_extra="tasks.withType(JavaCompile).configureEach { options.release = 17 }")
+        report = kit.write(os.path.join(self.tmp, "report-jvm.gradle"), REPORT_JVM)    # integrityCheck reads build.gradle
+        gate_tasks = ("integrityCheck", "checkstyleGate", "archTest", "gauntletInfo", "-Pgauntlet.scope=all", "-I", report)
+        for version in sorted({fit[0], fit[-1]}):                  # the oldest one the gate takes, and the newest
+            with self.subTest(gate=version):
+                r = self.gradle(*gate_tasks, env={"GAUNTLET_GATE_JAVA_HOME": homes[version]})
+                self.assert_build(r, True)
+                self.assert_jvm(r, "gate executable: ", homes[version])
+                self.assert_ran_on(r, homes[version], "checkstyleGate", "archTest")
+        env = {"GAUNTLET_GATE_JAVA_HOME": homes[old]}
+        self.assert_build(self.gradle("classes", "test", env=env), True)
+        r = self.gradle(*gate_tasks, "--continue", env=env)
+        self.assert_build(r, False)
+        for task in gate_tasks[:4]:                                # a tool (Exec), JavaExec, Test, gauntletInfo
+            self.assertIn(f"Execution failed for task ':{task}'.\n> gauntlet: GAUNTLET_GATE_JAVA_HOME '{homes[old]}' is "
+                          f"Java {old}: the gate JVM runs the gauntlet's own tools, which need Java 17 or newer.", r.out)
+        r = self.gradle("integrityCheck", f"-Pgauntlet.gateJavaHome={homes[old]}", env={"GAUNTLET_GATE_JAVA_HOME": ""})
+        self.assert_build(r, False)
+        self.assertIn(f"> gauntlet: gauntlet.gateJavaHome '{homes[old]}' is Java {old}: the gate JVM", r.out)
+        # a home without a java that names its version
+        missing = os.path.join(self.tmp, "no-jdk")
+        r = self.gradle("integrityCheck", "gauntletInfo", "--continue", env={"GAUNTLET_GATE_JAVA_HOME": missing})
+        self.assert_build(r, False)
+        for task in ("integrityCheck", "gauntletInfo"):
+            self.assertIn(f"Execution failed for task ':{task}'.\n> gauntlet: GAUNTLET_GATE_JAVA_HOME '{missing}' names "
+                          "no Java the gate can run on", r.out)
 
     def test_a_launcher_read_by_an_init_script_once_the_project_is_evaluated(self):
         # an IDE's model builder or a plugin in an init script reads the launcher of every JVM task, and Gradle
@@ -1300,6 +1700,325 @@ class ArchPolicy(GradleCase):
             self.assertIn("forbids domain -> [java.lang..]", r.out)
 
 
+CENSUS_DEPENDENCIES = """dependencies {
+    testImplementation 'junit:junit:4.13.2'
+    testRuntimeOnly 'org.junit.vintage:junit-vintage-engine'
+}
+"""
+# A realistic set of test classes next to OrdersTest: every one runs and leaves a testcase in the JUnit XML - also the
+# disabled, the conditional and the assuming one (skipped), the one inherited from an abstract contract or a test
+# interface, the @Nested and the static nested one, JUnit 4 through the vintage engine.
+CENSUS_TESTS = {
+    "SlowOrdersTest": '@Tag("slow")\nclass SlowOrdersTest {\n    @Test\n    void slow() {\n        assertEquals(0, new Orders().total(1, 1));\n    }\n}\n',
+    "NestedOrdersTest": "class NestedOrdersTest {\n    @Nested\n    class WhenEmpty {\n        @Test\n        void zero() {\n"
+                        "            assertEquals(0, new Orders().total(0, 0));\n        }\n    }\n}\n",
+    "AbstractOrdersContract": "abstract class AbstractOrdersContract {\n    @Test\n    void inherited() {\n"
+                              "        assertEquals(1, new Orders().total(2, 1));\n    }\n}\n",
+    "InheritedOrdersTest": "class InheritedOrdersTest extends AbstractOrdersContract {\n}\n",
+    "OrdersContract": "interface OrdersContract {\n    @Test\n    default void fromTheInterface() {\n"
+                      "        assertEquals(2, new Orders().total(3, 1));\n    }\n}\n",
+    "ContractOrdersTest": "class ContractOrdersTest implements OrdersContract {\n}\n",
+    "DisabledOrdersTest": '@Disabled("waits for the new tariff")\nclass DisabledOrdersTest {\n    @Test\n    void later() {\n    }\n}\n',
+    "WindowsOrdersTest": "@EnabledOnOs(OS.WINDOWS)\nclass WindowsOrdersTest {\n    @Test\n    void onWindows() {\n    }\n}\n",
+    "AssumingOrdersTest": "class AssumingOrdersTest {\n    @BeforeAll\n    static void stand() {\n"
+                          '        Assumptions.assumeTrue(false, "no stand here");\n    }\n\n    @Test\n    void withTheStand() {\n    }\n}\n',
+    "ParameterizedOrdersTest": "class ParameterizedOrdersTest {\n    @ParameterizedTest\n    @ValueSource(ints = {1, 2})\n"
+                               "    void keepsTheSum(int sum) {\n        assertEquals(sum, new Orders().total(sum, 0));\n    }\n}\n",
+    "OrdersFactoryTest": "class OrdersFactoryTest {\n    @TestFactory\n    Stream<DynamicTest> totals() {\n"
+                         '        return Stream.of(DynamicTest.dynamicTest("one", () -> assertEquals(1, new Orders().total(1, 0))));\n'
+                         "    }\n}\n",
+    "RoundingHolder": "class RoundingHolder {\n    static class Rounding {\n        @Test\n        void rounds() {\n"
+                      "            assertEquals(3, new Orders().total(3, 0));\n        }\n    }\n}\n",
+    "TestData": "final class TestData {\n    static final int SUM = 100;\n\n    private TestData() {\n    }\n}\n",
+}
+CENSUS_HEAD = ("package com.example.service.domain;\n\nimport static org.junit.jupiter.api.Assertions.assertEquals;\n\n"
+               "import java.util.stream.Stream;\nimport org.junit.jupiter.api.*;\nimport org.junit.jupiter.api.condition.*;\n"
+               "import org.junit.jupiter.params.ParameterizedTest;\nimport org.junit.jupiter.params.provider.ValueSource;\n\n")
+LEGACY_TEST = ("package com.example.service.domain;\n\nimport static org.junit.Assert.assertEquals;\n\nimport org.junit.Test;\n\n"
+               "public class LegacyOrdersTest {\n    @Test\n    public void legacy() {\n        assertEquals(5, new Orders().total(6, 1));\n"
+               "    }\n}\n")
+CENSUS_COUNTED = 12     # OrdersTest and the classes above that JUnit runs: not the contracts, the outer classes, TestData
+DOMAIN_PACKAGE = "com.example.service.domain."
+NO_SLOW_TESTS = """package com.example.service.domain;
+
+import org.junit.platform.engine.FilterResult;
+import org.junit.platform.engine.TestDescriptor;
+import org.junit.platform.launcher.PostDiscoveryFilter;
+
+public class NoSlowTests implements PostDiscoveryFilter {
+    @Override
+    public FilterResult apply(TestDescriptor descriptor) {
+        boolean slow = descriptor.getTags().stream().anyMatch(tag -> tag.getName().equals("slow"));
+        return FilterResult.includedIf(!slow, () -> "fast", () -> "slow");
+    }
+}
+"""
+
+
+class Census(GradleCase):
+    """testCensus: every test class test and archTest compiled must be in their JUnit XML results (finding T6) - judged
+    by what ran, whatever kept a class out: the build-script forms B2 does not read, a filter of the test platform."""
+
+    def census_project(self, extra=""):
+        self.project(build_extra=CENSUS_DEPENDENCIES + extra, example=False)
+        for name, body in CENSUS_TESTS.items():
+            self.file(DOMAIN_TEST + name + ".java", CENSUS_HEAD + body)
+        self.file(DOMAIN_TEST + "LegacyOrdersTest.java", LEGACY_TEST)
+
+    def build(self, extra):
+        self.file("build.gradle", BUILD.format(junit=JUNIT, extra=CENSUS_DEPENDENCIES + extra))
+
+    @staticmethod
+    def not_run(result, task="test"):
+        """{class name: path} of the T6 findings for the task."""
+        found = {}
+        for m in re.finditer(rf"(?m)^INTEGRITY T6 (\S+)  compiled but not run by {task}  \|  (\S+)$", result.out):
+            found[m.group(2).replace(DOMAIN_PACKAGE, "")] = m.group(1)
+        return found
+
+    def assert_census_ok(self, result, ran=CENSUS_COUNTED):
+        self.assert_build(result, True)
+        self.assertIn(f"Test census: OK - test classes run (ran/compiled): test {ran}/{ran}, archTest 1/1", result.out)
+
+    def test_every_test_class_ran_and_each_filter_names_the_class_it_kept_out(self):
+        self.census_project()
+        self.assert_census_ok(self.gradle("testCensus"))
+        slow = {"SlowOrdersTest": DOMAIN_TEST + "SlowOrdersTest.java"}
+        forms = {   # the first five are forms B2 does not read (README section 9); the tag filter is one it does
+            "a variable": "def t = tasks.test\nt.exclude '**/SlowOrdersTest*'",
+            "a key of the task container": "tasks['test'].exclude '**/SlowOrdersTest*'",
+            "matching { }": "tasks.matching { it.name == 'test' }.all { exclude '**/SlowOrdersTest*' }",
+            "a closure parameter in doFirst": "test { doFirst { t -> t.exclude '**/SlowOrdersTest*' } }",
+            "a case branch": "test { switch (1) { case 1: exclude '**/SlowOrdersTest*' } }",
+            "excludeTags": "test { useJUnitPlatform { excludeTags 'slow' } }",
+        }
+        for form, extra in forms.items():
+            with self.subTest(form):
+                self.build(extra)
+                r = self.gradle("testCensus")
+                self.assert_build(r, False)
+                self.assertEqual(self.not_run(r), slow)
+                self.assertIn(f"Test census: FAILED - 1 test class(es) compiled but not run; test classes run (ran/compiled): "
+                              f"test {CENSUS_COUNTED - 1}/{CENSUS_COUNTED}, archTest 1/1.", r.out)
+        with self.subTest("a PostDiscoveryFilter of the test platform, outside the build script"):
+            self.build("dependencies { testImplementation 'org.junit.platform:junit-platform-launcher' }")
+            self.file(DOMAIN_TEST + "NoSlowTests.java", NO_SLOW_TESTS)
+            self.file("src/test/resources/META-INF/services/org.junit.platform.launcher.PostDiscoveryFilter",
+                      "com.example.service.domain.NoSlowTests\n")
+            r = self.gradle("testCensus")
+            self.assert_build(r, False)
+            self.assertEqual(self.not_run(r), slow)
+            os.remove(os.path.join(self.lab, "src/test/resources/META-INF/services/org.junit.platform.launcher.PostDiscoveryFilter"))
+        with self.subTest("junit.jupiter.conditions.deactivate runs the disabled class: nothing is missing"):
+            self.file("src/test/resources/junit-platform.properties", "junit.jupiter.conditions.deactivate=org.junit.*DisabledCondition\n")
+            self.assert_census_ok(self.gradle("testCensus"))
+            self.assertNotIn("<skipped", kit.read(os.path.join(
+                self.lab, "build/test-results/test/TEST-com.example.service.domain.DisabledOrdersTest.xml")))
+
+    def test_a_test_class_kept_from_the_task_or_from_compilation(self):
+        # review of 4.4: the census judged task.testClassesDirs, which the build controls - a narrowed one ran fewer
+        # test classes and the census judged only what was left ("test 0/0"); a test source the compile task left out
+        # had no class to miss; one results directory for test and archTest lost test's results to archTest's run
+        self.census_project()
+        self.assert_census_ok(self.gradle("testCensus"))
+        narrowed = "not the classes its source set compiles"
+        for case, extra, after_the_kit, task in (
+                ("a filtered file tree", "test { testClassesDirs = testClassesDirs.asFileTree.matching { "
+                                         "getExcludes().add('**/SlowOrdersTest*') } }", "", ":test"),
+                ("an empty collection", "test { testClassesDirs = files() }", "", ":test"),
+                ("archTest emptied after the kit", "", "archTest { testClassesDirs = files() }\n", ":archTest"),
+                ("the source set's classes directories emptied", "sourceSets.test.output.classesDirs.setFrom(files())",
+                 "", ":test"),
+                ("archTest's source set emptied after the kit", "",
+                 "sourceSets.archTest.output.classesDirs.setFrom(files())\n", ":archTest")):
+            with self.subTest(case):
+                self.build(extra)
+                kit.write(os.path.join(self.lab, "build.gradle"), kit.read(os.path.join(self.lab, "build.gradle")) + after_the_kit)
+                r = self.gradle("testCensus")
+                self.assert_build(r, False)
+                self.assertIn(f"gauntlet: {task} runs the test classes in ", r.out)
+                self.assertIn(narrowed, r.out)
+        for case, extra in (("a source-set exclude", "sourceSets { test { java { exclude '**/SlowOrdersTest.java' } } }"),
+                            ("a compile-task exclude", "compileTestJava { exclude '**/SlowOrdersTest.java' }")):
+            with self.subTest(case):
+                self.build(extra)
+                r = self.gradle("testCensus")
+                self.assert_build(r, False)
+                self.assertIn(f"INTEGRITY T6 {DOMAIN_TEST}SlowOrdersTest.java  not compiled for test  |  the build leaves "
+                              "this test source out of the compilation", r.out)
+                self.assertIn("Test census: FAILED - 0 test class(es) compiled but not run, 1 test source(s) not compiled; "
+                              f"test classes run (ran/compiled): test {CENSUS_COUNTED - 1}/{CENSUS_COUNTED - 1}", r.out)
+        with self.subTest("the source set's directories moved away from src/test/java"):
+            self.build("sourceSets { test { java { srcDirs = [] } } }")
+            r = self.gradle("testCensus")
+            self.assert_build(r, False)
+            self.assertIn(f"INTEGRITY T6 {DOMAIN_TEST}SlowOrdersTest.java  not compiled for test", r.out)
+            self.build("compileTestJava { exclude '**/SlowOrdersTest.java' }")
+        with self.subTest("an allowlist line accepts a source left out"):
+            allowlist = os.path.join(self.lab, "gauntlet/config/integrity-allowlist.txt")
+            shipped = kit.read(allowlist)
+            kit.write(allowlist, shipped + f"{DOMAIN_TEST}SlowOrdersTest.java T6 # moved to a separate suite\n")
+            r = self.gradle("testCensus")
+            self.assertIn("(1 allowlisted)", r.out)
+            self.assert_build(r, True)
+            kit.write(allowlist, shipped)
+        with self.subTest("one JUnit XML directory for test and archTest"):
+            self.build("tasks.withType(Test).configureEach { reports.junitXml.outputLocation = "
+                       "layout.buildDirectory.dir('junit-xml') }")
+            r = self.gradle("testCensus")
+            self.assert_build(r, False)
+            self.assertIn("gauntlet: test and archTest write their JUnit XML into one directory", r.out)
+
+    def test_the_results_of_an_up_to_date_or_cached_test_run_are_judged(self):
+        # an UP-TO-DATE or FROM-CACHE test task leaves the results of the very same inputs - the filter is one of them
+        self.census_project("test { exclude '**/SlowOrdersTest*' }")
+        cache = os.path.join(self.tmp, "build-cache")
+        self.file("settings.gradle", f"rootProject.name = 'lab'\nbuildCache {{ local {{ directory = '{cache}' }} }}\n")
+        for outcome, before in (("", ()), (" UP-TO-DATE", ()), (" FROM-CACHE", ("clean",))):
+            with self.subTest(outcome or "executed"):
+                r = self.gradle(*before, "testCensus", "--build-cache")
+                self.assertRegex(r.out, rf"(?m)^> Task :test{outcome}$")
+                self.assertEqual(set(self.not_run(r)), {"SlowOrdersTest"})
+        self.build("")
+        for outcome, before in (("", ()), (" FROM-CACHE", ("clean",))):
+            with self.subTest("no filter: " + (outcome or "executed")):
+                r = self.gradle(*before, "testCensus", "--build-cache")
+                self.assertRegex(r.out, rf"(?m)^> Task :test{outcome}$")
+                self.assert_census_ok(r)
+
+    def test_only_a_test_run_of_this_build_is_judged(self):
+        # the results directory keeps what an earlier run wrote: a test task that ran nothing in this build must not be
+        # judged by it - nor must a later census take a person's run filtered on the command line for the gate's
+        self.census_project()
+        self.assert_census_ok(self.gradle("testCensus"))
+        with self.subTest("SKIPPED"):
+            self.build("test { onlyIf { false } }")
+            r = self.gradle("testCensus")
+            self.assertRegex(r.out, r"(?m)^> Task :test SKIPPED$")
+            self.assertIn(f"Test census: test was SKIPPED in this build, so none of its {CENSUS_COUNTED} test class(es) ran", r.out)
+            self.assertEqual(len(self.not_run(r)), CENSUS_COUNTED)
+        left_out = "gauntlet: :test is not part of this build (left out with -x, or by the build itself)"
+        for case, extra, args in (("-x test", "", ("-x", "test")),
+                                  ("excludedTaskNames", "gradle.startParameter.excludedTaskNames << 'test'", ())):
+            with self.subTest(case):
+                self.build(extra)
+                r = self.gradle("testCensus", *args)
+                self.assert_build(r, False)
+                self.assertIn(left_out, r.out)
+        with self.subTest("no JUnit XML"):
+            self.build("test { reports.junitXml.required = false }")
+            r = self.gradle("testCensus")
+            self.assert_build(r, False)
+            self.assertIn("switches them off (reports.junitXml.required = false)", r.out)
+        self.build("")
+        with self.subTest("--tests by a person, outside the gauntlet"):
+            r = self.gradle("test", "--tests", "*.OrdersTest")
+            self.assert_build(r, True)
+            self.assertNotIn("Test census", r.out)
+            r = self.gradle("testCensus")
+            self.assertRegex(r.out, r"(?m)^> Task :test$")         # the filter is an input: test runs whole again
+            self.assert_census_ok(r)
+        with self.subTest("--tests in the census's own build is judged"):
+            r = self.gradle("test", "--tests", "*.OrdersTest", "testCensus")
+            self.assert_build(r, False)
+            self.assertEqual(len(self.not_run(r)), CENSUS_COUNTED - 1)
+            self.assertNotIn("OrdersTest", self.not_run(r))
+
+    def test_testng_and_junit_4_runners(self):
+        self.project(example=False)
+        os.remove(os.path.join(self.lab, DOMAIN_TEST + "OrdersTest.java"))
+        head = "package com.example.service.domain;\n\nimport org.testng.annotations.Test;\n\n"
+        testng = {"OrdersNgTest": "public class OrdersNgTest {\n    @Test\n    public void works() {\n    }\n}\n",
+                  "SlowOrdersNgTest": 'public class SlowOrdersNgTest {\n    @Test(groups = "slow")\n    public void slow() {\n    }\n}\n',
+                  "ClassLevelNgTest": "@Test\npublic class ClassLevelNgTest {\n    public void one() {\n    }\n}\n",
+                  "IgnoredNgTest": "@org.testng.annotations.Ignore\npublic class IgnoredNgTest {\n    @Test\n"
+                                   "    public void ignored() {\n    }\n}\n"}
+        for name, body in testng.items():
+            self.file(DOMAIN_TEST + name + ".java", head + body)
+        runner = "dependencies { testImplementation 'org.testng:testng:7.10.2' }\n"
+        build = lambda framework: BUILD.format(junit=JUNIT, extra=runner).replace("test { useJUnitPlatform() }", framework)
+        with self.subTest("TestNG"):
+            self.file("build.gradle", build("test { useTestNG() }"))
+            self.assert_census_ok(self.gradle("testCensus"), ran=3)        # @Ignore: nothing reported, T3 judges it
+            self.file("build.gradle", build("test { useTestNG { excludeGroups 'slow' } }"))
+            self.assertEqual(set(self.not_run(self.gradle("testCensus"))), {"SlowOrdersNgTest"})
+        for name in testng:
+            os.remove(os.path.join(self.lab, DOMAIN_TEST + name + ".java"))
+        head = "package com.example.service.domain;\n\nimport org.junit.Test;\n\n"
+        self.file(DOMAIN_TEST + "Slow.java", "package com.example.service.domain;\n\npublic interface Slow {\n}\n")
+        self.file(DOMAIN_TEST + "OrdersJ4Test.java", head + "public class OrdersJ4Test {\n    @Test\n    public void works() {\n    }\n}\n")
+        self.file(DOMAIN_TEST + "SlowOrdersJ4Test.java", head + "@org.junit.experimental.categories.Category(Slow.class)\n"
+                  "public class SlowOrdersJ4Test {\n    @Test\n    public void slow() {\n    }\n}\n")
+        runner = "dependencies { testImplementation 'junit:junit:4.13.2' }\n"
+        with self.subTest("JUnit 4"):
+            self.file("build.gradle", build("test { useJUnit() }"))
+            self.assert_census_ok(self.gradle("testCensus"), ran=2)
+            self.file("build.gradle", build("test { useJUnit { excludeCategories 'com.example.service.domain.Slow' } }"))
+            self.assertEqual(set(self.not_run(self.gradle("testCensus"))), {"SlowOrdersJ4Test"})
+
+    def test_kotlin_test_classes_in_a_module_build(self):
+        java = os.path.join(os.environ["JAVA_HOME"], "bin", "java") if os.environ.get("JAVA_HOME") else shutil.which("java")
+        if (java_major(java) or 0) > 24:
+            self.skipTest("the Kotlin Gradle plugin 2.0.21 does not run on a JDK newer than 24")
+        shutil.copytree(os.path.join(kit.kit(), "gauntlet"), os.path.join(self.lab, "gauntlet"))
+        for key, value in (("module", "core"), ("acceptance.spring", "false"), ("cucumber.version", CUCUMBER)):
+            kit.set_property(self.lab, key, value)
+        arch = os.path.join(self.lab, "gauntlet/config/architecture.properties")
+        kit.write(arch, re.sub(r"(?m)^(allowed\.(application|api|infrastructure)|forbidden\.application)=.*\n", "",
+                               kit.read(arch)))
+        self.file("core/settings.gradle", "rootProject.name = 'core'\n")
+        self.file("core/build.gradle", BUILD.format(junit=JUNIT, extra="").replace("'gauntlet/", "'../gauntlet/").replace(
+            "    id 'info.solidsoft.pitest' version '1.19.0'", "    id 'org.jetbrains.kotlin.jvm' version '2.0.21'"))
+        self.file("core/" + DOMAIN + "Orders.java", ORDERS)
+        self.file("core/src/test/kotlin/com/example/service/domain/OrdersKtTest.kt", """package com.example.service.domain
+
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Nested
+import org.junit.jupiter.api.Test
+
+class OrdersKtTest {
+    @Test
+    fun subtractsTheDiscount() {
+        assertEquals(9900, Orders().total(10000, 100))
+    }
+
+    @Nested
+    inner class WhenEmpty {
+        @Test
+        fun zero() {
+            assertEquals(0, Orders().total(0, 0))
+        }
+    }
+
+    class Rounding {
+        @Test
+        fun rounds() {
+            assertEquals(3, Orders().total(3, 0))
+        }
+    }
+
+    companion object {
+        const val SUM = 100
+    }
+}
+""")
+        # Kotlin does not tie a file to its package directory
+        self.file("core/src/test/kotlin/misplaced/ElsewhereKtTest.kt", "package com.example.service.domain\n\n"
+                  "import org.junit.jupiter.api.Test\n\nclass ElsewhereKtTest {\n    @Test\n    fun runs() {\n"
+                  "        val square = { x: Int -> x * x }\n        check(square(2) == 4)\n    }\n}\n")
+        self.lab = os.path.join(self.lab, "core")
+        self.assert_census_ok(self.gradle("testCensus"), ran=4)
+        self.file("build.gradle", kit.read(os.path.join(self.lab, "build.gradle")).replace(
+            "apply from:", "tasks['test'].exclude '**/ElsewhereKtTest*'\napply from:"))
+        r = self.gradle("testCensus")
+        self.assert_build(r, False)
+        self.assertEqual(self.not_run(r), {"ElsewhereKtTest": "src/test/kotlin/misplaced/ElsewhereKtTest.kt"})
+        kit.write(os.path.join(self.lab, "../gauntlet/config/core/integrity-allowlist.txt"),
+                  "src/test/kotlin/**/ElsewhereKtTest.kt T6   # the module's own allowlist\n")
+        r = self.gradle("testCensus")
+        self.assert_build(r, True)
+        self.assertIn("Test census: OK - test classes run (ran/compiled): test 3/4, archTest 1/1 (1 allowlisted)", r.out)
+
 class CiPlan(GradleCase):
     """The workflow's plan step next to the build it plans for: both read gauntlet.properties and must agree."""
 
@@ -1450,6 +2169,78 @@ class HardenerStop(GradleCase):
                 r = self.hardener_stops()
                 self.assertEqual(r.code, 2, r)
                 self.assertIn(refused, r.out)
+
+
+
+class GateRan(GradleCase):
+    """A green exit is judged by what Gradle ran (issue #4): one line of a build script took the gates out of the task
+    graph, Gradle printed BUILD SUCCESSFUL, and the Stop hook let the agent stop."""
+
+    hook = HardenerStop.hook
+
+    def start_session(self):
+        self.project(example=False)
+        self.file(FEATURES + ".gitkeep", "")                    # the features directory as the install leaves it
+        self.commit("features")
+        r = self.hook({"session_id": "s1", "hook_event_name": "SessionStart"},
+                      'python3 "$CLAUDE_PROJECT_DIR/gauntlet/hooks/stop_gate.py" --record-start')
+        self.assertEqual(r.code, 0, r)
+
+    def stops(self):
+        """The Stop hook, run as Claude Code runs it: the command of .claude/settings.json."""
+        settings = json.loads(kit.read(os.path.join(kit.kit(), ".claude", "settings.json")))
+        command, = [h["command"] for entry in settings["hooks"]["Stop"] for h in entry["hooks"]]
+        return self.hook({"session_id": "s1", "hook_event_name": "Stop", "stop_hook_active": False}, command)
+
+    def test_a_build_script_that_leaves_gate_tasks_out_of_the_build(self):
+        self.start_session()
+        build = kit.read(os.path.join(self.lab, "build.gradle"))
+        for left_out, named in ((["gauntletFast", "gauntlet"], "gauntletFast, gauntletScope, integrityCheck"),
+                                (["integrityCheck"], "integrityCheck - no")):
+            with self.subTest(left_out):
+                names = ", ".join(f"'{n}'" for n in left_out)
+                self.file("build.gradle", build + f"gradle.startParameter.excludedTaskNames.addAll([{names}])\n")
+                r = self.gradle("gauntletFast", "--continue")
+                self.assert_build(r, True)                                      # all the exit code knows
+                self.assertNotIn("> Task :integrityCheck", r.out)
+                r = self.stops()
+                self.assertEqual(r.code, 2, r)
+                self.assertIn(f"gauntlet: Gradle finished gauntletFast without running {named}", r.out)
+
+    def test_a_build_script_that_switches_a_gate_off_or_ignores_its_verdict(self):
+        # review of 4.4: a SKIPPED gate counted as run - and a skipped integrityCheck cannot name the line that skipped
+        # it; ignoreExitValue on every Exec task let each gate pass on its own findings
+        self.start_session()
+        skipped = DOMAIN_TEST + "SkippedTest.java"
+        build = kit.read(os.path.join(self.lab, "build.gradle"))
+        for what, before, after, finding, named in (
+                ("integrityCheck disabled after the kit", "", "tasks.named('integrityCheck') { enabled = false }\n", True,
+                 "without running integrityCheck - no"),
+                ("integrityCheck skipped by an onlyIf of the project's", "",
+                 "tasks.named('integrityCheck') { onlyIf { false } }\n", True, "without running integrityCheck - no"),
+                ("crapGate switched off in a form B1 does not read",
+                 "tasks.configureEach { if (name == 'crapGate') { enabled false } }\n", "", False,
+                 "without running crapGate - no"),
+                ("every Exec gate ignores its exit value", "tasks.withType(Exec).configureEach { ignoreExitValue = true }\n",
+                 "", True, "ended with exit value 1, and the build ignores exit values")):
+            with self.subTest(what):
+                if finding:     # a test the agent switched off: finding T1, which only a running integrityCheck reports
+                    self.file(skipped, "package com.example.service.domain;\n\nimport org.junit.jupiter.api.Disabled;\n"
+                              "import org.junit.jupiter.api.Test;\n\nclass SkippedTest {\n    @Disabled(\"later\")\n"
+                              "    @Test\n    void later() {\n    }\n}\n")
+                elif os.path.exists(os.path.join(self.lab, skipped)):
+                    os.remove(os.path.join(self.lab, skipped))
+                self.file("build.gradle", build.replace("apply from: 'gauntlet/gauntlet.gradle'\n",
+                                                        before + "apply from: 'gauntlet/gauntlet.gradle'\n" + after))
+                r = self.stops()
+                self.assertEqual(r.code, 2, r)
+                self.assertIn(named, r.out)
+
+    def test_the_whole_fast_gate_is_green_for_the_stop_hook(self):
+        self.start_session()
+        self.file("src/main/resources/service.properties", "greeting=hello\n")     # a change under src/: the hook runs
+        r = self.stops()
+        self.assertEqual(r.code, 0, r)
 
 
 if __name__ == "__main__":

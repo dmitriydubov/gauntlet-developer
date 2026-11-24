@@ -483,6 +483,10 @@ class ShapeTest(Base):
     def test_coverage_numbers(self):
         self.assert_code(self.check(report(self.sha, self.claim(1, "Сумма"), coverage="3 из 2")), 1,
                          "N больше M")
+        self.assert_code(self.check(report(self.sha, (), coverage="0 из 0")), 1, "M >= 1")
+        self.assert_code(self.check(report(self.sha, (), coverage="5 из 5")), 1, "ни одного утверждения")
+        self.assert_code(self.check(report(self.sha, (), coverage="0 из 2",
+                                           unchecked=("- Карточка — нет доступа (сеть закрыта) — не сверено",))), 0)
         text = report(self.sha, self.claim(1, "Сумма")).replace("(покрытие: 2 из 2 по чек-листу; сверх карточки: 0)",
                                                                "(все пункты)")
         self.assert_code(self.check(text), 1, "нет «покрытие: N из M")
@@ -502,6 +506,16 @@ class ShapeTest(Base):
             "   - команда: `git grep -n vat` (код 1) → совпадений нет",)))
         self.assert_code(self.check(text), 1, "вывода нет - «→ пусто» или «(код N)» без «→»")
 
+    def test_command_quoting_only_omitted_marker_fails(self):
+        for groups in ("«… опущено 5 строк …»", "«…» «… опущено 5 строк …»"):
+            with self.subTest(groups=groups):
+                text = report(self.sha, self.claim(1, "Сумма", evidence=(
+                    f"   - команда: `cat src/Order.java` (код 0) → {groups}",)))
+                self.assert_code(self.check(text), 1, "ничего не цитируют")
+        refuted = "   - опровергло бы: вызов vat; проверено: `cat src/Order.java` (код 0) → «… опущено 5 строк …»"
+        text = report(self.sha, self.claim(1, "Сумма", "гарантия, несущее", (GENUINE_FILE, refuted)))
+        self.assert_code(self.check(text), 1, "ничего не цитируют")
+
 
 class AllowlistTest(unittest.TestCase):
     """runnable(): which reported commands may be re-run, and why the others may not."""
@@ -517,7 +531,7 @@ class AllowlistTest(unittest.TestCase):
         "grep -c '$x' data/list.txt", "git log '@{u}'", "git log --diff-merges=first-parent -1",
         "git log -m --stat -1",
         "javap -cp build:lib/x.jar Order", "javap jar:file:///x.jar!/X.class", "javap file:///x/X.class",
-        "javap jrt:/java.base/java/lang/Object.class"]
+        "javap jrt:/java.base/java/lang/Object.class", "grep -ex/dev src/Order.java"]
     REJECTED = {
         # git: only the read-only subcommands, no global options, nothing that writes, runs a program or a pager
         "git grep -O total": "-O открывает пейджер",
@@ -634,6 +648,8 @@ class AllowlistTest(unittest.TestCase):
         "LC_ALL=C grep x data/list.txt": "не из списка программ",
         "cat /dev/zero": "устройство или файл ядра",
         "grep --file=/dev/zero x": "устройство или файл ядра",
+        "grep -nf/dev/zero x": "устройство или файл ядра",
+        "javap -cp build:/dev/zero Order": "устройство или файл ядра",
         "head -c 10 /proc/self/environ": "устройство или файл ядра",
         "cat /sys/kernel/mm/transparent_hugepage/enabled": "устройство или файл ядра",
     }
@@ -672,12 +688,19 @@ class AllowlistTest(unittest.TestCase):
                 self.assertEqual(words, shlex.split(command))
 
     def test_git_runs_without_pager_fsmonitor_signatures_and_remerge(self):
-        # log.diffMerges=remerge in a config would make `git log -m` write temporary objects as --remerge-diff does
+        # log.diffMerges=remerge in a config would make `git log -m` write temporary objects as --remerge-diff does;
+        # diff.<driver>.textconv runs an external converter on show, log, blame and grep unless --no-textconv is passed
         if shutil.which("git") is None:
             self.skipTest("no git")
         argv, _ = module().runnable("git log -1", self.root)
         self.assertEqual(argv[1:8], ["--no-pager", "-c", "core.fsmonitor=false", "-c", "log.showSignature=false",
                                      "-c", "log.diffMerges=separate"])
+        for sub in ("show", "log", "blame", "grep"):
+            argv, _ = module().runnable(f"git {sub} x", self.root)
+            self.assertEqual(argv[8:10], [sub, "--no-textconv"], sub)
+        for sub in ("cat-file", "ls-files", "rev-parse", "status"):
+            argv, _ = module().runnable(f"git {sub}", self.root)
+            self.assertNotIn("--no-textconv", argv, sub)
 
     def test_rg_runs_without_config(self):
         if shutil.which("rg") is None:
@@ -798,12 +821,37 @@ class RunTest(Base):
         text = report(self.sha, self.claim(1, "Вызова нет", evidence=(
             "   - команда: `git grep -n vat` (код 1) → пусто",)))
         self.assert_code(self.check(text, "--run"), 0, "совпало 1")
-        text = report(self.sha, self.claim(1, "Вызова нет", evidence=(
-            "   - команда: `git grep -n total` (код 0) → (вывода нет)",)))
-        self.assert_code(self.check(text, "--run"), 1, "вывод не пуст")
+        for form in (" → (вывода нет)", ""):
+            with self.subTest(form=form):
+                text = report(self.sha, self.claim(1, "Вызова нет", evidence=(
+                    f"   - команда: `git grep -n total` (код 0){form}",)))
+                self.assert_code(self.check(text, "--run"), 1, "вывод не пуст")
         refuted = "   - опровергло бы: вызов vat; проверено: `git grep -n vat` (код 1) → пусто, вызовов нет"
         text = report(self.sha, self.claim(1, "Вызова нет", "гарантия, несущее", (GENUINE_FILE, refuted)))
         self.assert_code(self.check(text, "--run"), 0, "перезапущено 1, совпало 1")
+
+    def test_git_textconv_in_config_is_not_run(self):
+        marker = os.path.join(self.tmp, "converter-ran")
+        converter = kit.write(os.path.join(self.tmp, "conv.sh"),
+                              f"#!/bin/sh\necho ran > {shlex.quote(marker)}\necho converted_line\n")
+        os.chmod(converter, 0o755)
+        kit.write(os.path.join(self.repo, ".gitattributes"), "*.bin diff=demo\n")
+        with open(os.path.join(self.repo, "data.bin"), "wb") as f:
+            f.write(b"raw_bytes_line\x00\n")
+        self.git("add", ".gitattributes", "data.bin")
+        self.commit("bin")
+        sha = self.git("rev-parse", "HEAD").strip()
+        self.git("config", "diff.demo.textconv", converter)
+        self.git("config", "diff.demo.cachetextconv", "true")
+        before = tree_digest(self.repo)
+        evidence = ("   - команда: `git show HEAD` (код 0) → «Binary files»",
+                    "   - команда: `git log -p -1` (код 0) → «Binary files»",
+                    "   - команда: `git log -S converted_line -1` (код 0) → пусто",
+                    "   - команда: `git blame data.bin` (код 0) → «raw_bytes_line»")
+        result = self.check(report(sha, self.claim(1, "Бинарный", evidence=evidence)), "--run")
+        self.assert_code(result, 0, "совпало 4")
+        self.assertFalse(os.path.exists(marker), "diff.demo.textconv ran during --run")
+        self.assertEqual(tree_digest(self.repo), before, "textconv wrote to the repository or .git")
 
     def test_ansi_colours_are_not_output(self):
         text = report(self.sha, self.claim(1, "Сумма", evidence=(

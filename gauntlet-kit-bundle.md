@@ -650,9 +650,10 @@ Claude Code, роли, настройки, `CLAUDE.md`, CI-workflow, конфи�
   `mutationGate` первого и последнего прогона и мутант на каждый тест; источник версии сборки у допущения.
 - `tools/report_check.py` (новый, Python 3 и git): механическая сверка отчёта — форма раздела 3, цитаты против файла
   на ревизии отчёта (часть строки — до границы слова или числа), с `--run` — повтор команд только для чтения из
-  разрешённого списка на ревизии отчёта и чистом дереве. Код 0 — форма верна, расхождений нет и каждая команда
-  повторена; 1 — ошибка формы или расхождение; 3 — расхождений нет, но не всё повторено; 2 — ошибка вызова или
-  среды. Строки файлов вне репозитория сверка не выводит. Режим `--hook` (`SubagentStop`) написан, но не включён.
+  разрешённого списка на ревизии отчёта и чистом дереве (с `--no-textconv` у `git show`, `log`, `blame` и `grep`).
+  Код 0 — форма верна, расхождений нет и каждая команда повторена; 1 — ошибка формы или расхождение; 3 — расхождений
+  нет, но не всё повторено; 2 — ошибка вызова или среды. Строки файлов вне репозитория сверка не выводит. Режим
+  `--hook` (`SubagentStop`) написан, но не включён.
 - `config/gauntlet.properties`: ключ `subagents.route=ask` (`ask`, `own`, `codex`, `agy`, `grok`, `kimi`, `qwen`) —
   кто исполняет карточки только для чтения. Решает человек, при `ask` — вопросом вместе с задачей для Jira; пишущие
   роли всегда свои. Ревьюер сессии внешним маршрутом читает копию на коммите сессии. Команды пяти CLI взяты из
@@ -664,8 +665,9 @@ Claude Code, роли, настройки, `CLAUDE.md`, CI-workflow, конфи�
   Настройки агентов пользователя guard охраняет как `~/.claude`: `~/.codex`, `~/.gemini`, `~/.agents`, `~/.grok`,
   `~/.kimi-code`, `~/.qwen`, `~/.env`, `/etc/codex`, `/etc/grok`, `/etc/qwen-code` и пути из переменных окружения
   вендоров. Старые обходы закрыты только ужесточением: `cd ~ && rm -rf .claude`, `"$HOME/.claude/…"`, `mv` и
-  `dd of=` в ещё не существующее имя, `$CLAUDE_PROJECT_DIR` и `$PWD` как путь. Ложные отказы guard и их обходы —
-  в `README.md`, раздел 9; самопроверка хуков — 4862 проверки.
+  `dd of=` в ещё не существующее имя, `$CLAUDE_PROJECT_DIR` и `$PWD` как путь, `git switch` и `checkout` без путей
+  через защищённые файлы `ctx.protected` и активные хуки ветки. Ложные отказы guard и их обходы — в `README.md`,
+  раздел 9; самопроверка хуков — 4898 проверок.
 - `install.sh`: итоговое сообщение называет и файлы других агентных инструментов, логика не менялась. Обновление с
   4.4: существующие роли и workflow скрипт не перезаписывает, `hardener.md`, `reviewer.md`, `specifier.md` и
   `gauntlet-kit.yml` приходят как `*.gauntlet.new`. Пока человек не слил
@@ -673,10 +675,10 @@ Claude Code, роли, настройки, `CLAUDE.md`, CI-workflow, конфи�
   guard.
 - `README.md` (разделы 2, 5, 7, 8, 9) и `INSTALL.md` (шаги 2, 7, 8) — описание синхронизировано. Гейты Gradle,
   `stop_gate.py` и Java-инструменты не менялись.
-- Проверки: `python3 tests/run.py --gradle` по этому бандлу на JDK 21 с Gradle 8.14.3 — 495 тестов, из них 65
+- Проверки: `python3 tests/run.py --gradle` по этому бандлу на JDK 21 с Gradle 8.14.3 — 497 тестов, из них 65
   сценариев на настоящем Gradle, 0 падений; два сценария, которым нужна JVM ниже 17, прогнаны отдельно с JDK 8 и
-  11. Самопроверка хуков — 4862 проверки, 0 падений. Вживую не запускались CLI вендоров внешнего маршрута, хук
-  `report_check.py --hook` и сам GitHub (`README.md`, раздел 9).
+  11. Самопроверка хуков — 4898 проверок, 0 падений. Вживую не запускались CLI вендоров внешнего маршрута и хук
+  `report_check.py --hook` (`README.md`, раздел 9).
 
 ## Как распаковать (Claude выполняет это на шаге 2 протокола `start`)
 
@@ -714,7 +716,7 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md`, `
 - `CLAUDE.md` (279 байт)
 - `gauntlet/CLAUDE.md` (72527 байт)
 - `gauntlet/INSTALL.md` (23435 байт)
-- `gauntlet/README.md` (153173 байт)
+- `gauntlet/README.md` (153552 байт)
 - `gauntlet/archtest/gauntlet/architecture/ArchitectureTest.java` (7999 байт)
 - `gauntlet/config/architecture.properties` (1420 байт)
 - `gauntlet/config/checkstyle.xml` (4593 байт)
@@ -724,8 +726,8 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md`, `
 - `gauntlet/config/pit-runerror-allowlist.txt` (1485 байт)
 - `gauntlet/config/pmd-ruleset.xml` (11398 байт)
 - `gauntlet/gauntlet.gradle` (91846 байт)
-- `gauntlet/hooks/guard.py` (140360 байт)
-- `gauntlet/hooks/selftest.py` (177569 байт)
+- `gauntlet/hooks/guard.py` (141909 байт)
+- `gauntlet/hooks/selftest.py` (181104 байт)
 - `gauntlet/hooks/session_start.sh` (3492 байт)
 - `gauntlet/hooks/stop_gate.py` (29033 байт)
 - `gauntlet/install.sh` (17035 байт)
@@ -738,7 +740,7 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md`, `
 - `gauntlet/tools/IntegrityCheck.java` (77690 байт)
 - `gauntlet/tools/PitSummary.java` (12720 байт)
 - `gauntlet/tools/TestCensus.java` (37511 байт)
-- `gauntlet/tools/report_check.py` (82029 байт)
+- `gauntlet/tools/report_check.py` (82991 байт)
 
 ## Файлы
 
@@ -2225,7 +2227,7 @@ gauntlet/
   archtest/               ArchUnit-тест, читающий config/architecture.properties
   hooks/                  guard.py (PreToolUse), stop_gate.py (Stop; SubagentStop hardener'а — matcher в
                           .claude/settings.json), session_start.sh (SessionStart; в облаке поднимает dockerd),
-                          selftest.py (4862 проверки хуков в трёх раскладках: python3 gauntlet/hooks/selftest.py)
+                          selftest.py (4898 проверок хуков в трёх раскладках: python3 gauntlet/hooks/selftest.py)
   templates/              конфигурация Cucumber+Spring, пример фичи на русском
   claude/, ci/            только до установки: install.sh переносит их в .claude/ и .github/workflows/
 ```
@@ -2473,15 +2475,15 @@ protection базовой ветки и то, что любая попытка �
 
 Ревизия 4.5 — сабагенты по доказательствам, роль `checker`, файлы и настройки других агентных инструментов —
 гейтов Gradle не касается и проверена здесь без Gradle, в обе стороны:
-- guard — `hooks/selftest.py`, 4862 проверки (ниже); на guard ревизии 4.4 те же проверки дают 1605 падений, и все
+- guard — `hooks/selftest.py`, 4898 проверок (ниже); на guard ревизии 4.4 те же проверки дают 1632 падения, и все
   они — новые проверки, а прежние 2656 проходят на обоих.
 - `gauntlet-kit.yml` — каждая из 14 записей файлов других агентных инструментов: добавление, правка, удаление,
   переименование в неё и из неё, другой регистр (`AGENTS.MD`, `.Qwen/x`) — красные; имена, которые только
   начинаются так же (`AGENTS.md.bak`, `.codex-old/`), и код рядом — зелёные; на workflow ревизии 4.4 — 8 падений.
-- `tools/report_check.py` — 89 тестов на временном git-репозитории: настоящие цитаты и команды проходят,
-  выдуманные — расхождение, сдвиг цитаты на две строки — поправка, на три — расхождение; 33 допустимые формы повтора
-  и 105 отказов; повтор только на ревизии отчёта и чистом дереве, и он не меняет ни байта репозитория; 103 мутации
-  инструмента, каждую ловит названный тест.
+- `tools/report_check.py` — 91 тест на временном git-репозитории: настоящие цитаты и команды проходят,
+  выдуманные — расхождение, сдвиг цитаты на две строки — поправка, на три — расхождение; 34 допустимые формы повтора
+  и 107 отказов; повтор только на ревизии отчёта и чистом дереве, с отключённым `textconv`, и он не меняет ни байта
+  репозитория; 103 мутации инструмента, каждую ловит названный тест.
 - `install.sh` ставит `.claude/agents/checker.md` вместе с остальными ролями; guard отказывает `checker` в записи
   в проект, в соседний worktree и в `git worktree add`, а Gradle и запись в клон вне репозитория и в `/tmp` по пути,
   который видит (абсолютному, `./имя` после `cd`, цели перенаправления), разрешает. Имя без каталога, которого
@@ -2509,7 +2511,7 @@ protection базовой ветки и то, что любая попытка �
   `gauntletFast` и вывод полного `gauntlet` с пропусками набора — без ложного красного.
 
 Проверено здесь (Gradle 8.14.3, Java 21):
-- Хуки, `hooks/selftest.py`, 4862 проверки в трёх раскладках (сборка в корне; модуль `core/`; два модуля
+- Хуки, `hooks/selftest.py`, 4898 проверок в трёх раскладках (сборка в корне; модуль `core/`; два модуля
   `core/` + `adapter/` — Gradle только в изменённом модуле, красный модуль блокирует, коммит
   спецификации одного модуля замораживает фичи другого, чужая незакоммиченная работа не считается)
   на временном git-репозитории с фиктивным `origin/main`:
@@ -2677,7 +2679,7 @@ protection базовой ветки и то, что любая попытка �
   `gauntlet.log` набором; у ревьюера разрешены чтения с перенаправлением, `git branch --all`, `unzip -l`, `tar tf`,
   `tee` и `mkdir` вне проекта; источники `cp` читаются, а не пишутся; `git restore --staged` и `git reset <путь>`
   трогают только индекс; роли со своей зоной не блокируются на `2>/dev/null`. Самопроверка 997 → 2365 → 2431 → 2536
-  → 2623 → 2629 → 2650 → 2656 → 4862 (+456, +22, +35, +29, +2, +7 и +2 на раскладку и +2206 в ревизии 4.5 —
+  → 2623 → 2629 → 2650 → 2656 → 4898 (+456, +22, +35, +29, +2, +7 и +2 на раскладку и +2242 в ревизии 4.5 —
   последние две до неё: второй workflow набора, `gauntlet-kit.yml`, — зона человека; файл настроек читается с
   разделителями `java.util.Properties` —
   `key: value`, `key value`; строка `$'…'` раскодируется, как в bash, а код perl в кавычках судится в том виде, как
@@ -2689,7 +2691,7 @@ protection базовой ветки и то, что любая попытка �
   32 уровней, чтение дольше 20 с), — отказ; `readpipe` — запись perl; ревизия 4.5 — 1129 новых проверок файлов и
   настроек других агентных инструментов и роли `checker`, с полной матрицей форм записи в раскладке «сборка в
   корне» и выборкой в модулях, 243 — каждая проверка ревьюера ещё раз для `checker`, 303 — ложные отказы сверки
-  по тексту из раздела 9 с их обходами и запись ревьюера и `checker` вне проекта и 531 — plumbing git и запись по
+  по тексту из раздела 9 с их обходами и запись ревьюера и `checker` вне проекта и 567 — plumbing git и запись по
   пути с переменной у ревьюера и `checker`, переключение ветки по файлам, которые оно меняет, в трёх раскладках).
   Независимое ревью этой же ревизии нашло дефекты и в её собственных правках — исправлены. `IntegrityCheck`:
   вырезание комментариев выдумывало параметр замыкания (`{ $/* … */ test -> /$`, вложенный комментарий Kotlin) и
@@ -2925,15 +2927,17 @@ CI на GitHub. Оттуда — правки ревизии 3: RUN_ERROR в `mu
   разнице HEAD и коммита, куда оно ведёт (`git diff --name-only HEAD <коммит>`; у `git switch --orphan` — все файлы),
   а с `-f` (и у `git checkout -f` без ветки) — и по локальным правкам, которые оно выбросит. Имя ветки роли не играет:
   `git switch fix/gauntlet` и `git switch -c fix/gauntlet` проходят, если файлы человека там те же. Отказ — файл
-  человека (`gauntlet/`, `.claude/`, `CLAUDE.md`, `AGENTS.md` …), который у этого коммита не такой, как у HEAD и у
-  базовой ветки (`baseRef`), и локальная правка файла человека, которую выбросит `-f`; возврат к набору базовой ветки
-  — не смена набора. Так же судятся файл настроек агентов пользователя и, у specifier и hardener, любой файл вне их
-  зоны. Переключение в клоне вне проекта свободно, в соседнем worktree судится так же. Ложный отказ бывает, когда
-  агент переходит на ветку, где набор сменил человек (порог в `gauntlet.properties` правят на GitHub), или на старый
-  коммит до обновления набора. Обход — файл ревизии через `git show <ревизия>:<путь>` или ревизия вне проекта
-  (`git worktree add --detach /tmp/<каталог> <ревизия>`); на такую ветку переключает человек, или сессия начинается на
-  ней. Что guard не разрешает, он, как раньше, сверяет как текст (пункт выше): ветку, которой нет ни здесь, ни ровно в
-  одном удалённом (`git switch nope/gauntlet` — отказ), переменную (`git switch $B`), глобальную опцию git, кроме `-C`
+  человека (`gauntlet/`, `.claude/`, `CLAUDE.md`, `AGENTS.md` …) или защищённый файл спецификации, который у этого
+  коммита не такой, как у HEAD и у базовой ветки (`baseRef`), и локальная правка такого файла, которую выбросит `-f`;
+  возврат к набору базовой ветки — не смена набора, кроме активных хуков и настроек (`.claude/`, `gauntlet/hooks/`),
+  добавленных или изменённых на самой этой ветке, и замороженной спецификации у specifier. Так же судятся файл
+  настроек агентов пользователя и, у specifier и hardener, любой файл вне их зоны. Переключение в клоне вне проекта
+  свободно, в соседнем worktree судится так же. Ложный отказ бывает, когда агент переходит на ветку, где набор сменил
+  человек (порог в `gauntlet.properties` правят на GitHub), или на старый коммит до обновления набора. Обход — файл
+  ревизии через `git show <ревизия>:<путь>` или ревизия вне проекта (`git worktree add --detach /tmp/<каталог>
+  <ревизия>`); на такую ветку переключает человек, или сессия начинается на ней. Что guard не разрешает, он, как
+  раньше, сверяет как текст (пункт выше): ветку, которой нет ни здесь, ни ровно в одном удалённом (`git switch
+  nope/gauntlet` — отказ), переменную (`git switch $B`), глобальную опцию git, кроме `-C`
   (`git -c advice.detachedHead=false checkout fix/gauntlet` — отказ, обход — без `-c`), опцию, которой guard не
   разбирает (сокращение `--det`), `GIT_DIR` и подобные переменные окружения, переключение с путями
   (`git checkout REV -- путь`).
@@ -3000,8 +3004,9 @@ CI на GitHub. Оттуда — правки ревизии 3: RUN_ERROR в `mu
   Пределы сверки: команду она повторяет, только если HEAD — ревизия отчёта и дерево чистое, без оболочки и не
   дольше 60 с, а общего бюджета на отчёт нет; что не повторено, она перечисляет отдельной строкой и выходит с кодом 3
   («не всё перепроверено»), а не 0; сборку, тесты и источники в сети не повторяет; число K в «… опущено K строк …» не
-  сверяет; конфигурация git для неё доверенная (textconv-драйвер из `.git/config` или `~/.gitconfig` запустится при
-  `git log -p` и `git show`; `log.showSignature` и `log.diffMerges` она задаёт сама); отказы списка составлены по
+  сверяет; конфигурация git для неё доверенная (например, `filter.<driver>.clean` из `.git/config` или `~/.gitconfig`;
+  `core.fsmonitor`, `log.showSignature`, `log.diffMerges` и `--no-textconv` у `show`, `log`, `blame` и `grep` она задаёт
+  сама); отказы списка составлены по
   GNU, на BSD (macOS) возможны ложные расхождения. Файл вне репозитория она читает с диска, а его строки — в цитате
   и в выводе повторённой команды — не выводит, только путь; FIFO, устройство, `/proc` и `/sys` — расхождение без
   чтения.
@@ -7213,15 +7218,20 @@ def switch_commit(top, rev, guess, kind):
     return (git(top, "rev-parse", "--verify", "--quiet", refs[0] + "^{commit}") or None) if len(refs) == 1 else None
 
 
+ACTIVE_HOOKS = (".claude/", "gauntlet/hooks/")
+
+
 def switch_judgment(agent, words, command, cwd, ctx):
     """(True, refusal or None) for a git switch the guard judges by the files it changes: those that differ between
     HEAD and the commit it moves to (every tracked file for `switch --orphan`), and with -f the locally changed ones
-    it discards. A human-owned file among them is refused unless the commit holds the base branch's version of it -
-    switching back to the base branch's kit is no change of the kit - and a local change of one is refused whenever
-    it would be discarded; so is a file of the user's agent configuration, and for the specifier and the hardener a
-    file outside their scope. The name of the branch does not matter. (False, None) for a command that is no such
-    switch or one the guard cannot resolve - a ref it does not find, a variable, git moved by -c, --git-dir or
-    GIT_DIR, a directory it did not follow: the caller judges it by its text."""
+    it discards. A human-owned or protected specification file among them is refused unless the commit holds the base
+    branch's version of it - switching back to the base branch's kit is no change of the kit, except that a frozen
+    specifier may not switch the spec back and active hooks (.claude/, gauntlet/hooks/) added or edited on this branch
+    may not be wiped or rolled back - and a local change is refused whenever it would be discarded; so is a file of
+    the user's agent configuration, and for the specifier and the hardener a file outside their scope. The name of the
+    branch does not matter. (False, None) for a command that is no such switch or one the guard cannot resolve - a ref
+    it does not find, a variable, git moved by -c, --git-dir or GIT_DIR, a directory it did not follow: the caller
+    judges it by its text."""
     if not words or os.path.basename(words[0]) != "git" or not known(cwd) \
             or GIT_LOCATION.search(QUOTED.sub("''", command)):
         return False, None
@@ -7265,18 +7275,41 @@ def switch_judgment(agent, words, command, cwd, ctx):
         rel = ctx.relative(os.path.join(top, p))
         if scope and rel is not None and not is_under(rel, scope):
             return True, f"The {agent} may only change files under {', '.join(scope)} (this switch changes {rel})."
-    owned = {p for p in set(changed + local) if is_under(ctx.relative(os.path.join(top, p)) or "..", HUMAN_OWNED)}
-    discarded, moved = [p for p in local if p in owned], [p for p in changed if p in owned]
+    protected = tuple(ctx.protected(agent))
+    rels = {p: ctx.relative(os.path.join(top, p)) or ".." for p in set(changed + local)}
+    guarded = {p for p, rel in rels.items() if is_under(rel, protected)}
+    discarded, moved = [p for p in local if p in guarded], [p for p in changed if p in guarded]
+    allowable = set()
     if moved and commit is not None:            # the base branch's version is the human's
-        differs = git_paths(top, "diff", "--name-only", "-z", "--no-renames", "--no-ext-diff", ctx.base_ref, commit,
-                            "--", *moved)
-        moved = moved if differs is None else [p for p in moved if p in differs]
+        pinned = set()
+        hook_moves = {p for p in moved if is_under(rels[p], ACTIVE_HOOKS)}
+        if hook_moves:
+            mb = git(top, "merge-base", ctx.base_ref, "HEAD")
+            branch_diff = (git_paths(top, "diff", "--name-only", "-z", "--no-renames", "--no-ext-diff", mb, "HEAD",
+                                     "--") if mb else None)
+            pinned = hook_moves if branch_diff is None else (hook_moves & set(branch_diff))
+        allowable = {p for p in moved if p not in pinned
+                     and not (agent == "specifier" and not is_under(rels[p], HUMAN_OWNED))}
+        if allowable:
+            differs = git_paths(top, "diff", "--name-only", "-z", "--no-renames", "--no-ext-diff", ctx.base_ref,
+                                commit, "--", *sorted(allowable))
+            if differs is not None:
+                moved = [p for p in moved if p not in allowable or p in differs]
     hits = discarded + moved
     if not hits:
         return True, None
-    what = (f"would change {hits[0]}, a human-owned file: the revision it moves to holds a version of it that neither "
-            f"HEAD nor the base branch ({ctx.base_ref}) has" if hits[0] in moved else
-            f"would discard the local change of {hits[0]}, a human-owned file")
+    hit = hits[0]
+    if not is_under(rels[hit], HUMAN_OWNED):
+        action = "would discard the local change of" if hit in discarded else "would change"
+        tail = frozen_reason(rels[hit]) if ctx.frozen else "Only the specifier subagent writes the Gherkin specification."
+        return True, f"This switch {action} {hit}: {tail}"
+    if hit in discarded:
+        what = f"would discard the local change of {hit}, a human-owned file"
+    elif hit not in allowable and commit is not None:
+        what = f"would change or remove {hit}, an active hook or settings file changed on this branch"
+    else:
+        what = (f"would change {hit}, a human-owned file: the revision it moves to holds a version of it that neither "
+                f"HEAD nor the base branch ({ctx.base_ref}) has")
     return True, (f"This switch {what}. Moving the kit or the agents' instructions to another version is reserved for "
                   "the human. Read such a file with `git show <revision>:<path>`, or check the revision out outside "
                   "the project (`git worktree add --detach /tmp/<dir> <revision>`).")
@@ -10162,7 +10195,64 @@ def switch_tests(repo):
     check("switch in a repository that is the user's agent configuration: refused", r.returncode == 0
           and "the user's Codex configuration" in r.stdout, r.stdout + r.stderr)
     shutil.rmtree(home)
-    git(repo, "branch", "-q", "-D", "fix/gauntlet", "topic/kit-change", "docs/gauntlet", "topic/rename", "topic/agents")
+    # frozen specification: switching to another version of a feature, or discarding a local edit of one with -f, is
+    # refused; when frozen, specifier cannot switch the feature back to base either (regression check vs 4.4)
+    feature = FEATURES + "/order.feature"
+    git(repo, "checkout", "-q", "-b", "features/alt", "claude/feature-x")
+    write(repo, feature, "# language: ru\nФункция: Подмена\n")
+    git(repo, "commit", "-qam", "alt spec")
+    git(repo, "checkout", "-q", "claude/feature-x")
+    for agent, command in (("main", "git switch features/alt"), ("main", "git checkout --detach features/alt"),
+                           ("specifier", "git switch features/alt"), ("specifier", "git switch main"),
+                           ("specifier", "git checkout --detach origin/main")):
+        expect_deny(repo, f"switch that changes the frozen specification: {agent} `{command}`", agent, "Bash",
+                    command=command)
+    with open(os.path.join(repo, feature), "a") as f:
+        f.write("# local draft\n")
+    for agent, command in (("main", "git checkout -f"), ("main", "git switch -f fix/gauntlet"),
+                           ("specifier", "git checkout -f")):
+        expect_deny(repo, f"switch -f that discards a local feature edit: {agent} `{command}`", agent, "Bash",
+                    command=command)
+    git(repo, "checkout", "-q", "--", feature)
+    # active hooks (.claude/, gauntlet/hooks/) installed or updated on this branch cannot be wiped or rolled back by
+    # switching to an older base_ref; when the human updates them on main instead, an older branch can switch to main
+    fresh = os.path.join(root, "fresh-install-repo")
+    os.makedirs(fresh)
+    git(fresh, "init", "-q", "-b", "main")
+    git(fresh, "config", "user.email", "t@example.com")
+    git(fresh, "config", "user.name", "t")
+    write(fresh, "App.java", "class App {}\n")
+    git(fresh, "add", "-A")
+    git(fresh, "commit", "-qm", "base without kit")
+    git(fresh, "update-ref", "refs/remotes/origin/main", "HEAD")
+    git(fresh, "branch", "before/gauntlet", "HEAD")
+    git(fresh, "checkout", "-q", "-b", "install")
+    for rel in ("gauntlet/config/gauntlet.properties", "gauntlet/hooks/guard.py"):
+        src = os.path.join(repo, rel)
+        dst = os.path.join(fresh, rel)
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copy2(src, dst)
+    write(fresh, ".claude/settings.json", "{}\n")
+    write(fresh, "CLAUDE.md", "@gauntlet/CLAUDE.md\n")
+    git(fresh, "add", "-A")
+    git(fresh, "commit", "-qm", "install kit")
+    for command in ("git switch main", "git checkout --detach origin/main", "git switch before/gauntlet"):
+        expect_deny(fresh, f"switch that wipes active hooks installed on the branch: {command}", "main", "Bash",
+                    command=command)
+    git(fresh, "branch", "-f", "main", "HEAD")
+    git(fresh, "update-ref", "refs/remotes/origin/main", "HEAD")
+    git(fresh, "checkout", "-q", "-b", "old-task")
+    git(fresh, "checkout", "-q", "main")
+    with open(os.path.join(fresh, "gauntlet/hooks/guard.py"), "a") as f:
+        f.write("# updated on main by human\n")
+    git(fresh, "commit", "-qam", "update guard on main")
+    git(fresh, "update-ref", "refs/remotes/origin/main", "HEAD")
+    git(fresh, "checkout", "-q", "old-task")
+    expect_allow(fresh, "switch to main when active hooks were updated on main, not on this branch", "main", "Bash",
+                 command="git switch main")
+    shutil.rmtree(fresh)
+    git(repo, "branch", "-q", "-D", "fix/gauntlet", "topic/kit-change", "docs/gauntlet", "topic/rename", "topic/agents",
+        "features/alt")
 
 
 def stop_tests(repo):
@@ -17901,8 +17991,8 @@ What it checks:
      несущее] or [риск, несущее] - and at least one evidence line under it, «опровергло бы:» under every
      load-bearing («несущее») claim, one of the three allowed reasons in every item of «Не проверено» (an item that
      starts with «Источник:» or «Команда:» is its own text, but a quote or a command with «…» groups in it is
-     checked), «покрытие: N из M» with N <= M; when N < M «Не проверено» names the rest, when N = M it is empty or a
-     single «- нет»;
+     checked), «покрытие: N из M» with 1 <= M, N <= M and at least one claim when N > 0; when N < M «Не проверено»
+     names the rest, when N = M it is empty or a single «- нет»;
   2. every `- файл:` quote against the file at the revision (`git cat-file blob <rev>:<path>`, the bytes `git show`
      prints for a file; a path in a worktree of the repository, such as the external route's copy, is read at the
      revision too when the revision has the file): each «…» group is one source line or a verbatim part of it that
@@ -18057,9 +18147,10 @@ def split_groups(region):
     return pieces, seps
 
 
-def bare(pieces):
-    """True when every group is a bare "…": it matches any line and quotes nothing."""
-    return all("…" in p and not squeeze(p.replace("…", "")) for p in pieces)
+def bare(pieces, command=False):
+    """True when every group is a bare "…" (or, for a command, «… опущено K строк …»): it matches any output and quotes
+    nothing."""
+    return all(("…" in p and not squeeze(p.replace("…", ""))) or (command and bool(OMITTED.match(p))) for p in pieces)
 
 
 def code_span(text):
@@ -18163,6 +18254,8 @@ def parse_report(text):
         parse_unchecked(report, section("Не проверено"))
     if report.coverage:
         done, total = report.coverage
+        if done > 0 and not report.claims:
+            report.error(found["Проверено"], f"покрытие {done} из {total}, а в «Проверено» ни одного утверждения")
         if done < total and not report.unchecked_items:
             report.error(found["Проверено"], f"покрытие {done} из {total} неполное, а «Не проверено» пусто: каждый "
                                              f"не покрытый пункт - туда, с причиной")
@@ -18188,7 +18281,9 @@ def parse_checked(report, heading_line, heading, rows):
     else:
         done, total = int(m.group(1)), int(m.group(2))
         report.coverage = (done, total)
-        if done > total:
+        if total < 1:
+            report.error(heading_line, f"покрытие {done} из {total}: в чек-листе должен быть хотя бы 1 пункт (M >= 1)")
+        elif done > total:
             report.error(heading_line, f"покрытие {done} из {total}: N больше M")
     claim, after_evidence, stray = None, False, []      # stray: runs of lines that are neither claims nor evidence
 
@@ -18330,7 +18425,7 @@ def read_evidence(n, kind, rest, lenient=False):
         if not m:
             return None, "строка «команда:» без кода выхода «(код N)» сразу после команды"
         tail = span[1][m.end():]
-        pieces, seps, empty = [], [], False
+        pieces, seps, empty = [], [], not tail.strip()
         if tail.strip():
             a = ARROW.match(tail)
             result = tail[a.end():] if a else ""
@@ -18338,7 +18433,7 @@ def read_evidence(n, kind, rest, lenient=False):
             if groups is None and a and lenient:
                 prefix = GROUP_PREFIX.match(result)
                 groups = split_groups(prefix.group(0)) if prefix else None
-            if groups is not None and bare(groups[0]):
+            if groups is not None and bare(groups[0], command=True):
                 return None, "строка «команда:»: " + BARE
             if groups is not None:
                 pieces, seps = groups
@@ -18370,7 +18465,7 @@ def read_refutation(n, rest):
             if prefix:
                 pieces, seps = split_groups(prefix.group(0))
                 quote, command = location and not code and location[1] >= 1, code and not location
-                if (quote or command) and bare(pieces):
+                if (quote and bare(pieces)) or (command and bare(pieces, command=True)):
                     return None, "строка «опровергло бы:»: " + BARE
                 if quote:
                     return Quote(n, location[0], location[1], pieces, seps, "опровергло бы"), None
@@ -18938,6 +19033,7 @@ def path_values(word, lists=False):
         values.append(word.split("=", 1)[1])
     elif word.startswith("-") and not word.startswith("--") and len(word) > 2:
         values.append(word[2:])
+        values += [word[k:] for k in range(3, len(word)) if word[1:k].isalpha() and word[k - 1] in "fS"]
     for value in list(values):
         m = FILE_URL.match(value)
         if m:
@@ -18949,7 +19045,7 @@ def path_values(word, lists=False):
 
 def device_argument(words, root):
     for word in words:
-        for value in path_values(word):
+        for value in path_values(word, lists=True):
             real = os.path.realpath(os.path.join(root, value))
             if any(real == d or real.startswith(d + "/") for d in DEVICES):
                 return word
@@ -19014,9 +19110,11 @@ def runnable(command, root):
     if not found:
         return None, f"программа «{program}» не найдена в PATH"
     if program == "git":
-        # log.diffMerges=remerge in a config would make `git log -m` write temporary objects, as --remerge-diff does
+        # log.diffMerges=remerge in a config would make `git log -m` write temporary objects, as --remerge-diff does;
+        # diff.<driver>.textconv in a config runs an external converter on show, log, blame and grep unless disabled
+        tail = [args[0], "--no-textconv", *args[1:]] if args[0] in ("show", "log", "blame", "grep") else args
         return [found, "--no-pager", "-c", "core.fsmonitor=false", "-c", "log.showSignature=false",
-                "-c", "log.diffMerges=separate", *args], None
+                "-c", "log.diffMerges=separate", *tail], None
     if program == "rg":
         return [found, "--no-config", *args], None
     return [found, *args], None

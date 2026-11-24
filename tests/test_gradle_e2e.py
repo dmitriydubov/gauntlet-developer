@@ -1808,14 +1808,14 @@ class Census(GradleCase):
         self.census_project()
         self.assert_census_ok(self.gradle("testCensus"))
         narrowed = "not the classes its source set compiles"
-        for case, extra, task in (
+        for case, extra, after_the_kit, task in (
                 ("a filtered file tree", "test { testClassesDirs = testClassesDirs.asFileTree.matching { "
-                                         "getExcludes().add('**/SlowOrdersTest*') } }", ":test"),
-                ("an empty collection", "test { testClassesDirs = files() }", ":test"),
-                ("archTest emptied", "tasks.matching { it.name == 'archTest' }.configureEach { testClassesDirs = files() }",
-                 ":archTest")):
+                                         "getExcludes().add('**/SlowOrdersTest*') } }", "", ":test"),
+                ("an empty collection", "test { testClassesDirs = files() }", "", ":test"),
+                ("archTest emptied after the kit", "", "archTest { testClassesDirs = files() }\n", ":archTest")):
             with self.subTest(case):
                 self.build(extra)
+                kit.write(os.path.join(self.lab, "build.gradle"), kit.read(os.path.join(self.lab, "build.gradle")) + after_the_kit)
                 r = self.gradle("testCensus")
                 self.assert_build(r, False)
                 self.assertIn(f"gauntlet: {task} runs the test classes in ", r.out)

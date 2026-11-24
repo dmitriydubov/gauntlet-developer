@@ -82,12 +82,12 @@
 |---|---|---|
 | `.github/workflows/gauntlet-kit.yml` | — | 9810 |
 | `.github/workflows/gauntlet.yml` | 7658 | 8414 |
-| `gauntlet/CLAUDE.md` | 65401 | 66350 |
-| `gauntlet/INSTALL.md` | 17017 | 21964 |
-| `gauntlet/README.md` | 95176 | 116110 |
-| `gauntlet/config/gauntlet.properties` | 6709 | 7130 |
+| `gauntlet/CLAUDE.md` | 65401 | 66516 |
+| `gauntlet/INSTALL.md` | 17017 | 22192 |
+| `gauntlet/README.md` | 95176 | 118515 |
+| `gauntlet/config/gauntlet.properties` | 6709 | 7227 |
 | `gauntlet/config/integrity-allowlist.txt` | 445 | 872 |
-| `gauntlet/gauntlet.gradle` | 71481 | 88490 |
+| `gauntlet/gauntlet.gradle` | 71481 | 88486 |
 | `gauntlet/hooks/guard.py` | 112844 | 112883 |
 | `gauntlet/hooks/selftest.py` | 136597 | 137719 |
 | `gauntlet/hooks/session_start.sh` | 3116 | 3492 |

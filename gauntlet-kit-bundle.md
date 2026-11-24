@@ -675,7 +675,7 @@ Claude Code, роли, настройки, `CLAUDE.md`, CI-workflow, конфи�
   guard.
 - `README.md` (разделы 2, 5, 7, 8, 9) и `INSTALL.md` (шаги 2, 7, 8) — описание синхронизировано. Гейты Gradle,
   `stop_gate.py` и Java-инструменты не менялись.
-- Проверки: `python3 tests/run.py --gradle` по этому бандлу на JDK 21 с Gradle 8.14.3 — 497 тестов, из них 65
+- Проверки: `python3 tests/run.py --gradle` по этому бандлу на JDK 21 с Gradle 8.14.3 — 498 тестов, из них 65
   сценариев на настоящем Gradle, 0 падений; два сценария, которым нужна JVM ниже 17, прогнаны отдельно с JDK 8 и
   11. Самопроверка хуков — 4898 проверок, 0 падений. Вживую не запускались CLI вендоров внешнего маршрута и хук
   `report_check.py --hook` (`README.md`, раздел 9).
@@ -716,7 +716,7 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md`, `
 - `CLAUDE.md` (279 байт)
 - `gauntlet/CLAUDE.md` (72527 байт)
 - `gauntlet/INSTALL.md` (23435 байт)
-- `gauntlet/README.md` (153552 байт)
+- `gauntlet/README.md` (153554 байт)
 - `gauntlet/archtest/gauntlet/architecture/ArchitectureTest.java` (7999 байт)
 - `gauntlet/config/architecture.properties` (1420 байт)
 - `gauntlet/config/checkstyle.xml` (4593 байт)
@@ -740,7 +740,7 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md`, `
 - `gauntlet/tools/IntegrityCheck.java` (77690 байт)
 - `gauntlet/tools/PitSummary.java` (12720 байт)
 - `gauntlet/tools/TestCensus.java` (37511 байт)
-- `gauntlet/tools/report_check.py` (82991 байт)
+- `gauntlet/tools/report_check.py` (83799 байт)
 
 ## Файлы
 
@@ -2480,7 +2480,7 @@ protection базовой ветки и то, что любая попытка �
 - `gauntlet-kit.yml` — каждая из 14 записей файлов других агентных инструментов: добавление, правка, удаление,
   переименование в неё и из неё, другой регистр (`AGENTS.MD`, `.Qwen/x`) — красные; имена, которые только
   начинаются так же (`AGENTS.md.bak`, `.codex-old/`), и код рядом — зелёные; на workflow ревизии 4.4 — 8 падений.
-- `tools/report_check.py` — 91 тест на временном git-репозитории: настоящие цитаты и команды проходят,
+- `tools/report_check.py` — 92 теста на временном git-репозитории: настоящие цитаты и команды проходят,
   выдуманные — расхождение, сдвиг цитаты на две строки — поправка, на три — расхождение; 34 допустимые формы повтора
   и 107 отказов; повтор только на ревизии отчёта и чистом дереве, с отключённым `textconv`, и он не меняет ни байта
   репозитория; 103 мутации инструмента, каждую ловит названный тест.
@@ -18430,14 +18430,16 @@ def read_evidence(n, kind, rest, lenient=False):
             a = ARROW.match(tail)
             result = tail[a.end():] if a else ""
             groups = split_groups(result) if a else None
+            empty_m = EMPTY_RESULT.match(result) if a and lenient else None
             if groups is None and a and lenient:
-                prefix = GROUP_PREFIX.match(result)
+                after_empty = result[empty_m.end():].lstrip() if empty_m else ""
+                prefix = GROUP_PREFIX.match(after_empty if empty_m and after_empty.startswith("«") else result)
                 groups = split_groups(prefix.group(0)) if prefix else None
             if groups is not None and bare(groups[0], command=True):
                 return None, "строка «команда:»: " + BARE
             if groups is not None:
                 pieces, seps = groups
-            elif a and (EMPTY_OUTPUT.match(result) or lenient and EMPTY_RESULT.match(result)):
+            elif a and (EMPTY_OUTPUT.match(result) or empty_m):
                 empty = True
             else:
                 return None, ("строка «команда:»: после «(код N)» - «→» и группы «…», по одной на строку вывода "
@@ -18472,6 +18474,9 @@ def read_refutation(n, rest):
                 if command:
                     return Command(n, span[0], int(code.group(1)), pieces, seps, "опровергло бы"), None
             elif code and not location and EMPTY_RESULT.match(result):
+                if "«" in result or "»" in result:
+                    return None, ("строка «опровергло бы:»: после «пусто» - группы «…» (вывода либо нет, либо он "
+                                  "процитирован; пересказ результата - без «»)")
                 return Command(n, span[0], int(code.group(1)), [], [], "опровергло бы", empty=True), None
     return ("свободно", checked), None
 
@@ -18495,9 +18500,18 @@ def clean_git_env(base):
     return env
 
 
-def text_lines(data):
-    text = data.decode("utf-8", "replace")
+def split_lines(text):
+    """Lines split on LF/CRLF only (so \\f, \\v, \\u2028 and mid-line \\r do not shift line numbers), without the extra
+    empty element that str.split("\\n") leaves after a trailing newline."""
+    if not text:
+        return []
+    if text.endswith("\n"):
+        text = text[:-1]
     return [l[:-1] if l.endswith("\r") else l for l in text.split("\n")]
+
+
+def text_lines(data):
+    return split_lines(data.decode("utf-8", "replace"))
 
 
 class Loaded:
@@ -19121,7 +19135,7 @@ def runnable(command, root):
 
 
 def run_capped(argv, cwd, env):
-    """(exit code, stdout+stderr text) or (None, reason): stopped after TIMEOUT or OUTPUT_LIMIT."""
+    """(exit code, stdout+stderr lines) or (None, reason): stopped after TIMEOUT or OUTPUT_LIMIT."""
     try:
         proc = subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, start_new_session=True)
@@ -19167,9 +19181,11 @@ def run_capped(argv, cwd, env):
     if over.is_set():
         limit = f"{OUTPUT_LIMIT >> 20} МБ" if OUTPUT_LIMIT >= 1 << 20 else f"{OUTPUT_LIMIT} байт"
         return None, f"вывод больше {limit}"
-    text = b"".join(chunks["out"]).decode("utf-8", "replace") + "\n" + \
-        b"".join(chunks["err"]).decode("utf-8", "replace")
-    return code, ANSI.sub("", text)
+    out_lines = []
+    for key in ("out", "err"):
+        stream = ANSI.sub("", b"".join(chunks[key]).decode("utf-8", "replace"))
+        out_lines.extend(split_lines(stream))
+    return code, out_lines
 
 
 def check_commands(report, repo, rev, run):
@@ -19206,11 +19222,10 @@ def check_commands(report, repo, rev, run):
             if reason:
                 c.status, c.detail = "skipped", reason
                 continue
-            code, output = run_capped(argv, repo.root, env)
+            code, out_lines = run_capped(argv, repo.root, env)
             if code is None:
-                c.status, c.detail = "skipped", output
+                c.status, c.detail = "skipped", out_lines
                 continue
-            out_lines = [l[:-1] if l.endswith("\r") else l for l in output.split("\n")]
             c.actual_code, c.hidden = code, outside_reads(c.command, repo)
             c.output = [] if c.hidden else [l for l in out_lines if l.strip()][:8]
             c.missing = Groups(c.pieces, c.seps).anywhere([Line(l) for l in out_lines])

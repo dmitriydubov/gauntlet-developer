@@ -241,6 +241,15 @@ class QuoteTest(Base):
         self.assert_code(self.check(report(self.sha, claims)), 0, "совпало 1")
         claims = self.claim(1, "Сумма", evidence=("   - файл: `src/Order.java:5` «»",))
         self.assert_code(self.check(report(self.sha, claims)), 1, "РАСХОЖДЕНИЕ src/Order.java:5")
+        # a trailing newline is a line terminator, not an extra empty line at EOF (nor within SHIFT of the last lines)
+        sha = self.add("src/Tight.java", "alpha\x0cheader\nbeta\ngamma\n")
+        for line in (1, 2, 3, 4):
+            with self.subTest(line=line):
+                claims = self.claim(1, "Плотное", evidence=(f"   - файл: `src/Tight.java:{line}` «»",))
+                self.assert_code(self.check(report(sha, claims)), 1, f"РАСХОЖДЕНИЕ src/Tight.java:{line}")
+        # form feed inside line 1 does not split it and shift line 2
+        claims = self.claim(1, "Плотное", evidence=("   - файл: `src/Tight.java:2` «beta»",))
+        self.assert_code(self.check(report(sha, claims)), 0, "совпало 1", "с поправкой 0")
 
     def test_file_outside_the_repository_is_read_on_disk(self):
         outside = kit.write(os.path.join(self.tmp, "vendor", "CHANGELOG.md"), "# 1.2\n- Added auto mode\n")
@@ -829,6 +838,31 @@ class RunTest(Base):
         refuted = "   - опровергло бы: вызов vat; проверено: `git grep -n vat` (код 1) → пусто, вызовов нет"
         text = report(self.sha, self.claim(1, "Вызова нет", "гарантия, несущее", (GENUINE_FILE, refuted)))
         self.assert_code(self.check(text, "--run"), 0, "перезапущено 1, совпало 1")
+        for tail in ("пусто «нет такой строки»", "пусто «src/Order.java:4:vat»"):
+            with self.subTest(tail=tail):
+                mixed = f"   - опровергло бы: вызов vat; проверено: `git grep -n vat` (код 1) → {tail}"
+                bad = report(self.sha, self.claim(1, "Вызова нет", "гарантия, несущее", (GENUINE_FILE, mixed)))
+                self.assert_code(self.check(bad), 1, "после «пусто» - группы «…»")
+                self.assert_code(self.check(bad, "--run"), 1, "после «пусто» - группы «…»")
+        unchecked_mixed = report(
+            self.sha, self.claim(1, "Сумма"), coverage="1 из 2",
+            unchecked=("- команда: `git grep -n vat` (код 1) → пусто «src/Order.java:4:vat» — нет доступа — риск",))
+        self.assert_code(self.check(unchecked_mixed, "--run"), 1, "в выводе нет: «src/Order.java:4:vat»")
+
+    def test_empty_group_in_command_output_matches_only_real_blank_line(self):
+        for cmd in ("wc -l src/Order.java", "git grep -c total"):
+            for groups in ("«»", "«   »", "«» «… опущено 3 строк …»"):
+                with self.subTest(cmd=cmd, groups=groups):
+                    text = report(self.sha, self.claim(1, "Вывод", evidence=(
+                        f"   - команда: `{cmd}` (код 0) → {groups}",)))
+                    self.assert_code(self.check(text, "--run"), 1, "в выводе нет:")
+        silent = report(self.sha, self.claim(1, "Чисто", evidence=(
+            "   - команда: `git status --porcelain` (код 0) → «»",)))
+        self.assert_code(self.check(silent, "--run"), 1, "в выводе нет: «»")
+        # line 2 of src/Order.java is genuinely blank, so sed prints one empty line ("\n")
+        blank = report(self.sha, self.claim(1, "Пустая строка", evidence=(
+            "   - команда: `sed -n '2p' src/Order.java` (код 0) → «»",)))
+        self.assert_code(self.check(blank, "--run"), 0, "совпало 1")
 
     def test_git_textconv_in_config_is_not_run(self):
         marker = os.path.join(self.tmp, "converter-ran")

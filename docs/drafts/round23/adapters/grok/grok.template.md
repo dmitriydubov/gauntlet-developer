@@ -434,7 +434,9 @@ gauntlet/CLAUDE.md» → «правила `gauntlet/CLAUDE.md` и `.grok/rules/0
   основной копии. Итог: 20 проверок, 0 расхождений.
 - `round23/adapters/grok/test_grok_compat.py` — режим совместимости без прослойки: зелёный `mutationGate` hardener'а,
   затем Stop основного агента на том же коде с красным `gauntletFast`. Тест подаёт SubagentStop hardener'а с id сессии
-  основного агента — и при такой предпосылке хук пропускает остановку, не запустив `gauntletFast`. Предпосылка
+  основного агента — в ревизии 4.5 при такой предпосылке хук пропускал остановку, не запустив `gauntletFast` (с ревизии
+  4.6 `stop_gate.py` при `not pending` сверяет `last-green-<task>` своей задачи, и ложного зелёного нет даже на общем
+  `session_id`). Предпосылка
   неверна: по исходникам 1.0.45 событие сабагента идёт с его собственным id сессии (`acp_session/hooks.rs`
   `make_hook_envelope`: `session_id: self.session_id_string()`; `acp_session_impl/stop_gate.rs`:
   `subagent_id: self.session_id_string()`), и с ним ложного зелёного нет — `gauntletFast` запускается и без прослойки

@@ -1035,6 +1035,110 @@ class RunOrderTest(Sandbox):
         self.assertEqual(0, code, out)
         self.assertIn("Gherkin mutation: OK", out)
 
+    def test_worker_thread_and_unwrapped_step_failures_resolved_from_message_stream(self):
+        # Awaitility.untilAsserted builds AssertionError on a pool thread (no step method on its stack, so Cucumber
+        # appends no "✽."), and Gradle 8.14's DefaultThrowableToTestFailureMapper unwraps ConditionTimeoutException to
+        # that inner AssertionError cause when writing TEST-*.xml. Cucumber's NDJSON stream still records
+        # testStepFinished(FAILED) with testStepId -> pickleStepId -> AST step line.
+        worker_frames = ("com.example.service.acceptance.DoublingSteps.lambda$result$0(DoublingSteps.java:20)",
+                         "java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)")
+
+        def stream_with_step(m1_step_line, in_hook=False, msg_trace=""):
+            uri_c1 = MUTANTS_URI + "c1.feature"
+            uri_m1 = MUTANTS_URI + "m1.feature"
+            uri_z1 = MUTANTS_URI + "z1.feature"
+            evs = []
+            for idx, (uri, cid) in enumerate(((uri_c1, "c1"), (uri_m1, "m1"), (uri_z1, "z1"))):
+                evs.append({"gherkinDocument": {
+                    "uri": uri,
+                    "feature": {
+                        "location": {"line": 1, "column": 1}, "language": "en", "keyword": "Feature", "name": "D",
+                        "children": [{"scenario": {
+                            "id": f"sc-{idx}", "location": {"line": 3, "column": 3}, "keyword": "Scenario Outline",
+                            "name": SCENARIO,
+                            "steps": [
+                                {"id": f"ast-s1-{idx}", "location": {"line": 3, "column": 5}, "keyword": "Given ", "text": "setup"},
+                                {"id": f"ast-s2-{idx}", "location": {"line": 5, "column": 5}, "keyword": "Then ", "text": "check"},
+                            ],
+                            "examples": [{"id": f"ex-{idx}", "location": {"line": 9, "column": 5},
+                                          "tableBody": [{"id": f"row-{idx}", "location": {"line": 11, "column": 7}}]}],
+                        }}],
+                    },
+                }})
+                evs.append({"pickle": {
+                    "id": f"p-{cid}", "uri": uri, "name": f"{cid.upper()} | {SCENARIO}", "language": "en",
+                    "astNodeIds": [f"sc-{idx}", f"row-{idx}"],
+                    "steps": [
+                        {"id": f"ps1-{cid}", "text": "setup", "astNodeIds": [f"ast-s1-{idx}", f"row-{idx}"]},
+                        {"id": f"ps2-{cid}", "text": "check", "astNodeIds": [f"ast-s2-{idx}", f"row-{idx}"]},
+                    ],
+                }})
+                test_steps = [
+                    {"id": f"hook-{cid}", "hookId": "h-before"},
+                    {"id": f"ts1-{cid}", "pickleStepId": f"ps1-{cid}"},
+                    {"id": f"ts2-{cid}", "pickleStepId": f"ps2-{cid}"},
+                ]
+                evs.append({"testCase": {"id": f"tc-{cid}", "pickleId": f"p-{cid}", "testSteps": test_steps}})
+            for idx, (cid, st, fin) in enumerate((("c1", 0, 10), ("m1", 11, 20), ("z1", 21, 30))):
+                evs.append({"testCaseStarted": {"id": f"run-{cid}", "testCaseId": f"tc-{cid}", "timestamp": stamp(st)}})
+                if cid == "m1":
+                    failed_ts = "hook-m1" if in_hook else ("ts1-m1" if m1_step_line == 3 else "ts2-m1")
+                    res = {"status": "FAILED", "duration": {"seconds": 0, "nanos": 1000}}
+                    if msg_trace:
+                        res["message"] = msg_trace
+                    evs.append({"testStepFinished": {"testCaseStartedId": "run-m1", "testStepId": failed_ts,
+                                                     "testStepResult": res, "timestamp": stamp(st + 5)}})
+                evs.append({"testCaseFinished": {"testCaseStartedId": f"run-{cid}", "timestamp": stamp(fin)}})
+            return "".join(json.dumps(e) + "\n" for e in evs)
+
+        # Single-mutant manifest (firstUse = line 4)
+        rows = [GENERATED_HEADER,
+                "\t".join(["m1", FEATURE, "11", SCENARIO, "price", "5", "9", "4"]),
+                "\t".join(["c1", FEATURE, "11", SCENARIO, "(control)", "", "", ""]),
+                "\t".join(["z1", FEATURE, "11", SCENARIO, "(control)", "", "", ""])]
+        write(os.path.join(self.mutants, "manifest.tsv"), "\n".join(rows) + "\n")
+
+        # 1. Worker-thread AssertionError in step at line 5 (>= firstUse 4) -> KILLED
+        write_results(self.results, [(control_name("c1"), PASSED), (control_name("z1"), PASSED),
+                                     (mutant_name(1), thrown(ASSERTION, "expected 10", worker_frames))])
+        write(self.path("messages", "jvm-1.ndjson"), stream_with_step(5))
+        code, out = tool("verdict", "--mutants", "mutants", "--results", "results", "--messages", "messages", cwd=self.dir)
+        self.assertEqual(0, code, out)
+        self.assertIn("1 mutant(s) - 1 killed, 0 survived, 0 error(s); 2 control(s) - 2 passed", self.summary(out))
+
+        # 2. Worker-thread AssertionError in step at line 3 (< firstUse 4) -> early error, not a kill
+        write(self.path("messages", "jvm-1.ndjson"), stream_with_step(3))
+        code, out = tool("verdict", "--mutants", "mutants", "--results", "results", "--messages", "messages", cwd=self.dir)
+        self.assertEqual(1, code, out)
+        self.assertIn("MUTANT ERROR    m1 failed on line 3, before the first step that uses <price> (line 4)", out)
+
+        # 3. Worker-thread AssertionError in @Before hook -> failed outside a step, not a kill
+        write(self.path("messages", "jvm-1.ndjson"), stream_with_step(5, in_hook=True))
+        code, out = tool("verdict", "--mutants", "mutants", "--results", "results", "--messages", "messages", cwd=self.dir)
+        self.assertEqual(1, code, out)
+        self.assertIn("MUTANT ERROR    m1 failed outside a step", out)
+
+        # 4. Worker-thread exception inside a @ParameterType lambda -> rejected, not a kill
+        glue_dir = self.path("glue-classes")
+        src_dir = self.path("glue-src")
+        for rel, content in CUCUMBER_STUBS.items():
+            write(os.path.join(src_dir, rel), content)
+        write(os.path.join(src_dir, "com/example/Status.java"), STATUS)
+        write(os.path.join(src_dir, "com/example/Types.java"), TYPES)
+        os.makedirs(glue_dir, exist_ok=True)
+        sources = [os.path.join(dp, f) for dp, _, fs in os.walk(src_dir) for f in fs if f.endswith(".java")]
+        subprocess.run(["javac", "--release", "21", "-g", "-d", glue_dir, *sources], check=True, env=kit.java_env())
+        transformer_lambda_frames = ("com.example.Types.lambda$status$0(Types.java:5)",
+                                     "java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)")
+        write_results(self.results, [(control_name("c1"), PASSED), (control_name("z1"), PASSED),
+                                     (mutant_name(1), thrown("java.lang.IllegalArgumentException", "bad",
+                                                             transformer_lambda_frames))])
+        write(self.path("messages", "jvm-1.ndjson"), stream_with_step(5))
+        code, out = tool("verdict", "--mutants", "mutants", "--results", "results", "--messages", "messages",
+                         "--glue", glue_dir, cwd=self.dir)
+        self.assertEqual(1, code, out)
+        self.assertIn("MUTANT ERROR    m1 the value never reached a step definition", out)
+
 
 # ----------------------------------------------------------------------------- generate
 

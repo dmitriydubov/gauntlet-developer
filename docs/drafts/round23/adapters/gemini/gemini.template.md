@@ -183,10 +183,11 @@
 Формат: Markdown с YAML frontmatter; поля `name`, `description` обязательны; `model` (`inherit` — модель родителя),
 `subagent`, `mainAgent`, `tools` (список-разрешение), `commandExecutionPolicy` (`off`, `auto`, `eager`, `sandbox`;
 по умолчанию `sandbox`), `hooks` (пути к файлам хуков, относительно файла агента) [S1: 1.1.5, 1.1.6, 1.3.1;
-S6: subagents]. Режим Orchestrator ролям не нужен: `model: inherit` даёт роли модель сессии. Для пишущих ролей
-`tools` не задан — у них инструменты по умолчанию, область записи держит хук роли. Если ваша версия трактует
-пустой `tools` как «ничего» (документация противоречива, [S6: subagents] против [S6: build-plugins]), добавьте
-`write_to_file`, `replace_file_content`, `multi_replace_file_content`, `view_file`, `run_command`. `commandExecutionPolicy:
+S6: subagents]. Режим Orchestrator ролям не нужен: `model: inherit` даёт роли модель сессии. У пишущих ролей
+`tools` задан явно (`view_file`, `grep_search`, `find_by_name`, `list_dir`, `write_to_file`, `replace_file_content`,
+`multi_replace_file_content`, `run_command`, `read_url_content`, `search_web`), а область записи держит хук роли: в
+облачной среде Antigravity агент без `tools` получает только `view_file` (разрешено противоречие [S6: subagents] против
+[S6: build-plugins]). `commandExecutionPolicy:
 auto` — потому что при `sandbox` команды, по всей видимости, идут в песочнице терминала, где по умолчанию нет сети
 [S6: sandbox], и Gradle не скачает зависимости; блог Antigravity о custom agents описывает `auto` как самостоятельный
 запуск обычных команд тестов и сборки, а смысл `off` и `eager` — «не подтверждено» [S6: subagents, поиск]. `mainAgent` и

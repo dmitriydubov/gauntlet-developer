@@ -2874,3 +2874,154 @@ guard команду основному агенту разрешает. В Clau
   файла под `.gitignore`, настоящий индекс не меняет; guard разрешает её основному агенту и отказывает `checker`.
 - Не исполнялось здесь: CLI вендоров внешнего маршрута, хук `report_check.py --hook` (не включён; сами ответы в PR #6
   проверены на GitHub).
+
+## Ревизия 4.6: непрерывность после заморозки спецификации, самонастройка среды и системные исправления `gherkinMutation` (по итогам живого прогона пяти вендоров)
+
+Первый живой прогон пяти вендоров (Antigravity / Gemini 4 Neon, OpenAI Codex / GPT-6.2 Sol, Grok Build / Grok 4.7,
+Kimi Code / K3.1 Pro, Qwen Code / Qwen4-Max) на одной и той же задаче эталонного проекта выявил практические сбои на
+стыке процесса, хуков, сред исполнения и первого многотысячного прогона `gherkinMutation`. Все они закрыты без
+ослабления ни одного гейта или правила guard.
+
+### 1. «Сон» сессии после коммита `spec:` (шаг 4 → шаг 5)
+
+**Что случилось.** После ответа владельца с утверждением спецификации на шаге 3 («1) да 2) да …») две сессии (Codex и
+Grok) выполнили шаг 4 — закоммитили `.feature` коммитом `spec: …` и запушили ветку — и завершили ход с отчётом о
+заморозке, ожидая отдельной команды владельца «продолжай».
+
+**Две причины.**
+1. В тексте `gauntlet/CLAUDE.md` и адаптеров шаг 4 («Заморозка») и шаг 5 («Реализация») шли соседними пунктами без
+   прямого запрета заканчивать ход между ними, а в правилах Grok дополнительно стояло «Stop-хук набора ход только со
+   спецификацией не гоняет».
+2. В `stop_gate.py` условие `if all(any(("/" + p).startswith("/" + f + "/") for f in features) for p in changed):
+   return 0` проверялось **до** `pending = specs_pending_approval(features)`. Комментарий к строке говорил «the
+   specification waits for the human», но после `git commit -m "spec: …"` спецификация больше не ждёт человека — она
+   уже утверждена и заморожена, а приёмочные тесты на ней красные, потому что реализация ещё не начата. Точно так же
+   отметка `last-stop` сравнивала только `code_tree` без `features` даже при `not pending`, из-за чего запись и коммит
+   новой фичи одним ходом после прежнего зелёного прогона могли пропустить `gauntletFast`.
+
+**Почему так исправлено.**
+- В `stop_gate.py` ранний выход без Gradle сохранён только для незакоммиченного черновика (`if pending and all(…)`), а
+  ветка `last[2] == "ok"` в `last-stop` при `not pending` проверяет совпадение полного отпечатка `fingerprint` (в него
+  входит `tree` вместе с фичами). Черновик по-прежнему не ждёт Gradle ни на первом ходе, ни после кодового хода;
+  закоммиченная спецификация без реализации запускает полный `gauntletFast` (включая `acceptanceTest` и
+  `acceptanceCheck`) и удерживает сессию кодом возврата `2`.
+- В `gauntlet/CLAUDE.md`, универсальной инструкции (раздел 3 шаг 4, приложение D) и во всех пяти адаптерах вендоров
+  явно записано: ответ человека с утверждением спецификации на шаге 3 — команда пройти весь маршрут шагов 4–8 вплоть до
+  открытого PR в том же ходе без повторной остановки после коммита `spec:`.
+
+### 2. Обязательная самонастройка Docker, JDK и окружения в начале сессии
+
+**Что случилось.** В части облачных и локальных сред вендоров демон `dockerd` не был поднят или пакет `docker.io`
+отсутствовал, `JAVA_HOME` не указывал на установленную JDK 21, `ORG_GRADLE_PROJECT_publicRepositories=true` не был
+экспортирован, а на 2-vCPU облачной VM контейнер `rabbitmq:4.1.2-alpine` (Erlang 27) падал при старте с
+`OS monotonic time stepped backwards! Aborted` из-за микросекундного рассинхрона TSC между ядрами. Сессии тратили
+остановку на вопрос человеку там, где среда позволяла настроить всё самой.
+
+**Почему так исправлено.**
+- В `gauntlet/CLAUDE.md`, универсальной инструкции (шаг 1, приложения C и D) и всех пяти адаптерах вендоров введено
+  обязательное правило старта: проверить `docker info`, версии JDK (`project.java.version`, `gate.java.version`) и
+  `ORG_GRADLE_PROJECT_publicRepositories=true`; при отсутствии Docker или JDK и наличии прав пакета / `sudo -n` —
+  самостоятельно установить `docker.io` / `openjdk`, поднять `dockerd --host=unix:///var/run/docker.sock` и дождаться
+  `docker info`, а при сбое монотонных часов Erlang на 2-vCPU VM собрать локальный двухстрочный образ с
+  `ENV ERL_AFLAGS="+c false"` под тем же тегом без изменения файлов репозитория. Спрашивать владельца разрешено только
+  если среда физически закрыла права установки и запуска демона.
+- В `session_start.sh` подъём `dockerd` в облачной VM расширен на непривилегированный UID с беспарольным `sudo -n`,
+  причём доступ к `/var/run/docker.sock` выдаётся группе пользователя (`chgrp` + `chmod 660`), а не всем (`666`), и
+  добавлен явный режим `GAUNTLET_DOCKER=force` для внешних облачных VM.
+
+### 3. Инструменты сабагентов в Antigravity Cloud, `spawn_agent` в Codex Cloud и запуск без хуков
+
+- **Antigravity (`specifier/agent.md`, `hardener/agent.md`):** в облачной среде пустое поле `tools` во frontmatter
+  агента ограничивало сабагента одним `view_file` (в документации вендора это место было противоречивым). Явный список
+  `tools` выдан обеим пишущим ролям при сохранении их `./hooks.json` (область записи по-прежнему держит `guard.py`).
+- **Codex (`AGENTS.md`):** в средах, где схема `spawn_agent` не принимает кастомный `agent_type` из `.codex/agents/`
+  (Codex Cloud, недоверенный проект), сессия не останавливается с вопросом координатору, а вызывает штатный
+  `spawn_agent` с `fork_turns: "none"`, передавая текст `.claude/agents/<роль>.md` и границы `.codex/agents/<роль>.toml`
+  в промпте и проверяя область записи после возврата.
+- **Запуск в IDE и средах без хуков (`QWEN.md`, `kimi/AGENTS.md`, `00-gauntlet-grok.md`, `AGENTS.md`, `GEMINI.md`):**
+  при отсутствии строки статуса хуков (например, в Qoder Desktop) сессия при `GAUNTLET_GUARD != off` сообщает об этом
+  первой строкой и сразу ведёт задачу с ручной самопроверкой гейтов, не блокируясь в ожидании починки хуков.
+
+### 4. Контейнерный DinD с `CgroupDriver=none` (`docker pause` → `500 freezer not supported`)
+
+**Что случилось.** В контейнерной облачной среде Codex Cloud демон `dockerd` работает внутри контейнера с
+`CgroupDriver=none` без контроллера cgroup freezer. Все обычные контейнеры (PostgreSQL, RabbitMQ, MinIO) поднимаются и
+проходят почти три тысячи тестов и новую приёмку, но три унаследованных приёмочных сценария таймаутов чтения к S3
+вызывают `dockerClient().pauseContainerCmd(id)` (Testcontainers) и падают с `Status 500: {"message":"Cannot pause
+container …: freezer not supported"}`. Ослаблять сценарии или менять тестовый стенд проекта ради ограничения среды
+нельзя (правило 2).
+
+**Почему выбран Unix-сокет прокси `gauntlet/hooks/docker_pause_shim.py`.**
+- Testcontainers обращается к Docker Engine API по HTTP поверх `DOCKER_HOST` (`unix:///tmp/docker-pause-shim.sock`).
+  Небольшой прокси на стандартной библиотеке Python (`asyncio`, без внешних пакетов и без записи байткода в `gauntlet/`
+  благодаря `sys.dont_write_bytecode = True`) прозрачно пересылает все запросы в `/var/run/docker.sock`, а
+  `POST /(vX.Y/)?containers/<id>/(pause|unpause)` обслуживает сам: получает PID процессов контейнера через
+  `docker --host unix:///var/run/docker.sock top <id> -eo pid`, отправляет им `SIGSTOP` / `SIGCONT` (с fallback на
+  `sudo -n kill` при чужом UID процесса контейнера) и отвечает `204 No Content`. Для TCP-клиента приложения процесс под
+  `SIGSTOP` неотличим от cgroup freezer: ядро принимает байты в буфер сокета, но процесс не читает и не отвечает, и
+  клиент отрабатывает штатный read timeout, а после `SIGCONT` мгновенно продолжает работу.
+- **Две тонкости протокола Docker Engine API (проверены живым прогоном):**
+  1. `ApacheDockerHttpClient` в Testcontainers переиспользует HTTP/1.1 keep-alive соединения; если пересылать сырой
+     поток байтов целиком, второй запрос в том же соединении (`POST …/pause` после `GET …/json`) уйдёт напрямую в
+     `dockerd` мимо `PAUSE_RE`. Поэтому на всех запросах без `Upgrade:` прокси заменяет/добавляет заголовок
+     `Connection: close`, вынуждая `dockerd` закрыть соединение после ответа, а клиент — открыть новый сокет на
+     следующий запрос.
+  2. Потоковые вызовы `docker exec` и `attach` используют `Upgrade: tcp`. Когда `docker exec` запускается без `-i`,
+     клиент сразу закрывает свою сторону записи (`EOF`); если `pipe()` в этот момент вызывает `writer.close()` на
+     соединении к `dockerd`, сокет закрывается целиком до чтения stdout команды и вывод `exec` теряется. Передача
+     полузакрытия через `writer.write_eof()` и закрытие обоих сокетов только в `finally` после завершения обеих сторон
+     `asyncio.gather(...)` полностью сохраняют вывод `docker exec` и `docker logs`.
+- **Интеграция с хуками:** `session_start.sh` при `docker_status=up` и `CgroupDriver=none` автоматически запускает
+  `docker_pause_shim.py` в фоне (`setsid nohup … </dev/null`) и сообщает путь к сокету в строке статуса, а
+  `stop_gate.py` при наличии живого Unix-сокета `/tmp/docker-pause-shim.sock` и незаданном `DOCKER_HOST` сам передаёт
+  `DOCKER_HOST=unix:///tmp/docker-pause-shim.sock` в дочерний процесс `./gradlew` (Stop-хук исполняется отдельным
+  процессом вне интерактивного shell агента). При ручном подъёме в середине сессии агент выполняет `./gradlew --stop`,
+  чтобы демон Gradle не держал закэшированный клиент к старому сокету.
+
+### 5. Полный прогон `gherkinMutation` на крупном модуле: обёртка исключений Awaitility/Gradle, куча воркера и таймаут CI
+
+**Что случилось.** Когда шаг впервые затронул общие glue-файлы приёмки крупного модуля (47 `.feature`-файлов → 3 862
+мутанта + 1 042 контроля = 4 904 последовательных сценария в одном JVM `gherkinMutantsRun`), две независимые сессии
+(Gemini 4 Neon и GPT-6.2 Sol) упёрлись в три системных блокера набора 4.5:
+1. **Ложные `MUTANT ERROR … failed outside a step` (225 мутантов).** `GherkinMutator.failureOutcome()` извлекал номер
+   строки упавшего шага исключительно из синтетического кадра `at ✽.<шаг>(file:line)` в `<failure>` файла `TEST-*.xml`.
+   Инспекция байткода зависимостей показала два независимых механизма, стирающих этот кадр на шагах с
+   `Awaitility.untilAsserted(...)`:
+   - В `cucumber-core:8.0.1` (`StackManipulation#lambda$appendStepLocation$1`) кадр `✽.` дописывается только тогда, когда
+     на стеке исключения найден фрейм самого метода шага (`Located#isDefinedAt`). `Awaitility.untilAsserted` исполняет
+     проверочную лямбду (`lambda$<метод>$0`) в отдельном потоке `awaitility-thread`; при пробросе `AssertionError` без
+     внешней обёртки метода шага на стеке нет, и Cucumber вообще не добавляет `✽.`.
+   - Даже когда `ConditionAwaiter#await` оборачивает ошибку во внешний `ConditionTimeoutException` на потоке теста и
+     Cucumber дописывает `✽.` на эту обёртку, в `gradle-testing-jvm-infrastructure:8.14.3`
+     (`DefaultThrowableToTestFailureMapper#createFailure`) обход `current = current.getCause()` находит вложенный
+     `AssertionError` (`OpenTestAssertionFailedMapper` / `AssertErrorMapper`) и сериализует в `TEST-*.xml` только его,
+     отбрасывая внешний `ConditionTimeoutException` вместе с кадром `✽.`.
+2. **Нехватка кучи `512m` на `gherkinMutantsRun`.** При `forkEvery = 0` дефолтный тестовый воркер Gradle получает
+   `-Xmx512m`; накопление отчётов, метаданных сценариев и буферов брокера/клиента к сценарию ~3 900 приводило к паузам
+   GC по 14–18 с и `OutOfMemoryError: Java heap space`.
+3. **Таймаут CI `90` минут.** Последовательный прогон пяти тысяч приёмочных сценариев с полным интеграционным стендом
+   занимает 2,5–3,5 часа и гарантированно обрывается GitHub Actions при `timeout-minutes: 90` (или `150`).
+
+**Почему так исправлено.**
+- **Разрешение шага по NDJSON-потоку Cucumber (`GherkinMutator.java`).** Набор уже с ревизии 4.4 пишет поток сообщений
+  Cucumber (`--messages`, `stream-*.ndjson`) на каждый JVM-прогон `gherkinMutantsRun` для проверки порядка и переписи
+  сценариев. В этом потоке Cucumber сам сообщает истинную границу исполнения: конверт `testCase` перечисляет `testSteps`,
+  разделяя шаги Gherkin (`pickleStepId != null`) и хуки `@Before`/`@After`/`@BeforeStep`/`@AfterStep` (`hookId != null`,
+  `pickleStepId == null`), конверт `pickle` связывает `pickleStep.id` с `astNodeIds[0]` (`PickleCompiler#pickleStep` в
+  `gherkin:42.0.1` всегда кладёт туда ID AST-узла шага с его `location.line`), а `testStepFinished` фиксирует
+  `status == "FAILED"` и стек исключения до любой переупаковки Gradle. Когда в `TEST-*.xml` нет ни `✽.`, ни `RUNNER`,
+  `failureOutcome()` обращается к `StepFailure` этого запуска:
+  - падение в хуке (`inHook == true`) по-прежнему возвращает `failed outside a step`;
+  - стек из XML и NDJSON проверяется через `Glue.hasTransformerFrame(...)` (расширенный на синтетические лямбды
+    `lambda$<метод>$\d+`), поэтому исключение внутри `@ParameterType`/трансформера остаётся `rejected`;
+  - тип исключения по-прежнему обязан проходить `isAssertion(type, trace)`, а строка шага из `pickle` сравнивается с
+    `mutant.firstUse`: падение на шаге раньше мутированной колонки остаётся `early` (`MUTANT ERROR`), и только падение
+    assertion на шаге `>= firstUse` засчитывается как `killed`.
+  Править десятки приёмочных step-классов в сервисах ради обхода сериализации Gradle не требуется и методически было бы
+  неверно: `Awaitility.untilAsserted` — штатный идиоматический способ асинхронной проверки в приёмке.
+- **Куча `2g` и таймаут `360` минут (`gauntlet.gradle`, `gauntlet.properties`, `gauntlet.yml`).** В `gherkinMutantsRun`
+  выставлен дефолт `maxHeapSize = '2g'` (переопределяется свойством `gherkin.maxHeapSize` в `gauntlet.properties` или
+  явным `maxHeapSize` задачи в сборке проекта), а `timeout-minutes` в `.github/workflows/gauntlet.yml` поднят до `360`
+  (шестичасовой потолок GitHub-hosted раннера).
+
+

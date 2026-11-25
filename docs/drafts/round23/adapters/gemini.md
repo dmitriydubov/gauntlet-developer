@@ -161,7 +161,7 @@
 
 ## B. Промпты
 
-### B.1. `GEMINI.md` — файл инструкций проекта (16 951 байт, предел правила 24 000)
+### B.1. `GEMINI.md` — файл инструкций проекта (18 643 байт, предел правила 24 000)
 
 Несёт жёсткие правила набора по ссылке и кратко, правило тщательности и формат отчёта ядра (разделы 4–5),
 замены механизмов Claude Code и меры против сбоев Antigravity (разделы 2, 3, 6).
@@ -179,13 +179,14 @@
 1. Прочитай `.git/gauntlet-hook/agy-session-status.txt` (его пишет хук SessionStart) и приведи его первым сообщением.
    В строке `guard: off` — сообщи об этом и не трогай файлы набора, пока владелец не разрешит. Нет файла или его
    строка `written:` старше 10 минут по `date -u` в момент твоего первого действия — хуки gauntlet не сработали:
-   скажи это первой строкой, выполни `printenv GAUNTLET_GUARD` и работай по разделу 3, не полагаясь на хуки. Пустой
+   скажи это первой строкой, выполни `printenv GAUNTLET_GUARD` и сразу продолжая задачу работай по разделу 3, не полагаясь на хуки. Пустой
    вывод или любое значение, кроме `off`, — защита должна быть включена; `off` — как выше.
 2. Прочитай gauntlet/CLAUDE.md целиком через `view_file`, все строки до раздела «Когда застрял» включительно. В правила
    Antigravity он не встроен намеренно: правило обрезается на 24 KB, а файл больше 60 KB, и «Жёсткие правила» лежат за
    этой границей. Докажи чтение: приведи `wc -l gauntlet/CLAUDE.md` и заголовки его разделов `##`. После сжатия
    контекста (compaction) прочитай заново.
-3. Сабагенты пред-проверки и ревью читают то, что требует их карточка, а не весь файл.
+3. Проверь готовность окружения без остановки на вопрос человеку: `docker info` (если Docker не установлен или демон не запущен — установи `docker.io` через `sudo -n apt-get` при наличии прав, подними `dockerd` с unix-сокетом и дождись `docker info`; при `CgroupDriver=none` / `freezer not supported` на `docker pause` подними `nohup python3 -I -B gauntlet/hooks/docker_pause_shim.py /tmp/docker-pause-shim.sock >/tmp/docker-pause-shim.log 2>&1 &`, перезапусти `./gradlew --stop` и передавай `DOCKER_HOST=unix:///tmp/docker-pause-shim.sock`; при падении `rabbitmq:*-alpine` на 2-vCPU VM с `OS monotonic time stepped backwards!` собери локальный образ с `ENV ERL_AFLAGS="+c false"` под тем же тегом без правки репозитория), версии JDK (`project.java.version`, `gate.java.version` → найди или установи JDK и задай `JAVA_HOME`, `GAUNTLET_GATE_JAVA_HOME`) и `ORG_GRADLE_PROJECT_publicRepositories=true`.
+4. Сабагенты пред-проверки и ревью читают то, что требует их карточка, а не весь файл.
 
 ## 1. Жёсткие правила (кратко; полный текст — gauntlet/CLAUDE.md, «Жёсткие правила»)
 
@@ -220,9 +221,9 @@
   в отчёте. Хук Antigravity, который упал или не уложился во время, может быть молча пропущен — поэтому раздел 3
   обязателен.
 - **Роли.** `specifier`, `hardener`, `reviewer` — агенты Antigravity в `.agents/agents/<роль>/agent.md`; их текст —
-  те же `.claude/agents/<роль>.md`. Вызывай роль через `invoke_subagent` с `TypeName` = имя роли; reviewer — с
-  изолированной копией рабочего дерева (`Workspace: branch`), если инструмент её даёт. Других сабагентов в сессии
-  шага не создавай (`define_subagent`, `run_workflow`, `/swarm`): процесс уже многоагентный (метод, п. 17).
+  те же `.claude/agents/<роль>.md`. Вызывай роль через `invoke_subagent` с `TypeName` = имя роли (`Workspace: inherit`
+  в облачной среде, где `branch` не поддерживается; `Workspace: branch` для reviewer локально, если инструмент её даёт).
+  Других сабагентов в сессии шага не создавай (`define_subagent`, `run_workflow`, `/swarm`): процесс уже многоагентный (метод, п. 17).
 - **Ожидание роли.** Дождись итогового сообщения роли и прочитай его целиком. Роль упала, вернула пустой или
   обрезанный итог — запусти её снова с тем же заданием; не делай её работу сам и не пересказывай за неё.
 - **Приёмка итога роли.** Имена файлов сверяй с `git status --short`, числа мутантов и статусы гейтов — с выводом
@@ -230,8 +231,10 @@
 - **Модели.** Имена моделей в «Правилах владельца» — модели Claude. Модель и уровень этой сессии рекомендует
   координатор, решает владелец (`agy --model … --effort …`). Режимы `Orchestrator` не используются: сабагенты
   наследуют модель (`model: inherit`), а не планировщик.
-- **Нет Stop-хука облачной платформы Claude.** На остановке для утверждения спецификации ничего не коммить: ход
-  просто заканчивается вопросом.
+- **Нет Stop-хука облачной платформы Claude и непрерывность после «да».** На остановке для утверждения спецификации
+  ничего не коммить: ход просто заканчивается вопросом. Когда владелец ответил утверждением спецификации («да» / ответы
+  на вопросы шага 3), в этом же ходе закоммить фичи (`spec: …`), запушь ветку и **без промежуточной остановки** выполни
+  шаги 5–8 вплоть до открытого PR.
 - **Ответ внешнему ревьюеру** начинается строкой «Ответ Antigravity (Gemini 4 Carbon) на комментарий <ревьюер>»
   (с номером или датой) вместо «Ответ Claude Code …»; подставь свою модель, если она другая.
 - **Окружение.** agy запускают из корня репозитория с `ORG_GRADLE_PROJECT_publicRepositories=true`: иначе сборка
@@ -445,10 +448,11 @@ python3 -I gauntlet/adapters/antigravity/agy_card_check.py <каталог пл�
 Формат: Markdown с YAML frontmatter; поля `name`, `description` обязательны; `model` (`inherit` — модель родителя),
 `subagent`, `mainAgent`, `tools` (список-разрешение), `commandExecutionPolicy` (`off`, `auto`, `eager`, `sandbox`;
 по умолчанию `sandbox`), `hooks` (пути к файлам хуков, относительно файла агента) [S1: 1.1.5, 1.1.6, 1.3.1;
-S6: subagents]. Режим Orchestrator ролям не нужен: `model: inherit` даёт роли модель сессии. Для пишущих ролей
-`tools` не задан — у них инструменты по умолчанию, область записи держит хук роли. Если ваша версия трактует
-пустой `tools` как «ничего» (документация противоречива, [S6: subagents] против [S6: build-plugins]), добавьте
-`write_to_file`, `replace_file_content`, `multi_replace_file_content`, `view_file`, `run_command`. `commandExecutionPolicy:
+S6: subagents]. Режим Orchestrator ролям не нужен: `model: inherit` даёт роли модель сессии. У пишущих ролей
+`tools` задан явно (`view_file`, `grep_search`, `find_by_name`, `list_dir`, `write_to_file`, `replace_file_content`,
+`multi_replace_file_content`, `run_command`, `read_url_content`, `search_web`), а область записи держит хук роли: в
+облачной среде Antigravity агент без `tools` получает только `view_file` (разрешено противоречие [S6: subagents] против
+[S6: build-plugins]). `commandExecutionPolicy:
 auto` — потому что при `sandbox` команды, по всей видимости, идут в песочнице терминала, где по умолчанию нет сети
 [S6: sandbox], и Gradle не скачает зависимости; блог Antigravity о custom agents описывает `auto` как самостоятельный
 запуск обычных команд тестов и сборки, а смысл `off` и `eager` — «не подтверждено» [S6: subagents, поиск]. `mainAgent` и
@@ -466,6 +470,17 @@ model: inherit
 subagent: true
 mainAgent: false
 commandExecutionPolicy: auto
+tools:
+  - view_file
+  - grep_search
+  - find_by_name
+  - list_dir
+  - write_to_file
+  - replace_file_content
+  - multi_replace_file_content
+  - run_command
+  - read_url_content
+  - search_web
 hooks:
   - ./hooks.json
 ---
@@ -513,6 +528,17 @@ model: inherit
 subagent: true
 mainAgent: false
 commandExecutionPolicy: auto
+tools:
+  - view_file
+  - grep_search
+  - find_by_name
+  - list_dir
+  - write_to_file
+  - replace_file_content
+  - multi_replace_file_content
+  - run_command
+  - read_url_content
+  - search_web
 hooks:
   - ./hooks.json
 ---

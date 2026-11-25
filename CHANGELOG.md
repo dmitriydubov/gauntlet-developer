@@ -3,6 +3,116 @@
 История ревизий метода Gauntlet и бандла эталонного набора. Документы в репозитории версионируются вместе:
 ревизия инструкции `gauntlet-method-universal.md` и ревизия бандла `gauntlet-kit-bundle.md` совпадают.
 
+## Ревизия 4.6 — 2026-11-25
+
+Непрерывное выполнение шагов 4–8 после утверждения спецификации (без «сна» после коммита `spec:`), обязательная
+самонастройка Docker и JDK в начале сессии (включая `CgroupDriver=none`), исправление трёх системных блокеров первого
+большого прогона `gherkinMutation` (`GherkinMutator.java`, куча воркера `gherkinMutantsRun`, таймаут CI) и точечные
+правки справочных адаптеров пяти вендоров по итогам живого прогона одной задачи на пяти моделях. `guard.py` не менялся;
+гейты не ослаблялись, `stop_gate.py` только ужесточён. Правки — в инструкции, в бандле и в
+`docs/drafts/round23/adapters/`.
+
+### Что было до правок (база, ревизия 4.5)
+
+- Получив ответ владельца с утверждением спецификации на шаге 3 («1) да 2) да …»), сессии Codex и Grok выполнили шаг 4
+  (коммит `spec: …` и push) и завершили ход, ожидая отдельной команды «продолжай». В тексте процесса шаг 4 и шаг 5 не
+  содержали прямого запрета завершать ход между ними, а `stop_gate.py` на строке `if all(any(… for f in features) for p
+  in changed): return 0` пропускал ход без Gradle даже тогда, когда `.feature`-файлы уже были закоммичены
+  (`specs_pending_approval` пуст), — и точно так же `last-stop` при `not pending` сверял только `code_tree` без
+  каталога фич.
+- В части облачных и локальных сред вендоров демон `dockerd` не был поднят или пакет `docker.io` отсутствовал,
+  `JAVA_HOME` не указывал на установленную JDK, `ORG_GRADLE_PROJECT_publicRepositories=true` не был выставлен, а на
+  2-vCPU облачной VM контейнер `rabbitmq:4.1.2-alpine` падал при старте с `OS monotonic time stepped backwards!
+  Aborted` из-за микросекундного рассинхрона TSC ядер; `session_start.sh` поднимал `dockerd` только от `uid 0` при
+  `CLAUDE_CODE_REMOTE=true`, а в DinD-контейнере с `CgroupDriver=none` вызов `docker pause` падал с `500 freezer not
+  supported`.
+- На первом полном прогоне `gherkinMutation` крупного модуля (около пяти тысяч последовательных сценариев в одном
+  JVM) проявились три системных блокера набора:
+  1. `GherkinMutator.failureOutcome()` определял шаг падения исключительно по кадру `at ✽.<шаг>(file:line)` в JUnit XML
+     `TEST-*.xml`. На шагах с `Awaitility.untilAsserted(...)` лямбда проверки выполняется в рабочем потоке
+     `awaitility-thread` (Cucumber 8.0.1 `StackManipulation` не дописывает кадр `✽.`, когда на стеке `AssertionError`
+     нет метода шага), а если Cucumber всё же дописал `✽.` на внешний `ConditionTimeoutException`, Gradle 8.14.3
+     (`DefaultThrowableToTestFailureMapper`) при записи `TEST-*.xml` разворачивает цепочку `getCause()` до вложенного
+     `AssertionError` и отбрасывает внешнюю обёртку — в обоих случаях мутант, честным образом убитый проверкой шага,
+     ошибочно классифицировался как `MUTANT ERROR … failed outside a step`.
+  2. Задача `gherkinMutantsRun` (`forkEvery = 0`) работала с дефолтной кучей тестового воркера Gradle (`512m`) и к
+     четырёхтысячному сценарию уходила в 15-секундные паузы GC и `OutOfMemoryError: Java heap space`.
+  3. В `.github/workflows/gauntlet.yml` стоял `timeout-minutes: 90`, недостаточный для многотысячного последовательного
+     прогона Gherkin-мутаций в CI.
+- В справочных адаптерах `docs/drafts/round23/adapters/`: у пишущих ролей Antigravity (`specifier`, `hardener`) во
+  frontmatter не был задан `tools`, из-за чего в облачной среде сабагент получал только `view_file`; в Codex Cloud при
+  недоступности кастомных `agent_type` в `spawn_agent` агент останавливался с вопросом координатору; в `QWEN.md` при
+  отсутствии строки статуса хуков (например, в IDE Qoder Desktop) предписывалось остановить работу до починки хуков.
+
+### Что изменилось
+
+- **`gauntlet/hooks/stop_gate.py`:** ранний пропуск без прогона Gradle оставлен только для незакоммиченного черновика
+  спецификации (`if pending and all(…)`), а кэш `last-stop` при `not pending` проверяет полный отпечаток `fingerprint`
+  (включающий `tree` вместе с фичами). Черновик по-прежнему не ждёт Gradle; как только спецификация закоммичена
+  коммитом `spec:`, Stop-хук гоняет полный `gauntletFast` вместе с `acceptanceTest` и `acceptanceCheck` и удерживает
+  сессию на красном (`exit 2` в пределах попыток). При наличии активного сокета `/tmp/docker-pause-shim.sock` и
+  незаданном `DOCKER_HOST` прогон Gradle автоматически получает `DOCKER_HOST=unix:///tmp/docker-pause-shim.sock`.
+- **Процесс (шаг 4) и шаблон промпта (приложение D):** явно закреплено, что ответ человека с утверждением спецификации
+  на шаге 3 — команда выполнить весь оставшийся маршрут шагов 4–8 вплоть до открытого PR в том же ходе без повторной
+  остановки после коммита `spec:`.
+- **Обязательная самонастройка окружения, Docker и `CgroupDriver=none` (`gauntlet/CLAUDE.md`, шаг 1 инструкции,
+  приложения C и D, `session_start.sh`, `gauntlet/hooks/docker_pause_shim.py`):** перед первой сборкой и тестами агент
+  сам проверяет `docker info`, версии JDK (`project.java.version`, `gate.java.version`) и публичный режим репозиториев;
+  при наличии прав пакета / `sudo -n` сам устанавливает `docker.io` / `openjdk`, поднимает
+  `dockerd --host=unix:///var/run/docker.sock` (в `session_start.sh` — и от непривилегированного UID через `sudo -n` с
+  правом группы `660` на сокет, а также по `GAUNTLET_DOCKER=force`), выставляет `JAVA_HOME`, `GAUNTLET_GATE_JAVA_HOME`
+  и `ORG_GRADLE_PROJECT_publicRepositories=true`. Для контейнерных сред DinD без cgroup freezer (`CgroupDriver=none`,
+  где `docker pause` падает с `500 freezer not supported`) в набор добавлен чистый Python-прокси
+  `gauntlet/hooks/docker_pause_shim.py` (`SIGSTOP`/`SIGCONT` по PID контейнера с корректным `Connection: close` на
+  обычных HTTP/1.1 запросах и `write_eof()` на `Upgrade: tcp`), который `session_start.sh` стартует автоматически при
+  `CgroupDriver=none`, а агент при ручном запуске подключает через `./gradlew --stop` и
+  `DOCKER_HOST=unix:///tmp/docker-pause-shim.sock`. При падении `rabbitmq:*-alpine` с `OS monotonic time stepped
+  backwards!` на 2-vCPU VM собирается локальный двухстрочный образ с `ENV ERL_AFLAGS="+c false"` без правки
+  репозитория. Обращаться к человеку допустимо только при физическом отсутствии прав в среде.
+- **`gauntlet/tools/GherkinMutator.java`:** при отсутствии кадра `✽.` и `RUNNER` в `TEST-*.xml` `failureOutcome()`
+  сверяется с потоком сообщений Cucumber (`--messages`, NDJSON): если в этом прогоне зафиксирован `testStepFinished` со
+  статусом `FAILED` на шаге сценария (`testCase.testSteps` с `pickleStepId != null` без упавших хуков `hookId != null`),
+  точная строка шага в `.feature` восстанавливается через `pickle.steps` → `astNodeIds[0]`. При этом по стеку XML и
+  NDJSON проверяется `Glue.hasTransformerFrame()` (включая синтетические лямбды `lambda$<метод>$\d+`), поэтому отказ
+  `@ParameterType`/трансформера, падение `@Before`/`@After`/`@BeforeStep`/`@AfterStep` и падение шага раньше
+  `firstUse` (`early`) остаются `MUTANT ERROR`, а честный провал assertion в рабочем потоке (`Awaitility.untilAsserted`)
+  или развёрнутый Gradle `AssertionError` на шаге `>= firstUse` засчитывается как `killed`.
+- **`gauntlet/gauntlet.gradle`, `gauntlet/config/gauntlet.properties`, `.github/workflows/gauntlet.yml`:** задача
+  `gherkinMutantsRun` получает по умолчанию `maxHeapSize = '2g'` (переопределяется свойством `gherkin.maxHeapSize` в
+  `gauntlet.properties` или явным `maxHeapSize` проекта), а `timeout-minutes` задания `gauntlet` в GitHub Actions поднят
+  с `90` до `360` (максимум GitHub-hosted раннера).
+- **Справочные адаптеры пяти вендоров (`docs/drafts/round23/adapters/`):** синхронизированы правила самонастройки
+  Docker/JDK (включая `docker_pause_shim.py` при `CgroupDriver=none`), непрерывности шагов 4–8 после утверждения
+  спецификации и продолжения задачи при незагруженных хуках (при `GAUNTLET_GUARD != off`); в Antigravity добавлен явный
+  список `tools` в `specifier/agent.md` и `hardener/agent.md`; в Codex добавлен штатный fallback `spawn_agent` без
+  `agent_type` с передачей текста роли в промпте.
+- **Тесты:** `hooks/selftest.py` — 4898 → 4907 проверок в трёх раскладках (+3 сценария `stop_tests`: коммит `spec:` без
+  кода и запись + коммит фичи одним ходом после зелёного прогона); `tests/test_hooks_stop_gate.py` — переход от
+  черновика фичи к коммиту `spec:` и передача `DOCKER_HOST` при активном сокете `docker-pause-shim.sock`;
+  `tests/test_hooks_session_start.py` — проверка `docker_pause_shim.py` (`SIGSTOP`/`SIGCONT`, keep-alive, `Upgrade:
+  tcp`, отсутствие `__pycache__`) и автостарта из `session_start.sh` при `CgroupDriver=none`;
+  `tests/test_gherkin_mutator.py` — классификация падений шага без `✽.` в JUnit XML по NDJSON-потоку Cucumber (`killed`
+  на шаге `>= firstUse`, `early` до `firstUse`, `outside` в `@Before`-хуке, `rejected` в лямбде `@ParameterType`).
+
+### Манифест бандла
+
+Размер в байтах; файлов в манифесте 36 (+1 новый).
+
+| Файл | 4.5 | 4.6 |
+|---|---|---|
+| `.github/workflows/gauntlet.yml` | 8414 | 8518 |
+| `gauntlet/CLAUDE.md` | 72527 | 76860 |
+| `gauntlet/README.md` | 153554 | 155803 |
+| `gauntlet/config/gauntlet.properties` | 8618 | 8765 |
+| `gauntlet/gauntlet.gradle` | 91846 | 92297 |
+| `gauntlet/hooks/docker_pause_shim.py` | — | 4328 |
+| `gauntlet/hooks/selftest.py` | 181104 | 182551 |
+| `gauntlet/hooks/session_start.sh` | 3492 | 4643 |
+| `gauntlet/hooks/stop_gate.py` | 29033 | 29668 |
+| `gauntlet/tools/GherkinMutator.java` | 114611 | 123280 |
+
+Остальные 26 файлов не правились.
+
 ## Ревизия 4.5 — 2026-11-24
 
 Внешний независимый ревьюер без имени вендора; сабагенты по доказательствам — ядро `gauntlet/subagents.md`,

@@ -1,4 +1,4 @@
-# Бандл эталонного набора gauntlet (ревизия 4.5 от 2026-11-24)
+# Бандл эталонного набора gauntlet (ревизия 4.6 от 2026-11-25)
 
 Этот файл — самодостаточный источник эталона для протокола `start` из инструкции «Метод Gauntlet». Он
 содержит файлы набора после очистки от имён и примеров эталонного проекта (раздел 8.4 инструкции; ревизия 4 снята с ветки эталона, в которой смержены все правки набора по 2026-10-05): хуки
@@ -680,6 +680,43 @@ Claude Code, роли, настройки, `CLAUDE.md`, CI-workflow, конфи�
   11. Самопроверка хуков — 4898 проверок, 0 падений. Вживую не запускались CLI вендоров внешнего маршрута и хук
   `report_check.py --hook` (`README.md`, раздел 9).
 
+**Изменения против ревизии 4.5 (ревизия 4.6, 2026-11-25) — по итогам живого прогона пяти вендоров.**
+- `hooks/stop_gate.py`: пропуск прогона на ходе «только спецификация» ограничен незакоммиченным черновиком
+  (`pending = specs_pending_approval(features)`): пока `.feature`-файлы не закоммичены, ход не ждёт Gradle, а как
+  только спецификация закоммичена (`spec:`), Stop-хук гоняет полный `gauntletFast` вместе с `acceptanceTest` и
+  `acceptanceCheck` и удерживает сессию на красном (включая запись + коммит фич одним ходом после прежнего зелёного
+  прогона). Закрыта остановка («сон») сессии сразу после заморозки спецификации без перехода к реализации. При наличии
+  активного сокета `/tmp/docker-pause-shim.sock` и незаданном `DOCKER_HOST` прогон Gradle автоматически получает
+  `DOCKER_HOST=unix:///tmp/docker-pause-shim.sock`.
+- `hooks/docker_pause_shim.py` (новый, Python 3 stdlib `asyncio`) и `hooks/session_start.sh`: в контейнерных средах
+  DinD с `CgroupDriver=none`, где `docker pause` / `unpause` падают с `500 freezer not supported` (Testcontainers
+  `pauseContainerCmd`), Unix-сокет прокси перед `/var/run/docker.sock` перехватывает `POST …/containers/<id>/(pause|unpause)`
+  и отправляет `SIGSTOP`/`SIGCONT` процессам контейнера (`docker top <id> -eo pid`), добавляя `Connection: close` на
+  обычных HTTP/1.1 запросах и `write_eof()` на `Upgrade: tcp`. `session_start.sh` поднимает `dockerd` в облачной VM и
+  от непривилегированного UID через `sudo -n` (`chgrp` + `chmod 660` на `/var/run/docker.sock`, без `666`), включает
+  тот же подъём по `GAUNTLET_DOCKER=force`, а при `CgroupDriver=none` сам стартует `docker_pause_shim.py`.
+- `gauntlet/CLAUDE.md`: обязательная самонастройка окружения и Docker в начале сессии (проверка `docker info` и
+  версий JDK из `gauntlet.properties`, установка `docker.io` / `openjdk` и подъём `dockerd` при наличии прав пакета и
+  `sudo -n`, экспорт `JAVA_HOME`, `GAUNTLET_GATE_JAVA_HOME` и `ORG_GRADLE_PROJECT_publicRepositories=true`, запуск
+  `docker_pause_shim.py` + `./gradlew --stop` + `DOCKER_HOST` при `CgroupDriver=none` / `freezer not supported`,
+  локальный двухстрочный образ с `ENV ERL_AFLAGS="+c false"` при падении `rabbitmq:*-alpine` с `OS monotonic time
+  stepped backwards!` на 2-vCPU VM без правки репозитория); в шаге 4 зафиксировано, что утверждение спецификации
+  человеком на шаге 3 — команда непрерывно пройти весь остаток шагов 4–8 до открытого PR в том же ходе без
+  промежуточной остановки.
+- `tools/GherkinMutator.java`, `gauntlet/gauntlet.gradle`, `config/gauntlet.properties` и `.github/workflows/gauntlet.yml`:
+  когда шаг приёмки падает в фоновом потоке (`Awaitility.untilAsserted` строит `AssertionError` в пуле потоков без метода
+  шага в стеке, поэтому `StackManipulation` Cucumber не дописывает кадр `✽.`) либо `DefaultThrowableToTestFailureMapper`
+  Gradle 8.14 разворачивает внешний `ConditionTimeoutException` до вложенного `AssertionError` в `TEST-*.xml`, вердикт
+  `GherkinMutator` восстанавливает факт падения Gherkin-шага и точную строку `.feature` из потока сообщений Cucumber
+  (`testStepFinished` по `pickleStepId` без падения хуков, с сохранением отбраковки `RUNNER` и `@ParameterType`-трансформеров,
+  включая синтетические `lambda$`-кадры). Однопроцессный `gherkinMutantsRun` (`forkEvery = 0`) по умолчанию получает
+  `maxHeapSize = '2g'` (`gherkin.maxHeapSize`), чтобы тысячи сценариев с контролями `cN`/`zN` не падали с `OutOfMemoryError`
+  на стандартных 512 МБ воркера Gradle, а `timeout-minutes` в `gauntlet.yml` поднят до `360`.
+- `hooks/selftest.py` и `README.md`: +3 проверки в трёх раскладках (4898 → 4907) — коммит `spec:` до написания кода и
+  запись + коммит спецификации одним ходом после зелёного прогона; модульные регрессии в `tests/test_gherkin_mutator.py`,
+  `tests/test_hooks_stop_gate.py` и `tests/test_hooks_session_start.py`. Синхронизировано с универсальной инструкцией
+  ревизии 4.6.
+
 ## Как распаковать (Claude выполняет это на шаге 2 протокола `start`)
 
 Каждый файл лежит между строками `===== BEGIN FILE <путь> =====` и `===== END FILE <путь> =====`.
@@ -712,31 +749,32 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md`, `
 - `.claude/agents/specifier.md` (5738 байт)
 - `.claude/settings.json` (2543 байт)
 - `.github/workflows/gauntlet-kit.yml` (10693 байт)
-- `.github/workflows/gauntlet.yml` (8414 байт)
+- `.github/workflows/gauntlet.yml` (8518 байт)
 - `CLAUDE.md` (279 байт)
-- `gauntlet/CLAUDE.md` (72527 байт)
+- `gauntlet/CLAUDE.md` (76860 байт)
 - `gauntlet/INSTALL.md` (23435 байт)
-- `gauntlet/README.md` (153554 байт)
+- `gauntlet/README.md` (155803 байт)
 - `gauntlet/archtest/gauntlet/architecture/ArchitectureTest.java` (7999 байт)
 - `gauntlet/config/architecture.properties` (1420 байт)
 - `gauntlet/config/checkstyle.xml` (4593 байт)
 - `gauntlet/config/crap-allowlist.txt` (924 байт)
-- `gauntlet/config/gauntlet.properties` (8618 байт)
+- `gauntlet/config/gauntlet.properties` (8765 байт)
 - `gauntlet/config/integrity-allowlist.txt` (872 байт)
 - `gauntlet/config/pit-runerror-allowlist.txt` (1485 байт)
 - `gauntlet/config/pmd-ruleset.xml` (11398 байт)
-- `gauntlet/gauntlet.gradle` (91846 байт)
+- `gauntlet/gauntlet.gradle` (92297 байт)
+- `gauntlet/hooks/docker_pause_shim.py` (4328 байт)
 - `gauntlet/hooks/guard.py` (141909 байт)
-- `gauntlet/hooks/selftest.py` (181104 байт)
-- `gauntlet/hooks/session_start.sh` (3492 байт)
-- `gauntlet/hooks/stop_gate.py` (29033 байт)
+- `gauntlet/hooks/selftest.py` (182551 байт)
+- `gauntlet/hooks/session_start.sh` (4643 байт)
+- `gauntlet/hooks/stop_gate.py` (29668 байт)
 - `gauntlet/install.sh` (17035 байт)
 - `gauntlet/subagents.md` (69444 байт)
 - `gauntlet/templates/acceptanceTest/java/com/example/service/acceptance/CucumberSpringConfiguration.java` (615 байт)
 - `gauntlet/templates/acceptanceTest/resources/features/example_discount.feature` (1258 байт)
 - `gauntlet/tools/CrapGate.java` (33988 байт)
 - `gauntlet/tools/DryGate.java` (8887 байт)
-- `gauntlet/tools/GherkinMutator.java` (114611 байт)
+- `gauntlet/tools/GherkinMutator.java` (123280 байт)
 - `gauntlet/tools/IntegrityCheck.java` (77690 байт)
 - `gauntlet/tools/PitSummary.java` (12720 байт)
 - `gauntlet/tools/TestCensus.java` (37511 байт)
@@ -1383,7 +1421,7 @@ jobs:
   gauntlet:
     name: gauntlet
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 360                    # sequential gherkinMutantsRun with cN/zN controls across ~50 features can run 3-4h
     steps:
       - uses: actions/checkout@v4
         with:
@@ -1577,16 +1615,15 @@ Gradle-сборки живут в этих каталогах: `./gradlew …` �
 запускает `gauntletFast` в каждом модуле, где ход менял код, и возвращает тебе падения. `--continue`
 показывает все красные гейты за один прогон. Отчёты: `<module>/build/reports/`.
 
-**Среда облачной сессии.**
+**Среда и обязательная самонастройка в начале сессии.**
 - Тесты с базой и брокером (интеграционные и приёмка) поднимают контейнеры через Testcontainers. Без Docker они **падают, а не пропускаются** — так задумано. В облачной
   VM демон поднимает SessionStart-хук (`dockerd` напрямую: `service docker start` там падает на ulimit),
-  строка статуса показывает `docker: up`. Если там другое или контейнер сессии перезапускался:
-  `nohup dockerd --host=unix:///var/run/docker.sock > /tmp/dockerd.log 2>&1 &` и дождись `docker info`.
-  Красный Stop-хук из-за «Could not find a valid Docker environment» — это окружение, а не код.
+  строка статуса показывает `docker: up`. Перед первым запуском сборки или тестов проверь `docker info`: если команды `docker` нет или демон не отвечает, **проведи настройку сам без остановки на вопрос человеку** — проверь доступные рантаймы (системный `dockerd`, Docker Desktop, Colima, rootless Docker); если в Linux-среде `docker` не установлен и есть права установки пакетов (`apt-get` от `root` или `sudo -n apt-get`), установи `docker.io` (`DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y docker.io`); подними демон (`nohup dockerd --host=unix:///var/run/docker.sock > /tmp/dockerd.log 2>&1 &`, при ненулевом UID — через `sudo -n` с правом группы `660` на `/var/run/docker.sock`) и дождись `docker info`. Если `docker info --format '{{.CgroupDriver}}'` печатает `none` (или `docker pause` отвечает `freezer not supported` в контейнерной среде без cgroup freezer), подними штатный сокет-прокси набора `nohup python3 -I -B gauntlet/hooks/docker_pause_shim.py /tmp/docker-pause-shim.sock >/tmp/docker-pause-shim.log 2>&1 &`, перезапусти демон Gradle (`./gradlew --stop`) и запускай прогоны с `DOCKER_HOST=unix:///tmp/docker-pause-shim.sock` без изменения файлов репозитория. Если в облачной 2-vCPU VM контейнер `rabbitmq:*-alpine` падает на старте с `OS monotonic time stepped backwards!`, собери локальный двухстрочный образ-переопределение с `ENV ERL_AFLAGS="+c false"` под тем же тегом без правки файлов репозитория. Красный Stop-хук из-за «Could not find a valid Docker environment» — это окружение, а не код.
+- Проверь версии Java из `gauntlet/config/gauntlet.properties` (`project.java.version`, `gate.java.version`): если `java -version` или `JAVA_HOME` указывают не туда или не заданы, найди установленную JDK в стандартных каталогах (`/usr/lib/jvm`, `~/.jdks`, `~/.sdkman`, кэш Gradle toolchains, `/workspace`) либо при наличии прав пакета установи `openjdk-<версия>-jdk` и экспортируй `JAVA_HOME` и `GAUNTLET_GATE_JAVA_HOME`. Обращаться к человеку по поводу Docker или JDK допустимо **только** если проверены все доступные способы и среда физически не даёт ни прав установки, ни запуска демона (вывод команд приложи в «Не проверено»).
 - Maven Central через прокси иногда отвечает 429 (Too Many Requests) на пачку новых артефактов: повтори
   через 20–60 секунд, к коду это отношения не имеет.
-- Набор подключается к сборке только при публичных репозиториях: в облаке их включает
-  `CLAUDE_CODE_REMOTE=true`, в GitHub Actions — `GITHUB_ACTIONS=true`. В локальной сессии Claude Code задай
+- Набор подключается к сборке только при публичных репозиториях: в облаке Claude Code их включает
+  `CLAUDE_CODE_REMOTE=true`, в GitHub Actions — `GITHUB_ACTIONS=true`. В локальной сессии и в других агентных средах задай
   `ORG_GRADLE_PROJECT_publicRepositories=true`, иначе сборка пойдёт в корпоративный реестр, а Stop-хук не найдёт
   задач набора.
 - Не заканчивай ход, пока идёт фоновый прогон гейтов: Stop-хук запустит свой в тот же `build/` и будет ждать
@@ -1598,10 +1635,10 @@ Gradle-сборки живут в этих каталогах: `./gradlew …` �
 не меняющих поведение (рефакторинг, зависимости, логи, инфраструктура), шаги 2–4 пропускаются,
 остальное так же.
 
-1. **Контекст.** Прочитай `gauntlet/config/gauntlet.properties`, настройки модуля в
+1. **Контекст и окружение.** Прочитай `gauntlet/config/gauntlet.properties`, настройки модуля в
    `gauntlet/config/<module>/` (`gauntlet.properties`, `architecture.properties`), правила модуля
    (его `CLAUDE.md` и документы предметной области из раздела «Источники документации») и существующие фичи по теме в
-   `<module>/src/acceptanceTest/resources/features/`.
+   `<module>/src/acceptanceTest/resources/features/`. Убедись, что готовы Docker (`docker info`), нужная JDK (`JAVA_HOME`, `GAUNTLET_GATE_JAVA_HOME`) и публичный режим сборки (`ORG_GRADLE_PROJECT_publicRepositories=true` вне облака Claude Code и CI), при необходимости настрой их сам по блоку «Среда и обязательная самонастройка» выше.
 2. **Спецификация.** Делегируй сабагенту `specifier`: запрос дословно, релевантные фичи, ограничения из
    сообщения. Он вернёт изменённые файлы, по строке на сценарий, открытые вопросы и допущения. У каждого допущения
    о протоколе или фреймворке — источник версии сборки (`gauntlet/subagents.md`, карточка 4.2): версия и как
@@ -1627,11 +1664,7 @@ Gradle-сборки живут в этих каталогах: `./gradlew …` �
    видит приёмка (ответ, сообщение, сохранённая строка), — правило обязано быть в спецификации. Дыра —
    вопрос владельцу до заморозки; после заморозки она стоит уже правки спецификации человеком.
    Если в `gauntlet.properties` стоит `spec.approval=pr`, не останавливайся: человек прочитает Gherkin в PR.
-4. **Заморозка.** После «да» закоммить только фичи отдельным коммитом `spec: <что описано>` и сразу
-   запушить ветку (`git push -u origin HEAD`): с этого момента спецификация видна человеку на GitHub,
-   а хук замораживает её для всех агентов — изменить её может только человек. Если по ходу реализации
-   спецификация окажется противоречивой или невыполнимой — остановись и опиши проблему; не подгоняй
-   ни код, ни тесты, ни спецификацию.
+4. **Заморозка и непрерывный переход к реализации.** Ответ человека с утверждением спецификации («да», в том числе вместе с ответами «1) … 2) …» по списку шага 3) — это прямая команда выполнить **весь оставшийся маршрут шагов 4–8 вплоть до открытого PR в этом же ходе без повторной остановки**. Закоммить только фичи отдельным коммитом `spec: <что описано>`, сразу запушь ветку (`git push -u origin HEAD` — с этого момента спецификация видна человеку на GitHub, а хук замораживает её для всех агентов) и **немедленно, не заканчивая ход, переходи к шагу 5**. Завершать ход после коммита `spec:` с сообщением «спецификация заморожена, жду команды продолжать» запрещено (Stop-хук запускает полный `gauntletFast` уже на закоммиченной спецификации и не выпускает ход на красной приёмке); остановиться после шага 4 допустимо только по основаниям раздела «Когда застрял», на находке типа «правило» (шаг 7) или по правилу «Лимит токенов». Если по ходу реализации спецификация окажется противоречивой или невыполнимой — остановись и опиши проблему; не подгоняй ни код, ни тесты, ни спецификацию.
 5. **Реализация (ты).** TDD маленькими шагами по правилам ниже; step-классы в `src/acceptanceTest/java`.
    `./gradlew gauntletFast --continue` до зелёного.
 6. **Закалка.** Сабагент `hardener` (название фичи и список изменённых классов): убивает выживших мутантов
@@ -2227,7 +2260,8 @@ gauntlet/
   archtest/               ArchUnit-тест, читающий config/architecture.properties
   hooks/                  guard.py (PreToolUse), stop_gate.py (Stop; SubagentStop hardener'а — matcher в
                           .claude/settings.json), session_start.sh (SessionStart; в облаке поднимает dockerd),
-                          selftest.py (4898 проверок хуков в трёх раскладках: python3 gauntlet/hooks/selftest.py)
+                          docker_pause_shim.py (Unix-сокет прокси SIGSTOP/SIGCONT для DinD с CgroupDriver=none),
+                          selftest.py (4907 проверок хуков в трёх раскладках: python3 gauntlet/hooks/selftest.py)
   templates/              конфигурация Cucumber+Spring, пример фичи на русском
   claude/, ci/            только до установки: install.sh переносит их в .claude/ и .github/workflows/
 ```
@@ -2303,7 +2337,8 @@ JVM, на которой пошла бы, и падает. На JVM проект
 Правила хука (`hooks/guard.py`) — «заморожено, если в ветке есть коммит с фичами»; ему не нужны
 ни файлы-замки, ни ваша команда. Stop-хук (`hooks/stop_gate.py`), пока фичи не закоммичены, не гоняет
 приёмочные тесты (иначе агент не смог бы остановиться и спросить), а ход, в котором менялись только
-фичи, вообще не проверяет.
+незакоммиченные фичи, вообще не проверяет; после коммита `spec:` он запускает полный `gauntletFast` вместе с
+приёмкой, не давая сессии закончить ход сразу после заморозки спецификации.
 
 Переключатель `spec.approval` в `config/gauntlet.properties`: `chat` (по умолчанию, описано выше) или
 `pr` — агент не останавливается, вы читаете Gherkin в PR, заморозки нет.
@@ -2473,9 +2508,21 @@ protection базовой ветки и то, что любая попытка �
 
 ## 8. Что проверено в этой версии, а что нет
 
+Ревизия 4.6 — по итогам живого прогона пяти вендоров: непрерывный переход шагов 4–8 после утверждения спецификации
+(`stop_gate.py` пропускает прогон только на незакоммиченном черновике фич, а на коммите `spec:` без реализации гоняет
+полный `gauntletFast` вместе с приёмкой и удерживает сессию на красном), обязательная самонастройка Docker/JDK на
+старте сессии (`session_start.sh` поддерживает запуск `dockerd` через `sudo -n` с правом группы `660` на сокет),
+штатный Unix-сокет прокси `hooks/docker_pause_shim.py` (`SIGSTOP`/`SIGCONT` для контейнерных сред с
+`CgroupDriver=none`), разрешение падений шагов без кадра `✽.` в JUnit XML (`Awaitility.untilAsserted` в фоновом потоке
+и разворачивание `ConditionTimeoutException` в `DefaultThrowableToTestFailureMapper` Gradle 8.14) через поток сообщений
+Cucumber (`testStepFinished` по `pickleStepId`) в `tools/GherkinMutator.java`, дефолтный `maxHeapSize = '2g'`
+(`gherkin.maxHeapSize`) для однопроцессного `gherkinMutantsRun` (`forkEvery = 0`) и `timeout-minutes: 360` в
+`gauntlet.yml` — закреплена в `hooks/selftest.py` (4898 → 4907 проверок), `tests/test_gherkin_mutator.py`,
+`tests/test_hooks_stop_gate.py` и `tests/test_hooks_session_start.py`.
+
 Ревизия 4.5 — сабагенты по доказательствам, роль `checker`, файлы и настройки других агентных инструментов —
 гейтов Gradle не касается и проверена здесь без Gradle, в обе стороны:
-- guard — `hooks/selftest.py`, 4898 проверок (ниже); на guard ревизии 4.4 те же проверки дают 1632 падения, и все
+- guard — `hooks/selftest.py`, 4898 проверок на момент 4.5 (ниже — 4907); на guard ревизии 4.4 те же проверки дают 1632 падения, и все
   они — новые проверки, а прежние 2656 проходят на обоих.
 - `gauntlet-kit.yml` — каждая из 14 записей файлов других агентных инструментов: добавление, правка, удаление,
   переименование в неё и из неё, другой регистр (`AGENTS.MD`, `.Qwen/x`) — красные; имена, которые только
@@ -2490,8 +2537,7 @@ protection базовой ветки и то, что любая попытка �
   ещё нет, и путь из переменной в команде из каталога проекта получают отказ (раздел 9); обе стороны закреплены в
   самопроверке.
 
-Вживую не запускались: CLI вендоров внешнего маршрута, хук `SubagentStop` с `report_check.py --hook` (не
-включён), сам GitHub — раздел 9.
+Вживую не запускались: хук `SubagentStop` с `report_check.py --hook` (не включён), сам GitHub — раздел 9.
 
 Ревизия 4.4 — проверки по результату — проверена на настоящем Gradle 8.14.3 (JDK 17, 21, 25; Cucumber 7.23.0 и
 8.0.1; Spring Boot 4.0.7 с `io.spring.dependency-management`), каждая в обе стороны — сценарий падает на ревизии
@@ -2511,7 +2557,7 @@ protection базовой ветки и то, что любая попытка �
   `gauntletFast` и вывод полного `gauntlet` с пропусками набора — без ложного красного.
 
 Проверено здесь (Gradle 8.14.3, Java 21):
-- Хуки, `hooks/selftest.py`, 4898 проверок в трёх раскладках (сборка в корне; модуль `core/`; два модуля
+- Хуки, `hooks/selftest.py`, 4907 проверок в трёх раскладках (сборка в корне; модуль `core/`; два модуля
   `core/` + `adapter/` — Gradle только в изменённом модуле, красный модуль блокирует, коммит
   спецификации одного модуля замораживает фичи другого, чужая незакоммиченная работа не считается)
   на временном git-репозитории с фиктивным `origin/main`:
@@ -2538,7 +2584,8 @@ protection базовой ветки и то, что любая попытка �
   `git commit` (в том числе с heredoc-сообщением и словами `--no-verify`/`push --force`/`core.hooksPath` в тексте сообщения),
   `git stash push -m`, `tee build/…`, `rm -rf build`, `git push -u origin HEAD` на своей ветке,
   `sudo ./gradlew`, `bash -c 'echo hello'`, Python-тесты с лямбдами через heredoc; stop_gate — ход только
-  со спецификацией не гоняет гейт (и после кодового хода тоже), незакоммиченные фичи исключают приёмку,
+  с незакоммиченной спецификацией не гоняет гейт (и после кодового хода тоже), закоммиченная спецификация (`spec:`)
+  гоняет полный `gauntletFast` и блокирует остановку на красном, незакоммиченные фичи исключают приёмку,
   коммит спецификации возвращает приёмку, красный результат не перезапускается, пока не изменились дерево
   или отчёты тестов, отпущенный красный напоминает о себе в следующих ходах, вопрос человеку проходит даже
   после красного, лимит попыток (окно повторов покрывает весь бюджет прогона — `timeout × число модулей`
@@ -3555,6 +3602,8 @@ acceptance.features=src/acceptanceTest/resources/features
 acceptance.glue=com.example.service.acceptance
 # Adds io.cucumber:cucumber-spring (Spring Boot projects).
 acceptance.spring=true
+# Worker heap for gherkinMutantsRun (forkEvery=0 runs all mutants and cN/zN controls in one JVM; default when unset: 2g).
+# gherkin.maxHeapSize=2g
 
 # --- Tool versions (pit.version = the default of gradle-pitest-plugin 1.19.0; newer PIT usually works) ----
 # Cucumber must match the JUnit Platform your Spring Boot manages:
@@ -5168,6 +5217,14 @@ tasks.register('gherkinMutantsRun', Test) {
         // controls ran first, and a stand that wears out (a quota) failed the mutant instead: a kill.
         maxParallelForks = 1
         forkEvery = 0
+        // Every mutant and control runs in this single worker JVM (forkEvery = 0): Gradle's 512m default heap OOMs on
+        // a module with thousands of scenarios. gherkin.maxHeapSize overrides when set; else keep a project heap or 2g.
+        def configuredHeap = setting('gherkin.maxHeapSize', '')
+        if (configuredHeap) {
+            maxHeapSize = configuredHeap
+        } else if (!maxHeapSize) {
+            maxHeapSize = '2g'
+        }
         // an argument provider added at execution: the test JVM gets one -D per key, and a provider's beats the
         // project's jvmArgs and systemProperty, even ones its own doFirst sets after this one. The message stream
         // records what the run did with them (gherkinMutation judges the order by it).
@@ -5376,6 +5433,121 @@ def notCacheable = { Task task -> task.notCompatibleWithConfigurationCache('gaun
 plugins.withId('info.solidsoft.pitest') { tasks.named('pitest', notCacheable) }
 
 ===== END FILE gauntlet/gauntlet.gradle =====
+
+===== BEGIN FILE gauntlet/hooks/docker_pause_shim.py =====
+#!/usr/bin/env python3
+"""Unix-socket proxy in front of /var/run/docker.sock for DinD environments with CgroupDriver=none.
+
+When a containerised session runs dockerd without the cgroup freezer controller (`docker info --format
+'{{.CgroupDriver}}'` -> `none`), `POST /containers/<id>/pause` and `/unpause` fail with `500 freezer not
+supported`, breaking Testcontainers scenarios that freeze a dependency (`pauseContainerCmd`) to exercise
+read timeouts. Start this shim outside the repository (`/tmp/docker-pause-shim.sock`), restart any
+existing Gradle daemon (`./gradlew --stop`), and run builds with `DOCKER_HOST=unix:///tmp/docker-pause-shim.sock`:
+
+  nohup python3 -I -B gauntlet/hooks/docker_pause_shim.py /tmp/docker-pause-shim.sock >/tmp/docker-pause-shim.log 2>&1 &
+
+Every Docker Engine API request is forwarded raw to `/var/run/docker.sock` (non-Upgrade HTTP/1.1 requests
+receive `Connection: close` so pooled clients open a fresh stream per request; `Upgrade: tcp` streams half-close
+via `write_eof()` so `docker exec` and `attach` preserve output); `POST .../containers/<id>/(pause|unpause)`
+sends `SIGSTOP` / `SIGCONT` to the container's host PIDs (`docker top <id> -eo pid`) and answers `204 No Content`.
+"""
+import asyncio
+import os
+import re
+import signal
+import subprocess
+import sys
+
+sys.dont_write_bytecode = True
+
+UPSTREAM = os.environ.get("DOCKER_UPSTREAM_SOCK", "/var/run/docker.sock")
+DOCKER_BIN = os.environ.get("DOCKER_CLI_BIN", "docker")
+LISTEN = sys.argv[1] if len(sys.argv) > 1 else "/tmp/docker-pause-shim.sock"
+PAUSE_RE = re.compile(
+    rb"^POST /(?:v[\d.]+/)?containers/([a-zA-Z0-9][a-zA-Z0-9_.-]*)/(pause|unpause)(?:\?[^\s]*)? HTTP/1\.[01]\r\n"
+)
+
+
+def signal_container(cid, sig):
+    out = subprocess.check_output(
+        [DOCKER_BIN, "--host", f"unix://{UPSTREAM}", "top", cid, "-eo", "pid"], text=True
+    )
+    pids = [int(line.strip()) for line in out.splitlines()[1:] if line.strip().isdigit()]
+    if not pids:
+        raise RuntimeError(f"no PIDs found for container {cid}")
+    signaled = 0
+    for pid in pids:
+        try:
+            os.kill(pid, sig)
+            signaled += 1
+        except ProcessLookupError:
+            continue
+        except PermissionError:
+            subprocess.check_call(["sudo", "-n", "kill", f"-{int(sig)}", str(pid)])
+            signaled += 1
+    if signaled == 0:
+        raise RuntimeError(f"all PIDs exited before signal for container {cid}")
+
+
+async def pipe(reader, writer):
+    try:
+        while data := await reader.read(65536):
+            writer.write(data)
+            await writer.drain()
+        if writer.can_write_eof():
+            writer.write_eof()
+    except Exception:
+        pass
+
+
+async def handle_client(creader, cwriter):
+    try:
+        head = await creader.readuntil(b"\r\n\r\n")
+    except Exception:
+        cwriter.close()
+        return
+    m = PAUSE_RE.match(head)
+    if m:
+        cid, action = m.group(1).decode(), m.group(2).decode()
+        try:
+            await asyncio.to_thread(signal_container, cid, signal.SIGSTOP if action == "pause" else signal.SIGCONT)
+            cwriter.write(b"HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n")
+        except Exception as exc:
+            body = f'{{"message":"shim {action} failed: {exc}"}}\n'.encode()
+            cwriter.write(
+                b"HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\n"
+                + f"Content-Length: {len(body)}\r\nConnection: close\r\n\r\n".encode()
+                + body
+            )
+        await cwriter.drain()
+        cwriter.close()
+        return
+    if not re.search(rb"\r\nUpgrade:", head, re.I):
+        head = re.sub(rb"\r\nConnection:[^\r\n]*", b"", head, flags=re.I)
+        head = head[:-2] + b"Connection: close\r\n\r\n"
+    ureader, uwriter = await asyncio.open_unix_connection(UPSTREAM)
+    try:
+        uwriter.write(head)
+        await uwriter.drain()
+        await asyncio.gather(pipe(creader, uwriter), pipe(ureader, cwriter))
+    finally:
+        uwriter.close()
+        cwriter.close()
+
+
+async def main():
+    if os.path.exists(LISTEN):
+        os.unlink(LISTEN)
+    server = await asyncio.start_unix_server(handle_client, path=LISTEN)
+    os.chmod(LISTEN, 0o660)
+    async with server:
+        await server.serve_forever()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+
+===== END FILE gauntlet/hooks/docker_pause_shim.py =====
 
 ===== BEGIN FILE gauntlet/hooks/guard.py =====
 #!/usr/bin/env python3
@@ -10279,18 +10451,27 @@ def stop_tests(repo):
     record()
     r = stop()
     check("no change -> no run", r.returncode == 0 and "fake gradle" not in log(), r.stderr)
-    # spec-only turn: never runs the gate
+    # uncommitted spec-only turn: never runs the gate (draft waits for the human)
     write(repo, FEATURES + "/draft.feature", "# language: ru\nФункция: Черновик\n")
     r = stop()
     check("spec-only change -> no run", r.returncode == 0 and "fake gradle" not in log(), r.stderr)
-    # code change while the spec is still a draft: run without the acceptance tasks
+    # committed spec-only turn (Step 4 freeze with no code yet): must run full gauntletFast and hold on red
+    git(repo, "add", FEATURES)
+    git(repo, "commit", "-q", "-m", "spec: frozen before implementation")
+    r = stop(fake_exit="1")
+    check("committed spec with no code yet -> runs gate and blocks on red",
+          r.returncode == 2 and "fake gradle gauntletFast" in log() and "-x acceptanceTest" not in log()
+          and "attempt 1/3" in r.stderr, r.stderr + log())
+    os.remove(os.path.join(repo, M + "build/gauntlet/fake-exit"))
+    # code change while a second spec is still a draft: run without the acceptance tasks
+    write(repo, FEATURES + "/draft2.feature", "# language: ru\nФункция: Черновик 2\n")
     write(repo, M + "src/main/java/com/example/service/domain/Order.java", "package x; class Order {}\n")
     r = stop()
     check("pending spec -> acceptance excluded", r.returncode == 0 and "-x acceptanceTest -x acceptanceCheck" in log(), log())
     check("pending spec -> note to agent", "human's approval" in r.stdout, r.stdout)
     # commit the spec: acceptance tasks come back
     git(repo, "add", FEATURES)
-    git(repo, "commit", "-q", "-m", "spec: draft")
+    git(repo, "commit", "-q", "-m", "spec: draft2")
     write(repo, M + "src/main/java/com/example/service/domain/Order.java", "package x; class Order { int a; }\n")
     r = stop()
     check("committed spec -> full gauntletFast", r.returncode == 0 and "-x acceptanceTest" not in log(), log())
@@ -10312,6 +10493,16 @@ def stop_tests(repo):
     os.remove(os.path.join(repo, M + "build/gauntlet/gauntletFast-hook.log"))
     r = stop()
     check("green cached -> no re-run", r.returncode == 0 and not os.path.exists(os.path.join(repo, M + "build/gauntlet/gauntletFast-hook.log")))
+    # a single-turn spec write+commit after a green stop (e.g. spec.approval=pr) must also run the gate
+    write(repo, FEATURES + "/single_turn.feature", "# language: ru\nФункция: Сразу в коммит\n")
+    git(repo, "add", FEATURES)
+    git(repo, "commit", "-q", "-m", "spec: single-turn")
+    r = stop(fake_exit="1")
+    check("single-turn committed spec after green -> runs gate and blocks on red",
+          r.returncode == 2 and "-x acceptanceTest" not in log() and "attempt 1/3" in r.stderr, r.stderr + log())
+    write(repo, M + "src/main/java/com/example/service/domain/Order.java", "package x; class Order { int d; }\n")
+    r = stop()
+    check("single-turn committed spec implemented -> passes", r.returncode == 0, r.stderr)
     # a later spec-only turn (code unchanged since the last allowed stop) never waits for Gradle
     write(repo, FEATURES + "/second.feature", "# language: ru\nФункция: Вторая\n")
     if os.path.exists(os.path.join(repo, M + "build/gauntlet/gauntletFast-hook.log")):
@@ -10755,26 +10946,45 @@ printf '%s' "$input" | python3 gauntlet/hooks/stop_gate.py --record-start
 
 # Tests with a database or a broker run on Testcontainers and fail without Docker. In a cloud session the
 # daemon is not running after the container starts (processes are not part of the environment snapshot), and
-# `service docker start` fails on ulimit there, so start dockerd directly (it needs root) and wait at most
-# about 30 s for it. GAUNTLET_DOCKER=off skips the start (the hooks' selftest sets it).
+# `service docker start` fails on ulimit there, so start dockerd directly (as root or via passwordless sudo -n)
+# and wait at most about 30 s for it. GAUNTLET_DOCKER=off skips the start (the hooks' selftest sets it);
+# GAUNTLET_DOCKER=force enables the same start in non-Claude cloud VMs.
 docker_up() { timeout 5 docker info >/dev/null 2>&1; }
 docker_status=unavailable
 if docker_up; then
   docker_status=up
 elif pgrep -x dockerd >/dev/null 2>&1; then
   docker_status="starting (dockerd is running but not answering yet)"
-elif [ "$CLAUDE_CODE_REMOTE" = "true" ] && [ "${GAUNTLET_DOCKER:-on}" != "off" ] && [ "$(id -u)" = 0 ] \
-    && command -v dockerd >/dev/null 2>&1 && command -v setsid >/dev/null 2>&1; then
+elif { [ "$CLAUDE_CODE_REMOTE" = "true" ] || [ "${GAUNTLET_DOCKER:-}" = "force" ]; } \
+    && [ "${GAUNTLET_DOCKER:-on}" != "off" ] \
+    && command -v dockerd >/dev/null 2>&1 && command -v setsid >/dev/null 2>&1 \
+    && { [ "$(id -u)" = 0 ] || sudo -n true 2>/dev/null; }; then
   # setsid + closed stdio: the daemon outlives the hook and does not hold its output open
-  setsid nohup dockerd --host=unix:///var/run/docker.sock </dev/null >>/tmp/dockerd.log 2>&1 &
+  if [ "$(id -u)" = 0 ]; then
+    setsid nohup dockerd --host=unix:///var/run/docker.sock </dev/null >>/tmp/dockerd.log 2>&1 &
+  else
+    setsid nohup sudo -n dockerd --host=unix:///var/run/docker.sock </dev/null >>/tmp/dockerd.log 2>&1 &
+  fi
   daemon=$!
   docker_status="not started (see /tmp/dockerd.log)"
   deadline=$((SECONDS + 30))
   while [ "$SECONDS" -lt "$deadline" ]; do
+    if [ "$(id -u)" != 0 ] && [ -S /var/run/docker.sock ] && [ ! -w /var/run/docker.sock ]; then
+      sudo -n chgrp "$(id -gn)" /var/run/docker.sock 2>/dev/null && sudo -n chmod 660 /var/run/docker.sock 2>/dev/null || true
+    fi
     if docker_up; then docker_status=up; break; fi
     kill -0 "$daemon" 2>/dev/null || break
     sleep 1
   done
+fi
+if [ "$docker_status" = up ] && [ "${GAUNTLET_DOCKER:-on}" != "off" ] \
+    && [ "$(timeout 5 docker info --format '{{.CgroupDriver}}' 2>/dev/null)" = "none" ]; then
+  shim_sock="${GAUNTLET_DOCKER_SHIM_SOCK:-/tmp/docker-pause-shim.sock}"
+  if [ ! -S "$shim_sock" ] && command -v setsid >/dev/null 2>&1; then
+    setsid nohup python3 -I -B gauntlet/hooks/docker_pause_shim.py "$shim_sock" </dev/null >>/tmp/docker-pause-shim.log 2>&1 &
+    for _ in 1 2 3 4 5 6; do [ -S "$shim_sock" ] && break; sleep 0.5; done
+  fi
+  [ -S "$shim_sock" ] && docker_status="up (pause-shim: $shim_sock)"
 fi
 
 if reachable; then
@@ -10799,12 +11009,14 @@ An agent may not finish while the gauntlet is red.
 The gate runs only when the content of the working tree differs from what it was when the session
 started (the developer's pre-existing uncommitted work does not count, and committing it changes
 nothing) and that exact content has not been verified before - so questions and read-only turns cost
-nothing, and a red result is not re-run until something changes. A turn that changed nothing but the
-feature files never runs the gate: the specification waits for the human, not for the gauntlet. While
-uncommitted feature changes wait for the human's approval in the chat, the acceptance tests are left
-out of the run (the agent must be able to stop and ask), but every other check still runs. On red it
-exits 2 and feeds the failing lines back to the agent, which keeps working. After --max-attempts
-consecutive red stops it lets the agent stop and warns instead, so a session can never loop forever.
+nothing, and a red result is not re-run until something changes. A turn that changed nothing but
+uncommitted feature files never runs the gate: the draft specification waits for the human, not for the
+gauntlet; once the feature files are committed (`spec:`), the full gate runs so the session cannot stop
+right after freezing the spec without implementing it. While uncommitted feature changes wait for the
+human's approval in the chat, the acceptance tests are left out of the run (the agent must be able to
+stop and ask), but every other check still runs. On red it exits 2 and feeds the failing lines back to
+the agent, which keeps working. After --max-attempts consecutive red stops it lets the agent stop and
+warns instead, so a session can never loop forever.
 
 Humans can switch it off for a session:  GAUNTLET_STOP_HOOK=off (environment variable at start-up)
 Extra Gradle arguments (e.g. --offline):  GAUNTLET_GRADLE_ARGS="--offline"
@@ -10814,6 +11026,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 import time
@@ -10926,36 +11139,36 @@ def gate(opts, event, state, session):
     if not changed:
         return 0
     features = features_dirs()
-    if all(any(("/" + p).startswith("/" + f + "/") for f in features) for p in changed):
-        return 0  # only the spec changed: it waits for the human's approval, not for the gauntlet
+    pending = specs_pending_approval(features)
+    if pending and all(any(("/" + p).startswith("/" + f + "/") for f in features) for p in changed):
+        return 0  # only an uncommitted spec draft changed: it waits for the human's approval, not for the gauntlet
     affected = affected_modules(changed)
     if not affected:
         return 0  # nothing inside a guarded build changed
-    pending = specs_pending_approval(features)
     excluded = SPEC_DEPENDENT_TASKS if pending else []
     key = session + "-" + safe(event.get("agent_id") or "main")
+    fingerprint = hashlib.sha256((opts.task + ("|pending" if pending else "") + "|".join(affected) + tree).encode()).hexdigest()
+    green_file = os.path.join(state, "last-green-" + safe(opts.task))
     # The last-stop mark (code tree without the spec | pending/approved | ok/red) remembers the state in
-    # which this agent was last allowed to stop. Same code since then = this turn changed only the spec
-    # (or nothing): the question to the human must not wait for Gradle. Exceptions: the last stop was green
-    # with the acceptance tests left out and the spec has been committed since (pending -> approved) - check
-    # now; the last stop released a RED result - remind the agent, and re-run when it ran Gradle itself since
+    # which this agent was last allowed to stop. Same code since then = this turn changed only an uncommitted
+    # spec draft (or nothing): the question to the human must not wait for Gradle. Once the spec is committed
+    # (not pending), any unverified tree - including a spec committed in a single turn - must run the gate;
+    # the last stop released a RED result - remind the agent, and re-run when it ran Gradle itself since
     # (newer test reports) unless a spec draft is waiting for the human, whose question goes first.
     code_tree = tree_fingerprint(exclude=features)
     state_tag = "pending" if pending else "approved"
     stop_mark = os.path.join(state, key + ".last-stop")
     last = read(stop_mark).split("|")
     if len(last) == 3 and last[0] == code_tree and not (last[1] == "pending" and not pending):
-        if last[2] == "ok":
+        if last[2] == "ok" and (pending or read(green_file) == fingerprint):
             write(stop_mark, f"{code_tree}|{state_tag}|ok")
             return 0
-        if pending or not newer_than(mtime(stop_mark), REPORT_DIRS):
+        if last[2] == "red" and (pending or not newer_than(mtime(stop_mark), REPORT_DIRS)):
             write(stop_mark, f"{code_tree}|{state_tag}|red")
             print(json.dumps({"systemMessage":
                               f"[gauntlet] reminder: {opts.task} was still RED when you were last allowed to stop and the "
                               f"code has not changed since. The work is NOT done - say so in your report."}))
             return 0
-    fingerprint = hashlib.sha256((opts.task + ("|pending" if pending else "") + "|".join(affected) + tree).encode()).hexdigest()
-    green_file = os.path.join(state, "last-green-" + safe(opts.task))
     if read(green_file) == fingerprint:
         write(stop_mark, f"{code_tree}|{state_tag}|ok")
         return 0
@@ -11086,10 +11299,18 @@ def run_gradle(task, excluded, timeout, module="."):
     log_path = log_file(module, task)
     # Every failure below is a red run, never an exception: a hook that dies exits 1, and Claude Code lets the
     # agent stop on that. A red run goes through the attempts counter, so the agent is never held for ever either.
+    env = None
+    shim_sock = os.environ.get("GAUNTLET_DOCKER_SHIM_SOCK", "/tmp/docker-pause-shim.sock")
+    if not os.environ.get("DOCKER_HOST") and shim_sock:
+        try:
+            if stat.S_ISSOCK(os.stat(shim_sock).st_mode):
+                env = dict(os.environ, DOCKER_HOST=f"unix://{shim_sock}")
+        except OSError:
+            pass
     try:
         os.makedirs(os.path.dirname(log_path), exist_ok=True)
         # bytes, decoded with replacement: one byte that is not UTF-8 must not kill the hook (text=True would)
-        proc = subprocess.run(cmd, cwd=module, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout)
+        proc = subprocess.run(cmd, cwd=module, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout)
         code, output = proc.returncode, proc.stdout.decode("utf-8", "replace")
     except subprocess.TimeoutExpired as e:
         code = 124
@@ -14103,7 +14324,10 @@ public class GherkinMutator {
             out.println("Gherkin mutation: no mutants (no Examples values in scope) - OK.");
             return 0;
         }
-        Map<String, List<Outcome>> attempts = readResults(resultsDir, glue);
+        List<String> order = new ArrayList<>();
+        List<MessageStream> streams = messages == null ? List.of()
+                : readStreams(messages, "MUTANT ERROR    run order: ", order);
+        Map<String, List<Outcome>> attempts = readResults(resultsDir, glue, stepFailuresByScenario(streams));
         int killed = 0;
         int byUndefinedStep = 0;
         int byOtherException = 0;
@@ -14160,7 +14384,9 @@ public class GherkinMutator {
                         + "  " + f[1] + ":" + f[2] + " \"" + f[3] + "\"");
             }
         }
-        List<String> order = messages == null ? List.of() : runOrder(messages, manifest, controls, attempts);
+        if (messages != null) {
+            order.addAll(runOrder(streams, manifest, controls, attempts));
+        }
         out.println("Gherkin mutation: " + manifest.size() + " mutant(s) - " + killed + " killed"
                 + (byUndefinedStep > 0 ? " (" + byUndefinedStep + " only because no step definition matched the new value)" : "")
                 + (byOtherException > 0 ? " (" + byOtherException + " by a non-assertion exception thrown in a step)" : "")
@@ -14218,10 +14444,9 @@ public class GherkinMutator {
      * control after it (zN) started, in the same stream. Returns the errors ("MUTANT ERROR" lines: the Stop hook hands
      * them back to the agent); a missing or unreadable stream is one.
      */
-    static List<String> runOrder(Path messages, Map<String, String[]> mutants, Map<String, String[]> controls,
-                                 Map<String, List<Outcome>> attempts) throws IOException {
+    static List<String> runOrder(List<MessageStream> streams, Map<String, String[]> mutants, Map<String, String[]> controls,
+                                 Map<String, List<Outcome>> attempts) {
         List<String> errors = new ArrayList<>();
-        List<MessageStream> streams = readStreams(messages, "MUTANT ERROR    run order: ", errors);
         Map<String, Integer> records = new HashMap<>();
         for (MessageStream stream : streams) {
             Map<String, List<CaseRun>> byId = new LinkedHashMap<>();
@@ -14258,6 +14483,19 @@ public class GherkinMutator {
             }
         }
         return errors;
+    }
+
+    static Map<String, List<StepFailure>> stepFailuresByScenario(List<MessageStream> streams) {
+        Map<String, List<StepFailure>> map = new HashMap<>();
+        for (MessageStream stream : streams) {
+            for (CaseRun run : stream.runs) {
+                String id = generatedId(run.uri());
+                if (id != null) {
+                    map.computeIfAbsent(id, k -> new ArrayList<>()).add(run.stepFailure());
+                }
+            }
+        }
+        return map;
     }
 
     /** Test cases of one stream that ran at the same time: sorted by start, each must start once every one before it
@@ -14333,10 +14571,16 @@ public class GherkinMutator {
         return String.format(Locale.ROOT, "%.3f", nanos / 1e6);
     }
 
+    /** What Cucumber's message stream recorded for a failed testCaseStarted: either a hook failed ({@code inHook}),
+     *  or a Gherkin step ({@code pickleStepId}) failed at {@code line} with {@code trace}. */
+    record StepFailure(int line, boolean inHook, String trace) {
+    }
+
     /** One test case a stream records: the pickle (scenario) it ran - the uri of its feature file, the line of the
-     *  scenario or of its Examples row (-1 when the stream does not say), its name -, and when it started and finished,
-     *  in nanoseconds since the epoch (finished = -1: the stream holds no TestCaseFinished for it). */
-    record CaseRun(String uri, int line, String name, long started, long finished) {
+     *  scenario or of its Examples row (-1 when the stream does not say), its name -, when it started and finished,
+     *  in nanoseconds since the epoch (finished = -1: the stream holds no TestCaseFinished for it), and any step
+     *  failure recorded by testStepFinished. */
+    record CaseRun(String uri, int line, String name, long started, long finished, StepFailure stepFailure) {
     }
 
     /** One message stream: one Cucumber run, in one test JVM. */
@@ -14381,16 +14625,22 @@ public class GherkinMutator {
     /**
      * One NDJSON stream of Cucumber messages (cucumber.plugin message:FILE). The envelopes this reads are those of the
      * protocol Cucumber 7 and 8 write: gherkinDocument (the AST: every node's id and line), pickle (id, uri, name,
-     * astNodeIds - the scenario, then the Examples row), testCase (id, pickleId), testCaseStarted (id, testCaseId,
-     * timestamp), testCaseFinished (testCaseStartedId, timestamp). Anything malformed or a reference to nothing throws:
-     * a stream that does not hold together is no evidence of an order.
+     * steps, astNodeIds - the scenario, then the Examples row), testCase (id, pickleId, testSteps), testCaseStarted
+     * (id, testCaseId, timestamp), testStepFinished (testCaseStartedId, testStepId, testStepResult), testCaseFinished
+     * (testCaseStartedId, timestamp). Anything malformed or a reference to nothing throws: a stream that does not hold
+     * together is no evidence of an order.
      */
     static MessageStream readStream(Path file) throws IOException {
         MessageStream stream = new MessageStream(file.getFileName().toString());
         Map<String, Integer> lines = new HashMap<>();                    // AST node id -> line, of every document
         Map<String, Map<String, Object>> pickles = new HashMap<>();
+        Map<String, Object> pickleStepAstIds = new HashMap<>();          // pickleStepId -> astNodeIds
         Map<String, String> testCases = new HashMap<>();                 // test case id -> pickle id
+        Map<String, String> testStepToPickleStep = new HashMap<>();      // testStepId -> pickleStepId (null for a hook)
         Map<String, Map<String, Object>> started = new LinkedHashMap<>();
+        Map<String, String> firstFailedPickleStep = new HashMap<>();
+        Map<String, String> firstFailedTrace = new HashMap<>();
+        Set<String> hookFailed = new HashSet<>();
         Map<String, Long> finished = new HashMap<>();
         int number = 0;
         int envelopes = 0;
@@ -14413,14 +14663,48 @@ public class GherkinMutator {
                     case "pickle" -> {
                         Map<String, Object> pickle = Json.object(e.getValue(), "pickle");
                         pickles.put(Json.text(pickle, "id"), pickle);
+                        if (pickle.get("steps") instanceof List<?> steps) {
+                            for (Object stepObj : steps) {
+                                Map<String, Object> ps = Json.object(stepObj, "pickle.steps");
+                                if (ps.get("id") instanceof String psId) {
+                                    pickleStepAstIds.put(psId, ps.get("astNodeIds"));
+                                }
+                            }
+                        }
                     }
                     case "testCase" -> {
                         Map<String, Object> testCase = Json.object(e.getValue(), "testCase");
                         testCases.put(Json.text(testCase, "id"), Json.text(testCase, "pickleId"));
+                        if (testCase.get("testSteps") instanceof List<?> steps) {
+                            for (Object stepObj : steps) {
+                                Map<String, Object> ts = Json.object(stepObj, "testCase.testSteps");
+                                if (ts.get("id") instanceof String tsId) {
+                                    testStepToPickleStep.put(tsId, ts.get("pickleStepId") instanceof String psId ? psId : null);
+                                }
+                            }
+                        }
                     }
                     case "testCaseStarted" -> {
                         Map<String, Object> start = Json.object(e.getValue(), "testCaseStarted");
                         started.put(Json.text(start, "id"), start);
+                    }
+                    case "testStepFinished" -> {
+                        Map<String, Object> sf = Json.object(e.getValue(), "testStepFinished");
+                        String runId = Json.text(sf, "testCaseStartedId");
+                        String stepId = Json.text(sf, "testStepId");
+                        Map<String, Object> res = Json.object(sf.get("testStepResult"), "testStepResult");
+                        if ("FAILED".equals(res.get("status"))) {
+                            String psId = testStepToPickleStep.get(stepId);
+                            if (psId == null) {
+                                hookFailed.add(runId);
+                            } else if (!hookFailed.contains(runId) && !firstFailedPickleStep.containsKey(runId)) {
+                                firstFailedPickleStep.put(runId, psId);
+                                String msg = res.get("message") instanceof String m ? m : "";
+                                String excTrace = res.get("exception") instanceof Map<?, ?> exc
+                                        && exc.get("stackTrace") instanceof String st ? st : "";
+                                firstFailedTrace.put(runId, msg + (excTrace.isEmpty() ? "" : "\n" + excTrace));
+                            }
+                        }
                     }
                     case "testCaseFinished" -> {
                         Map<String, Object> finish = Json.object(e.getValue(), "testCaseFinished");
@@ -14442,16 +14726,31 @@ public class GherkinMutator {
                     .put(pickleLine(pickle, lines), Json.text(pickle, "name"));
         }
         for (Map.Entry<String, Map<String, Object>> e : started.entrySet()) {
+            String runId = e.getKey();
             String pickleId = testCases.get(Json.text(e.getValue(), "testCaseId"));
             Map<String, Object> pickle = pickleId == null ? null : pickles.get(pickleId);
             if (pickle == null) {
-                throw new IllegalStateException("test case " + e.getKey() + " started for a test case or pickle the"
+                throw new IllegalStateException("test case " + runId + " started for a test case or pickle the"
                         + " stream does not define");
             }
+            StepFailure sf = hookFailed.contains(runId) ? new StepFailure(-1, true, "")
+                    : firstFailedPickleStep.containsKey(runId)
+                    ? new StepFailure(stepAstLine(pickleStepAstIds.get(firstFailedPickleStep.get(runId)), lines),
+                            false, firstFailedTrace.getOrDefault(runId, ""))
+                    : null;
             stream.runs.add(new CaseRun(Json.text(pickle, "uri"), pickleLine(pickle, lines), Json.text(pickle, "name"),
-                    Json.nanos(e.getValue(), "timestamp"), finished.getOrDefault(e.getKey(), -1L)));
+                    Json.nanos(e.getValue(), "timestamp"), finished.getOrDefault(runId, -1L), sf));
         }
         return stream;
+    }
+
+    /** The line of a pickleStep in its feature file: the first AST node id of the step (PickleCompiler puts the Step
+     *  id first and any Examples row id second). */
+    static int stepAstLine(Object astNodeIds, Map<String, Integer> lines) {
+        if (!(astNodeIds instanceof List<?> ids) || ids.isEmpty()) {
+            return -1;
+        }
+        return lines.getOrDefault(Json.string(ids.get(0), "astNodeIds"), -1);
     }
 
     /** The line of a pickle: of its Examples row (the last AST node it comes from), else of its scenario; -1 when the
@@ -14984,7 +15283,8 @@ public class GherkinMutator {
      * {@code <error>} for the first attempt and {@code <rerunFailure>}/{@code <rerunError>} for each later one.
      * Reading only {@code <failure>} took a control that failed and then passed for a passed control.
      */
-    static Map<String, List<Outcome>> readResults(Path resultsDir, Glue glue) throws IOException {
+    static Map<String, List<Outcome>> readResults(Path resultsDir, Glue glue,
+                                                  Map<String, List<StepFailure>> streamFailures) throws IOException {
         Map<String, List<Outcome>> attempts = new LinkedHashMap<>();
         for (Element tc : testcases(resultsDir)) {
             Matcher m = RESULT_ID.matcher(tc.getAttribute("name") + " " + tc.getAttribute("classname"));
@@ -14993,6 +15293,7 @@ public class GherkinMutator {
             }
             String id = m.group(1) != null ? m.group(1) : m.group(2);
             List<Outcome> list = attempts.computeIfAbsent(id, k -> new ArrayList<>());
+            List<StepFailure> sfs = streamFailures.getOrDefault(id, List.of());
             boolean passedLast = true;              // no element stands for the last attempt: it passed
             for (Node n = tc.getFirstChild(); n != null; n = n.getNextSibling()) {
                 if (n instanceof Element e) {
@@ -15000,10 +15301,14 @@ public class GherkinMutator {
                         // The stage decides, not the element name: Gradle writes every failed scenario as
                         // <failure>, Surefire-style writers use <error> for a non-assertion exception.
                         case "failure", "error", "rerunFailure", "rerunError" -> {
-                            list.add(failureOutcome(e, glue, id));
+                            StepFailure sf = list.size() < sfs.size() ? sfs.get(list.size()) : null;
+                            list.add(failureOutcome(e, glue, id, sf));
                             passedLast = false;
                         }
-                        case "flakyFailure", "flakyError" -> list.add(failureOutcome(e, glue, id));
+                        case "flakyFailure", "flakyError" -> {
+                            StepFailure sf = list.size() < sfs.size() ? sfs.get(list.size()) : null;
+                            list.add(failureOutcome(e, glue, id, sf));
+                        }
                         case "skipped" -> {
                             list.add(new Outcome("aborted", ""));
                             passedLast = false;
@@ -15058,31 +15363,50 @@ public class GherkinMutator {
      * A failed scenario counts as "failed" (a kill for a mutant) only with positive evidence that a step DEFINITION
      * threw - whatever its type: a hard-coded list of assertion classes can never be complete (Cucumber's own
      * TableDiffException, Mockito and WireMock verifications, Awaitility timeouts are none of
-     * java.lang.AssertionError's usual names). The evidence is the step frame "at ✽.<step text>(feature:line)"
-     * that Cucumber appends after cutting the stack right behind the frame of the definition that threw. Without
-     * that cut the definition never ran: Cucumber's own runner frames before the step frame mean the glue object
-     * could not be created, no step frame at all with runner frames means the argument could not be converted or
-     * the step is ambiguous - "rejected". A definition that is a transformer (@ParameterType, @DataTableType,
-     * @DocStringType, a default transformer: its frame is the last before the step frame) rejected the value as
-     * well. A @Before/@After hook or a fixture fails without a step frame: "error". The control scenarios guard the
-     * other direction - a harness in which the UNMUTATED row fails in a step proves nothing either.
+     * java.lang.AssertionError's usual names). Primary evidence is the step frame "at ✽.<step text>(feature:line)"
+     * that Cucumber appends after cutting the stack right behind the frame of the definition that threw. Two runtime
+     * paths strip "✽." from JUnit XML even when a Gherkin step failed: (1) Awaitility.untilAsserted (or another pool)
+     * builds an AssertionError on a worker thread whose stack lacks the step method, so Cucumber's StackManipulation
+     * appends no "✽."; (2) Gradle 8.14's DefaultThrowableToTestFailureMapper walks getCause() and unwraps an outer
+     * step exception (e.g. ConditionTimeoutException with "✽.") to its inner AssertionError cause. When XML has no
+     * "✽." and no runner frame, Cucumber's own NDJSON stream (testStepFinished on a pickleStepId with no hook failure)
+     * proves whether a Gherkin step failed and on which feature line, while transformer and runner checks still reject
+     * conversions that failed before the step body ran.
      */
-    static Outcome failureOutcome(Element failure, Glue glue, String id) throws IOException {
+    static Outcome failureOutcome(Element failure, Glue glue, String id, StepFailure sf) throws IOException {
         String type = failure.getAttribute("type");
         if (undefinedStep(failure)) {
             return new Outcome("undefined", type);
         }
         String trace = trace(failure);
         int step = trace.indexOf("✽.");
-        if (step < 0) {
-            return new Outcome(trace.contains(RUNNER) ? "rejected" : "error", type);
+        if (step >= 0) {
+            String before = trace.substring(0, step);
+            if (before.contains(RUNNER) || glue != null && glue.isTransformer(lastFrame(before))) {
+                return new Outcome("rejected", type);
+            }
+            Matcher line = stepLine(id).matcher(trace);
+            return new Outcome("failed", type, line.find(step) ? Integer.parseInt(line.group(1)) : -1);
         }
-        String before = trace.substring(0, step);
-        if (before.contains(RUNNER) || glue != null && glue.isTransformer(lastFrame(before))) {
+        if (trace.contains(RUNNER)) {
             return new Outcome("rejected", type);
         }
-        Matcher line = stepLine(id).matcher(trace);
-        return new Outcome("failed", type, line.find(step) ? Integer.parseInt(line.group(1)) : -1);
+        if (sf != null && !sf.inHook()) {
+            int sfStep = sf.trace().indexOf("✽.");
+            if (sfStep >= 0) {
+                String before = sf.trace().substring(0, sfStep);
+                if (before.contains(RUNNER) || glue != null && glue.isTransformer(lastFrame(before))) {
+                    return new Outcome("rejected", type);
+                }
+                Matcher line = stepLine(id).matcher(sf.trace());
+                return new Outcome("failed", type, line.find(sfStep) ? Integer.parseInt(line.group(1)) : sf.line());
+            }
+            if (sf.trace().contains(RUNNER) || glue != null && glue.hasTransformerFrame(trace + "\n" + sf.trace())) {
+                return new Outcome("rejected", type);
+            }
+            return new Outcome("failed", type, sf.line());
+        }
+        return new Outcome("error", type);
     }
 
     /** The stack trace of one failed attempt: the text of {@code <failure>}/{@code <error>}; a flaky or rerun
@@ -15098,6 +15422,7 @@ public class GherkinMutator {
 
     /** Frames of Cucumber's own runner: in a step's stack they are cut away, unless no step definition ran. */
     static final String RUNNER = "io.cucumber.core.runner.";
+    static final Pattern LAMBDA_METHOD = Pattern.compile("^lambda\\$(.+)\\$\\d+$");
     /** The line of the step frame "✽.<step text>(file:///.../m1.feature:12)" of scenario {@code id}: the first
      *  "/<id>.feature:<line>)" after "✽." that ends a line of the trace. The step text is the step as it ran - an
      *  Examples value brings its colons, parentheses, line breaks and even a "see a.feature:3)" of its own into it -,
@@ -15115,28 +15440,34 @@ public class GherkinMutator {
     record Frame(String className, String method, int line) {
     }
 
+    static Frame parseFrame(String frame) {
+        int open = frame.length() - 1;                          // the "(" that the final ")" closes
+        for (int depth = 0; open > 0; open--) {
+            depth += frame.charAt(open) == ')' ? 1 : frame.charAt(open) == '(' ? -1 : 0;
+            if (depth == 0) {
+                break;
+            }
+        }
+        if (open <= 0) {
+            return null;
+        }
+        String name = frame.substring(0, open).substring(frame.substring(0, open).lastIndexOf('/') + 1); // without "app//"
+        String location = frame.substring(open + 1, frame.length() - 1);
+        String line = location.substring(location.lastIndexOf(':') + 1);
+        int dot = name.lastIndexOf('.');
+        return new Frame(dot < 0 ? "" : name.substring(0, dot), name.substring(dot + 1),
+                line.matches("\\d+") ? Integer.parseInt(line) : -1);
+    }
+
     /** The last frame in this part of a trace, or null. */
     static Frame lastFrame(String trace) {
         Frame last = null;
         Matcher m = FRAME.matcher(trace);
         while (m.find()) {
-            String frame = m.group(1);
-            int open = frame.length() - 1;                      // the "(" that the final ")" closes
-            for (int depth = 0; open > 0; open--) {
-                depth += frame.charAt(open) == ')' ? 1 : frame.charAt(open) == '(' ? -1 : 0;
-                if (depth == 0) {
-                    break;
-                }
+            Frame parsed = parseFrame(m.group(1));
+            if (parsed != null) {
+                last = parsed;
             }
-            if (open <= 0) {
-                continue;
-            }
-            String name = frame.substring(0, open).substring(frame.substring(0, open).lastIndexOf('/') + 1); // without "app//"
-            String location = frame.substring(open + 1, frame.length() - 1);
-            String line = location.substring(location.lastIndexOf(':') + 1);
-            int dot = name.lastIndexOf('.');
-            last = new Frame(dot < 0 ? "" : name.substring(0, dot), name.substring(dot + 1),
-                    line.matches("\\d+") ? Integer.parseInt(line) : -1);
         }
         return last;
     }
@@ -15177,10 +15508,48 @@ public class GherkinMutator {
             return lines != null && !(lines.other().contains(frame.line()) && !lines.transformer().contains(frame.line()));
         }
 
-        /** The transformer methods of the first class file of that name on the classpath. A class that is not there
-         *  fails the verdict: whether its method was a transformer is unknown, and a guess could count a rejected
-         *  value as a kill. */
-        Map<String, Lines> transformersOf(String className) throws IOException {
+        /** Worker-thread trace without "✽.": checks every frame on the glue classpath (including synthetic lambda$
+         *  frames inside a transformer). Throws when non-JDK frames exist and none of them are on the glue classpath. */
+        boolean hasTransformerFrame(String trace) throws IOException {
+            Matcher m = FRAME.matcher(trace);
+            boolean sawNonJdk = false;
+            boolean sawClasspath = classpath.isEmpty();
+            while (m.find()) {
+                Frame frame = parseFrame(m.group(1));
+                if (frame == null || frame.className().isEmpty()) {
+                    continue;
+                }
+                String resource = frame.className().replace('.', '/') + ".class";
+                if (ClassLoader.getPlatformClassLoader().getResource(resource) != null) {
+                    continue;
+                }
+                sawNonJdk = true;
+                Map<String, Lines> methods = classes.get(frame.className());
+                if (methods == null) {
+                    methods = findTransformersOf(frame.className());
+                    if (methods == null) {
+                        continue;
+                    }
+                    classes.put(frame.className(), methods);
+                }
+                sawClasspath = true;
+                Lines lines = methods.get(frame.method());
+                if (lines != null && !(lines.other().contains(frame.line()) && !lines.transformer().contains(frame.line()))) {
+                    return true;
+                }
+                Matcher syn = LAMBDA_METHOD.matcher(frame.method());
+                if (syn.matches() && methods.containsKey(syn.group(1))) {
+                    return true;
+                }
+            }
+            if (sawNonJdk && !sawClasspath) {
+                throw new IOException("no class of a worker-thread step failure trace is on the glue classpath (--glue)"
+                        + " - pass the classpath of the mutant run");
+            }
+            return false;
+        }
+
+        Map<String, Lines> findTransformersOf(String className) throws IOException {
             String resource = className.replace('.', '/') + ".class";
             for (String entry : classpath) {
                 Path root = Path.of(entry);
@@ -15206,6 +15575,18 @@ public class GherkinMutator {
                     }
                 }
             }
+            return null;
+        }
+
+        /** The transformer methods of the first class file of that name on the classpath. A class that is not there
+         *  fails the verdict: whether its method was a transformer is unknown, and a guess could count a rejected
+         *  value as a kill. */
+        Map<String, Lines> transformersOf(String className) throws IOException {
+            Map<String, Lines> found = findTransformersOf(className);
+            if (found != null) {
+                return found;
+            }
+            String resource = className.replace('.', '/') + ".class";
             if (ClassLoader.getPlatformClassLoader().getResource(resource) != null) {
                 return Map.of();                                // a class of the JDK itself is never glue
             }

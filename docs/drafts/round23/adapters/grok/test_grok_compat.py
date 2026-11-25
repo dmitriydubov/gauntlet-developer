@@ -77,8 +77,8 @@ def scenario(cmd_stop, cmd_sub, label):
 print("== kit's stop_gate.py run straight from .claude/settings.json (Grok compatibility mode)")
 code_sub, code, ran = scenario([sys.executable, "-B", GATE], [sys.executable, "-B", GATE], "compat")
 check("hardener's mutationGate green", code_sub == 0)
-check("main Stop on the same code: gauntletFast NOT run, stop allowed (false green)", code == 0 and not ran,
-      f"exit {code}, gauntletFast ran: {ran}")
+check("main Stop on the same code: 4.6 checks task-specific green_file, so gauntletFast runs and blocks (red)",
+      code == 2 and ran, f"exit {code}, gauntletFast ran: {ran}")
 
 print("== the same through grok_hooks.py")
 code_sub, code, ran = scenario([sys.executable, "-B", BRIDGE, "stop"], [sys.executable, "-B", BRIDGE, "stop"], "bridge")

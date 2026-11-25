@@ -187,6 +187,20 @@ class GreenExitWithoutTheGates(HookCase):
         self.assertIn("-x acceptanceTest -x acceptanceCheck", kit.read(p.path("gradle-calls")))
         self.assertIn("Acceptance tests were left out", json.loads(r.stdout)["systemMessage"])
 
+    def test_a_committed_spec_with_no_code_yet_runs_the_full_gate_and_holds_on_red(self):
+        # Step 3 -> Step 4: while the spec is an uncommitted draft, Stop exits 0 without running Gradle; once the human
+        # approves and the agent commits `spec:` with no implementation yet, Stop runs full gauntletFast (including
+        # acceptanceTest) and holds on red so the session cannot go to sleep right after freezing the spec.
+        p = Project(self.tmp.name)
+        kit.write(p.path("src/acceptanceTest/resources/features/orders.feature"), "Feature: Orders\n")
+        r = p.stop(first=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse(os.path.exists(p.path("build/gauntlet/gauntletFast-hook.log")))
+        p.git("add", "src/acceptanceTest/resources/features/orders.feature")
+        p.git("-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-q", "-m", "spec: orders")
+        self.assert_held_then_released(p, "CRAP FAIL com.example.X#y")
+        self.assertNotIn("-x acceptanceTest", kit.read(p.path("build/gauntlet/gauntletFast-hook.log")))
+
     def test_task_paths_of_a_project_inside_a_multi_project_build(self):
         p = self.project(module="core", prefix=":core:")
         r = p.stop(first=True)
@@ -204,6 +218,27 @@ class GreenExitWithoutTheGates(HookCase):
         r = p.hook(event, "--task", "mutationGate", "--max-attempts", "2", "--timeout", "60")
         self.assertEqual(r.returncode, 2, r.stderr)
         self.assertIn("gauntlet: Gradle finished mutationGate without running pitest - no", r.stderr)
+
+    def test_docker_pause_shim_socket_is_passed_to_gradle_when_docker_host_is_unset(self):
+        import socket
+
+        p = self.project()
+        wrapper = kit.read(p.path("gradlew")).replace(
+            'echo "$*" >> gradle-calls',
+            'echo "$*" >> gradle-calls\necho "${DOCKER_HOST:-}" > gradle-docker-host',
+        )
+        p.gradlew(wrapper)
+        shim = os.path.join(self.tmp.name, "pause-shim.sock")
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.bind(shim)
+        self.addCleanup(sock.close)
+        r = p.stop(first=True, GAUNTLET_DOCKER_SHIM_SOCK=shim, DOCKER_HOST="")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(kit.read(p.path("gradle-docker-host")).strip(), f"unix://{shim}")
+        kit.write(p.path("src/main/java/x/Tax.java"), "package x; class Tax {}\n")
+        r = p.stop(first=True, GAUNTLET_DOCKER_SHIM_SOCK=shim, DOCKER_HOST="unix:///custom.sock")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(kit.read(p.path("gradle-docker-host")).strip(), "unix:///custom.sock")
 
 
 class SettingsInAnotherEncoding(HookCase):

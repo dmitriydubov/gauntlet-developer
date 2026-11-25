@@ -187,6 +187,20 @@ class GreenExitWithoutTheGates(HookCase):
         self.assertIn("-x acceptanceTest -x acceptanceCheck", kit.read(p.path("gradle-calls")))
         self.assertIn("Acceptance tests were left out", json.loads(r.stdout)["systemMessage"])
 
+    def test_a_committed_spec_with_no_code_yet_runs_the_full_gate_and_holds_on_red(self):
+        # Step 3 -> Step 4: while the spec is an uncommitted draft, Stop exits 0 without running Gradle; once the human
+        # approves and the agent commits `spec:` with no implementation yet, Stop runs full gauntletFast (including
+        # acceptanceTest) and holds on red so the session cannot go to sleep right after freezing the spec.
+        p = Project(self.tmp.name)
+        kit.write(p.path("src/acceptanceTest/resources/features/orders.feature"), "Feature: Orders\n")
+        r = p.stop(first=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse(os.path.exists(p.path("build/gauntlet/gauntletFast-hook.log")))
+        p.git("add", "src/acceptanceTest/resources/features/orders.feature")
+        p.git("-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-q", "-m", "spec: orders")
+        self.assert_held_then_released(p, "CRAP FAIL com.example.X#y")
+        self.assertNotIn("-x acceptanceTest", kit.read(p.path("build/gauntlet/gauntletFast-hook.log")))
+
     def test_task_paths_of_a_project_inside_a_multi_project_build(self):
         p = self.project(module="core", prefix=":core:")
         r = p.stop(first=True)

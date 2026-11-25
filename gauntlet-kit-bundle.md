@@ -1,4 +1,4 @@
-# Бандл эталонного набора gauntlet (ревизия 4.5 от 2026-11-24)
+# Бандл эталонного набора gauntlet (ревизия 4.6 от 2026-11-25)
 
 Этот файл — самодостаточный источник эталона для протокола `start` из инструкции «Метод Gauntlet». Он
 содержит файлы набора после очистки от имён и примеров эталонного проекта (раздел 8.4 инструкции; ревизия 4 снята с ветки эталона, в которой смержены все правки набора по 2026-10-05): хуки
@@ -680,6 +680,26 @@ Claude Code, роли, настройки, `CLAUDE.md`, CI-workflow, конфи�
   11. Самопроверка хуков — 4898 проверок, 0 падений. Вживую не запускались CLI вендоров внешнего маршрута и хук
   `report_check.py --hook` (`README.md`, раздел 9).
 
+**Изменения против ревизии 4.5 (ревизия 4.6, 2026-11-25) — по итогам живого прогона пяти вендоров.**
+- `hooks/stop_gate.py`: пропуск прогона на ходе «только спецификация» ограничен незакоммиченным черновиком
+  (`pending = specs_pending_approval(features)`): пока `.feature`-файлы не закоммичены, ход не ждёт Gradle, а как
+  только спецификация закоммичена (`spec:`), Stop-хук гоняет полный `gauntletFast` вместе с `acceptanceTest` и
+  `acceptanceCheck` и удерживает сессию на красном (включая запись + коммит фич одним ходом после прежнего зелёного
+  прогона). Закрыта остановка («сон») сессии сразу после заморозки спецификации без перехода к реализации.
+- `hooks/session_start.sh`: запуск `dockerd` с unix-сокетом в облачной VM работает и от непривилегированного UID при
+  наличии беспарольного `sudo -n` (`chgrp` + `chmod 660` на `/var/run/docker.sock`, без `666`), а переменная
+  `GAUNTLET_DOCKER=force` включает тот же подъём во внешних облачных средах.
+- `gauntlet/CLAUDE.md`: обязательная самонастройка окружения и Docker в начале сессии (проверка `docker info` и
+  версий JDK из `gauntlet.properties`, установка `docker.io` / `openjdk` и подъём `dockerd` при наличии прав пакета и
+  `sudo -n`, экспорт `JAVA_HOME`, `GAUNTLET_GATE_JAVA_HOME` и `ORG_GRADLE_PROJECT_publicRepositories=true`, локальный
+  двухстрочный образ с `ENV ERL_AFLAGS="+c false"` при падении `rabbitmq:*-alpine` с `OS monotonic time stepped
+  backwards!` на 2-vCPU VM без правки репозитория); в шаге 4 зафиксировано, что утверждение спецификации человеком
+  на шаге 3 — команда непрерывно пройти весь остаток шагов 4–8 до открытого PR в том же ходе без промежуточной
+  остановки.
+- `hooks/selftest.py` и `README.md`: +3 проверки в трёх раскладках (4898 → 4907) — коммит `spec:` до написания кода и
+  запись + коммит спецификации одним ходом после зелёного прогона. Синхронизировано с универсальной инструкцией
+  ревизии 4.6.
+
 ## Как распаковать (Claude выполняет это на шаге 2 протокола `start`)
 
 Каждый файл лежит между строками `===== BEGIN FILE <путь> =====` и `===== END FILE <путь> =====`.
@@ -714,9 +734,9 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md`, `
 - `.github/workflows/gauntlet-kit.yml` (10693 байт)
 - `.github/workflows/gauntlet.yml` (8414 байт)
 - `CLAUDE.md` (279 байт)
-- `gauntlet/CLAUDE.md` (72527 байт)
+- `gauntlet/CLAUDE.md` (76256 байт)
 - `gauntlet/INSTALL.md` (23435 байт)
-- `gauntlet/README.md` (153554 байт)
+- `gauntlet/README.md` (154884 байт)
 - `gauntlet/archtest/gauntlet/architecture/ArchitectureTest.java` (7999 байт)
 - `gauntlet/config/architecture.properties` (1420 байт)
 - `gauntlet/config/checkstyle.xml` (4593 байт)
@@ -727,9 +747,9 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md`, `
 - `gauntlet/config/pmd-ruleset.xml` (11398 байт)
 - `gauntlet/gauntlet.gradle` (91846 байт)
 - `gauntlet/hooks/guard.py` (141909 байт)
-- `gauntlet/hooks/selftest.py` (181104 байт)
-- `gauntlet/hooks/session_start.sh` (3492 байт)
-- `gauntlet/hooks/stop_gate.py` (29033 байт)
+- `gauntlet/hooks/selftest.py` (182551 байт)
+- `gauntlet/hooks/session_start.sh` (4056 байт)
+- `gauntlet/hooks/stop_gate.py` (29299 байт)
 - `gauntlet/install.sh` (17035 байт)
 - `gauntlet/subagents.md` (69444 байт)
 - `gauntlet/templates/acceptanceTest/java/com/example/service/acceptance/CucumberSpringConfiguration.java` (615 байт)
@@ -1577,16 +1597,15 @@ Gradle-сборки живут в этих каталогах: `./gradlew …` �
 запускает `gauntletFast` в каждом модуле, где ход менял код, и возвращает тебе падения. `--continue`
 показывает все красные гейты за один прогон. Отчёты: `<module>/build/reports/`.
 
-**Среда облачной сессии.**
+**Среда и обязательная самонастройка в начале сессии.**
 - Тесты с базой и брокером (интеграционные и приёмка) поднимают контейнеры через Testcontainers. Без Docker они **падают, а не пропускаются** — так задумано. В облачной
   VM демон поднимает SessionStart-хук (`dockerd` напрямую: `service docker start` там падает на ulimit),
-  строка статуса показывает `docker: up`. Если там другое или контейнер сессии перезапускался:
-  `nohup dockerd --host=unix:///var/run/docker.sock > /tmp/dockerd.log 2>&1 &` и дождись `docker info`.
-  Красный Stop-хук из-за «Could not find a valid Docker environment» — это окружение, а не код.
+  строка статуса показывает `docker: up`. Перед первым запуском сборки или тестов проверь `docker info`: если команды `docker` нет или демон не отвечает, **проведи настройку сам без остановки на вопрос человеку** — проверь доступные рантаймы (системный `dockerd`, Docker Desktop, Colima, rootless Docker); если в Linux-среде `docker` не установлен и есть права установки пакетов (`apt-get` от `root` или `sudo -n apt-get`), установи `docker.io` (`DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y docker.io`); подними демон (`nohup dockerd --host=unix:///var/run/docker.sock > /tmp/dockerd.log 2>&1 &`, при ненулевом UID — через `sudo -n` с правом группы `660` на `/var/run/docker.sock`) и дождись `docker info`. Если в облачной 2-vCPU VM контейнер `rabbitmq:*-alpine` падает на старте с `OS monotonic time stepped backwards!`, собери локальный двухстрочный образ-переопределение с `ENV ERL_AFLAGS="+c false"` под тем же тегом без правки файлов репозитория. Красный Stop-хук из-за «Could not find a valid Docker environment» — это окружение, а не код.
+- Проверь версии Java из `gauntlet/config/gauntlet.properties` (`project.java.version`, `gate.java.version`): если `java -version` или `JAVA_HOME` указывают не туда или не заданы, найди установленную JDK в стандартных каталогах (`/usr/lib/jvm`, `~/.jdks`, `~/.sdkman`, кэш Gradle toolchains, `/workspace`) либо при наличии прав пакета установи `openjdk-<версия>-jdk` и экспортируй `JAVA_HOME` и `GAUNTLET_GATE_JAVA_HOME`. Обращаться к человеку по поводу Docker или JDK допустимо **только** если проверены все доступные способы и среда физически не даёт ни прав установки, ни запуска демона (вывод команд приложи в «Не проверено»).
 - Maven Central через прокси иногда отвечает 429 (Too Many Requests) на пачку новых артефактов: повтори
   через 20–60 секунд, к коду это отношения не имеет.
-- Набор подключается к сборке только при публичных репозиториях: в облаке их включает
-  `CLAUDE_CODE_REMOTE=true`, в GitHub Actions — `GITHUB_ACTIONS=true`. В локальной сессии Claude Code задай
+- Набор подключается к сборке только при публичных репозиториях: в облаке Claude Code их включает
+  `CLAUDE_CODE_REMOTE=true`, в GitHub Actions — `GITHUB_ACTIONS=true`. В локальной сессии и в других агентных средах задай
   `ORG_GRADLE_PROJECT_publicRepositories=true`, иначе сборка пойдёт в корпоративный реестр, а Stop-хук не найдёт
   задач набора.
 - Не заканчивай ход, пока идёт фоновый прогон гейтов: Stop-хук запустит свой в тот же `build/` и будет ждать
@@ -1598,10 +1617,10 @@ Gradle-сборки живут в этих каталогах: `./gradlew …` �
 не меняющих поведение (рефакторинг, зависимости, логи, инфраструктура), шаги 2–4 пропускаются,
 остальное так же.
 
-1. **Контекст.** Прочитай `gauntlet/config/gauntlet.properties`, настройки модуля в
+1. **Контекст и окружение.** Прочитай `gauntlet/config/gauntlet.properties`, настройки модуля в
    `gauntlet/config/<module>/` (`gauntlet.properties`, `architecture.properties`), правила модуля
    (его `CLAUDE.md` и документы предметной области из раздела «Источники документации») и существующие фичи по теме в
-   `<module>/src/acceptanceTest/resources/features/`.
+   `<module>/src/acceptanceTest/resources/features/`. Убедись, что готовы Docker (`docker info`), нужная JDK (`JAVA_HOME`, `GAUNTLET_GATE_JAVA_HOME`) и публичный режим сборки (`ORG_GRADLE_PROJECT_publicRepositories=true` вне облака Claude Code и CI), при необходимости настрой их сам по блоку «Среда и обязательная самонастройка» выше.
 2. **Спецификация.** Делегируй сабагенту `specifier`: запрос дословно, релевантные фичи, ограничения из
    сообщения. Он вернёт изменённые файлы, по строке на сценарий, открытые вопросы и допущения. У каждого допущения
    о протоколе или фреймворке — источник версии сборки (`gauntlet/subagents.md`, карточка 4.2): версия и как
@@ -1627,11 +1646,7 @@ Gradle-сборки живут в этих каталогах: `./gradlew …` �
    видит приёмка (ответ, сообщение, сохранённая строка), — правило обязано быть в спецификации. Дыра —
    вопрос владельцу до заморозки; после заморозки она стоит уже правки спецификации человеком.
    Если в `gauntlet.properties` стоит `spec.approval=pr`, не останавливайся: человек прочитает Gherkin в PR.
-4. **Заморозка.** После «да» закоммить только фичи отдельным коммитом `spec: <что описано>` и сразу
-   запушить ветку (`git push -u origin HEAD`): с этого момента спецификация видна человеку на GitHub,
-   а хук замораживает её для всех агентов — изменить её может только человек. Если по ходу реализации
-   спецификация окажется противоречивой или невыполнимой — остановись и опиши проблему; не подгоняй
-   ни код, ни тесты, ни спецификацию.
+4. **Заморозка и непрерывный переход к реализации.** Ответ человека с утверждением спецификации («да», в том числе вместе с ответами «1) … 2) …» по списку шага 3) — это прямая команда выполнить **весь оставшийся маршрут шагов 4–8 вплоть до открытого PR в этом же ходе без повторной остановки**. Закоммить только фичи отдельным коммитом `spec: <что описано>`, сразу запушь ветку (`git push -u origin HEAD` — с этого момента спецификация видна человеку на GitHub, а хук замораживает её для всех агентов) и **немедленно, не заканчивая ход, переходи к шагу 5**. Завершать ход после коммита `spec:` с сообщением «спецификация заморожена, жду команды продолжать» запрещено (Stop-хук запускает полный `gauntletFast` уже на закоммиченной спецификации и не выпускает ход на красной приёмке); остановиться после шага 4 допустимо только по основаниям раздела «Когда застрял», на находке типа «правило» (шаг 7) или по правилу «Лимит токенов». Если по ходу реализации спецификация окажется противоречивой или невыполнимой — остановись и опиши проблему; не подгоняй ни код, ни тесты, ни спецификацию.
 5. **Реализация (ты).** TDD маленькими шагами по правилам ниже; step-классы в `src/acceptanceTest/java`.
    `./gradlew gauntletFast --continue` до зелёного.
 6. **Закалка.** Сабагент `hardener` (название фичи и список изменённых классов): убивает выживших мутантов
@@ -2227,7 +2242,7 @@ gauntlet/
   archtest/               ArchUnit-тест, читающий config/architecture.properties
   hooks/                  guard.py (PreToolUse), stop_gate.py (Stop; SubagentStop hardener'а — matcher в
                           .claude/settings.json), session_start.sh (SessionStart; в облаке поднимает dockerd),
-                          selftest.py (4898 проверок хуков в трёх раскладках: python3 gauntlet/hooks/selftest.py)
+                          selftest.py (4907 проверок хуков в трёх раскладках: python3 gauntlet/hooks/selftest.py)
   templates/              конфигурация Cucumber+Spring, пример фичи на русском
   claude/, ci/            только до установки: install.sh переносит их в .claude/ и .github/workflows/
 ```
@@ -2303,7 +2318,8 @@ JVM, на которой пошла бы, и падает. На JVM проект
 Правила хука (`hooks/guard.py`) — «заморожено, если в ветке есть коммит с фичами»; ему не нужны
 ни файлы-замки, ни ваша команда. Stop-хук (`hooks/stop_gate.py`), пока фичи не закоммичены, не гоняет
 приёмочные тесты (иначе агент не смог бы остановиться и спросить), а ход, в котором менялись только
-фичи, вообще не проверяет.
+незакоммиченные фичи, вообще не проверяет; после коммита `spec:` он запускает полный `gauntletFast` вместе с
+приёмкой, не давая сессии закончить ход сразу после заморозки спецификации.
 
 Переключатель `spec.approval` в `config/gauntlet.properties`: `chat` (по умолчанию, описано выше) или
 `pr` — агент не останавливается, вы читаете Gherkin в PR, заморозки нет.
@@ -2473,9 +2489,15 @@ protection базовой ветки и то, что любая попытка �
 
 ## 8. Что проверено в этой версии, а что нет
 
+Ревизия 4.6 — по итогам живого прогона пяти вендоров: непрерывный переход шагов 4–8 после утверждения спецификации
+(`stop_gate.py` пропускает прогон только на незакоммиченном черновике фич, а на коммите `spec:` без реализации гоняет
+полный `gauntletFast` вместе с приёмкой и удерживает сессию на красном) и обязательная самонастройка Docker/JDK на
+старте сессии (`session_start.sh` поддерживает запуск `dockerd` через `sudo -n` с правом группы `660` на сокет) —
+закреплена в `hooks/selftest.py` (4898 → 4907 проверок) и в `tests/test_hooks_stop_gate.py`.
+
 Ревизия 4.5 — сабагенты по доказательствам, роль `checker`, файлы и настройки других агентных инструментов —
 гейтов Gradle не касается и проверена здесь без Gradle, в обе стороны:
-- guard — `hooks/selftest.py`, 4898 проверок (ниже); на guard ревизии 4.4 те же проверки дают 1632 падения, и все
+- guard — `hooks/selftest.py`, 4898 проверок на момент 4.5 (ниже — 4907); на guard ревизии 4.4 те же проверки дают 1632 падения, и все
   они — новые проверки, а прежние 2656 проходят на обоих.
 - `gauntlet-kit.yml` — каждая из 14 записей файлов других агентных инструментов: добавление, правка, удаление,
   переименование в неё и из неё, другой регистр (`AGENTS.MD`, `.Qwen/x`) — красные; имена, которые только
@@ -2490,8 +2512,7 @@ protection базовой ветки и то, что любая попытка �
   ещё нет, и путь из переменной в команде из каталога проекта получают отказ (раздел 9); обе стороны закреплены в
   самопроверке.
 
-Вживую не запускались: CLI вендоров внешнего маршрута, хук `SubagentStop` с `report_check.py --hook` (не
-включён), сам GitHub — раздел 9.
+Вживую не запускались: хук `SubagentStop` с `report_check.py --hook` (не включён), сам GitHub — раздел 9.
 
 Ревизия 4.4 — проверки по результату — проверена на настоящем Gradle 8.14.3 (JDK 17, 21, 25; Cucumber 7.23.0 и
 8.0.1; Spring Boot 4.0.7 с `io.spring.dependency-management`), каждая в обе стороны — сценарий падает на ревизии
@@ -2511,7 +2532,7 @@ protection базовой ветки и то, что любая попытка �
   `gauntletFast` и вывод полного `gauntlet` с пропусками набора — без ложного красного.
 
 Проверено здесь (Gradle 8.14.3, Java 21):
-- Хуки, `hooks/selftest.py`, 4898 проверок в трёх раскладках (сборка в корне; модуль `core/`; два модуля
+- Хуки, `hooks/selftest.py`, 4907 проверок в трёх раскладках (сборка в корне; модуль `core/`; два модуля
   `core/` + `adapter/` — Gradle только в изменённом модуле, красный модуль блокирует, коммит
   спецификации одного модуля замораживает фичи другого, чужая незакоммиченная работа не считается)
   на временном git-репозитории с фиктивным `origin/main`:
@@ -2538,7 +2559,8 @@ protection базовой ветки и то, что любая попытка �
   `git commit` (в том числе с heredoc-сообщением и словами `--no-verify`/`push --force`/`core.hooksPath` в тексте сообщения),
   `git stash push -m`, `tee build/…`, `rm -rf build`, `git push -u origin HEAD` на своей ветке,
   `sudo ./gradlew`, `bash -c 'echo hello'`, Python-тесты с лямбдами через heredoc; stop_gate — ход только
-  со спецификацией не гоняет гейт (и после кодового хода тоже), незакоммиченные фичи исключают приёмку,
+  с незакоммиченной спецификацией не гоняет гейт (и после кодового хода тоже), закоммиченная спецификация (`spec:`)
+  гоняет полный `gauntletFast` и блокирует остановку на красном, незакоммиченные фичи исключают приёмку,
   коммит спецификации возвращает приёмку, красный результат не перезапускается, пока не изменились дерево
   или отчёты тестов, отпущенный красный напоминает о себе в следующих ходах, вопрос человеку проходит даже
   после красного, лимит попыток (окно повторов покрывает весь бюджет прогона — `timeout × число модулей`
@@ -10279,18 +10301,27 @@ def stop_tests(repo):
     record()
     r = stop()
     check("no change -> no run", r.returncode == 0 and "fake gradle" not in log(), r.stderr)
-    # spec-only turn: never runs the gate
+    # uncommitted spec-only turn: never runs the gate (draft waits for the human)
     write(repo, FEATURES + "/draft.feature", "# language: ru\nФункция: Черновик\n")
     r = stop()
     check("spec-only change -> no run", r.returncode == 0 and "fake gradle" not in log(), r.stderr)
-    # code change while the spec is still a draft: run without the acceptance tasks
+    # committed spec-only turn (Step 4 freeze with no code yet): must run full gauntletFast and hold on red
+    git(repo, "add", FEATURES)
+    git(repo, "commit", "-q", "-m", "spec: frozen before implementation")
+    r = stop(fake_exit="1")
+    check("committed spec with no code yet -> runs gate and blocks on red",
+          r.returncode == 2 and "fake gradle gauntletFast" in log() and "-x acceptanceTest" not in log()
+          and "attempt 1/3" in r.stderr, r.stderr + log())
+    os.remove(os.path.join(repo, M + "build/gauntlet/fake-exit"))
+    # code change while a second spec is still a draft: run without the acceptance tasks
+    write(repo, FEATURES + "/draft2.feature", "# language: ru\nФункция: Черновик 2\n")
     write(repo, M + "src/main/java/com/example/service/domain/Order.java", "package x; class Order {}\n")
     r = stop()
     check("pending spec -> acceptance excluded", r.returncode == 0 and "-x acceptanceTest -x acceptanceCheck" in log(), log())
     check("pending spec -> note to agent", "human's approval" in r.stdout, r.stdout)
     # commit the spec: acceptance tasks come back
     git(repo, "add", FEATURES)
-    git(repo, "commit", "-q", "-m", "spec: draft")
+    git(repo, "commit", "-q", "-m", "spec: draft2")
     write(repo, M + "src/main/java/com/example/service/domain/Order.java", "package x; class Order { int a; }\n")
     r = stop()
     check("committed spec -> full gauntletFast", r.returncode == 0 and "-x acceptanceTest" not in log(), log())
@@ -10312,6 +10343,16 @@ def stop_tests(repo):
     os.remove(os.path.join(repo, M + "build/gauntlet/gauntletFast-hook.log"))
     r = stop()
     check("green cached -> no re-run", r.returncode == 0 and not os.path.exists(os.path.join(repo, M + "build/gauntlet/gauntletFast-hook.log")))
+    # a single-turn spec write+commit after a green stop (e.g. spec.approval=pr) must also run the gate
+    write(repo, FEATURES + "/single_turn.feature", "# language: ru\nФункция: Сразу в коммит\n")
+    git(repo, "add", FEATURES)
+    git(repo, "commit", "-q", "-m", "spec: single-turn")
+    r = stop(fake_exit="1")
+    check("single-turn committed spec after green -> runs gate and blocks on red",
+          r.returncode == 2 and "-x acceptanceTest" not in log() and "attempt 1/3" in r.stderr, r.stderr + log())
+    write(repo, M + "src/main/java/com/example/service/domain/Order.java", "package x; class Order { int d; }\n")
+    r = stop()
+    check("single-turn committed spec implemented -> passes", r.returncode == 0, r.stderr)
     # a later spec-only turn (code unchanged since the last allowed stop) never waits for Gradle
     write(repo, FEATURES + "/second.feature", "# language: ru\nФункция: Вторая\n")
     if os.path.exists(os.path.join(repo, M + "build/gauntlet/gauntletFast-hook.log")):
@@ -10755,22 +10796,32 @@ printf '%s' "$input" | python3 gauntlet/hooks/stop_gate.py --record-start
 
 # Tests with a database or a broker run on Testcontainers and fail without Docker. In a cloud session the
 # daemon is not running after the container starts (processes are not part of the environment snapshot), and
-# `service docker start` fails on ulimit there, so start dockerd directly (it needs root) and wait at most
-# about 30 s for it. GAUNTLET_DOCKER=off skips the start (the hooks' selftest sets it).
+# `service docker start` fails on ulimit there, so start dockerd directly (as root or via passwordless sudo -n)
+# and wait at most about 30 s for it. GAUNTLET_DOCKER=off skips the start (the hooks' selftest sets it);
+# GAUNTLET_DOCKER=force enables the same start in non-Claude cloud VMs.
 docker_up() { timeout 5 docker info >/dev/null 2>&1; }
 docker_status=unavailable
 if docker_up; then
   docker_status=up
 elif pgrep -x dockerd >/dev/null 2>&1; then
   docker_status="starting (dockerd is running but not answering yet)"
-elif [ "$CLAUDE_CODE_REMOTE" = "true" ] && [ "${GAUNTLET_DOCKER:-on}" != "off" ] && [ "$(id -u)" = 0 ] \
-    && command -v dockerd >/dev/null 2>&1 && command -v setsid >/dev/null 2>&1; then
+elif { [ "$CLAUDE_CODE_REMOTE" = "true" ] || [ "${GAUNTLET_DOCKER:-}" = "force" ]; } \
+    && [ "${GAUNTLET_DOCKER:-on}" != "off" ] \
+    && command -v dockerd >/dev/null 2>&1 && command -v setsid >/dev/null 2>&1 \
+    && { [ "$(id -u)" = 0 ] || sudo -n true 2>/dev/null; }; then
   # setsid + closed stdio: the daemon outlives the hook and does not hold its output open
-  setsid nohup dockerd --host=unix:///var/run/docker.sock </dev/null >>/tmp/dockerd.log 2>&1 &
+  if [ "$(id -u)" = 0 ]; then
+    setsid nohup dockerd --host=unix:///var/run/docker.sock </dev/null >>/tmp/dockerd.log 2>&1 &
+  else
+    setsid nohup sudo -n dockerd --host=unix:///var/run/docker.sock </dev/null >>/tmp/dockerd.log 2>&1 &
+  fi
   daemon=$!
   docker_status="not started (see /tmp/dockerd.log)"
   deadline=$((SECONDS + 30))
   while [ "$SECONDS" -lt "$deadline" ]; do
+    if [ "$(id -u)" != 0 ] && [ -S /var/run/docker.sock ] && [ ! -w /var/run/docker.sock ]; then
+      sudo -n chgrp "$(id -gn)" /var/run/docker.sock 2>/dev/null && sudo -n chmod 660 /var/run/docker.sock 2>/dev/null || true
+    fi
     if docker_up; then docker_status=up; break; fi
     kill -0 "$daemon" 2>/dev/null || break
     sleep 1
@@ -10799,12 +10850,14 @@ An agent may not finish while the gauntlet is red.
 The gate runs only when the content of the working tree differs from what it was when the session
 started (the developer's pre-existing uncommitted work does not count, and committing it changes
 nothing) and that exact content has not been verified before - so questions and read-only turns cost
-nothing, and a red result is not re-run until something changes. A turn that changed nothing but the
-feature files never runs the gate: the specification waits for the human, not for the gauntlet. While
-uncommitted feature changes wait for the human's approval in the chat, the acceptance tests are left
-out of the run (the agent must be able to stop and ask), but every other check still runs. On red it
-exits 2 and feeds the failing lines back to the agent, which keeps working. After --max-attempts
-consecutive red stops it lets the agent stop and warns instead, so a session can never loop forever.
+nothing, and a red result is not re-run until something changes. A turn that changed nothing but
+uncommitted feature files never runs the gate: the draft specification waits for the human, not for the
+gauntlet; once the feature files are committed (`spec:`), the full gate runs so the session cannot stop
+right after freezing the spec without implementing it. While uncommitted feature changes wait for the
+human's approval in the chat, the acceptance tests are left out of the run (the agent must be able to
+stop and ask), but every other check still runs. On red it exits 2 and feeds the failing lines back to
+the agent, which keeps working. After --max-attempts consecutive red stops it lets the agent stop and
+warns instead, so a session can never loop forever.
 
 Humans can switch it off for a session:  GAUNTLET_STOP_HOOK=off (environment variable at start-up)
 Extra Gradle arguments (e.g. --offline):  GAUNTLET_GRADLE_ARGS="--offline"
@@ -10926,36 +10979,36 @@ def gate(opts, event, state, session):
     if not changed:
         return 0
     features = features_dirs()
-    if all(any(("/" + p).startswith("/" + f + "/") for f in features) for p in changed):
-        return 0  # only the spec changed: it waits for the human's approval, not for the gauntlet
+    pending = specs_pending_approval(features)
+    if pending and all(any(("/" + p).startswith("/" + f + "/") for f in features) for p in changed):
+        return 0  # only an uncommitted spec draft changed: it waits for the human's approval, not for the gauntlet
     affected = affected_modules(changed)
     if not affected:
         return 0  # nothing inside a guarded build changed
-    pending = specs_pending_approval(features)
     excluded = SPEC_DEPENDENT_TASKS if pending else []
     key = session + "-" + safe(event.get("agent_id") or "main")
+    fingerprint = hashlib.sha256((opts.task + ("|pending" if pending else "") + "|".join(affected) + tree).encode()).hexdigest()
+    green_file = os.path.join(state, "last-green-" + safe(opts.task))
     # The last-stop mark (code tree without the spec | pending/approved | ok/red) remembers the state in
-    # which this agent was last allowed to stop. Same code since then = this turn changed only the spec
-    # (or nothing): the question to the human must not wait for Gradle. Exceptions: the last stop was green
-    # with the acceptance tests left out and the spec has been committed since (pending -> approved) - check
-    # now; the last stop released a RED result - remind the agent, and re-run when it ran Gradle itself since
+    # which this agent was last allowed to stop. Same code since then = this turn changed only an uncommitted
+    # spec draft (or nothing): the question to the human must not wait for Gradle. Once the spec is committed
+    # (not pending), any unverified tree - including a spec committed in a single turn - must run the gate;
+    # the last stop released a RED result - remind the agent, and re-run when it ran Gradle itself since
     # (newer test reports) unless a spec draft is waiting for the human, whose question goes first.
     code_tree = tree_fingerprint(exclude=features)
     state_tag = "pending" if pending else "approved"
     stop_mark = os.path.join(state, key + ".last-stop")
     last = read(stop_mark).split("|")
     if len(last) == 3 and last[0] == code_tree and not (last[1] == "pending" and not pending):
-        if last[2] == "ok":
+        if last[2] == "ok" and (pending or read(green_file) == fingerprint):
             write(stop_mark, f"{code_tree}|{state_tag}|ok")
             return 0
-        if pending or not newer_than(mtime(stop_mark), REPORT_DIRS):
+        if last[2] == "red" and (pending or not newer_than(mtime(stop_mark), REPORT_DIRS)):
             write(stop_mark, f"{code_tree}|{state_tag}|red")
             print(json.dumps({"systemMessage":
                               f"[gauntlet] reminder: {opts.task} was still RED when you were last allowed to stop and the "
                               f"code has not changed since. The work is NOT done - say so in your report."}))
             return 0
-    fingerprint = hashlib.sha256((opts.task + ("|pending" if pending else "") + "|".join(affected) + tree).encode()).hexdigest()
-    green_file = os.path.join(state, "last-green-" + safe(opts.task))
     if read(green_file) == fingerprint:
         write(stop_mark, f"{code_tree}|{state_tag}|ok")
         return 0

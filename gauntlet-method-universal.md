@@ -76,8 +76,8 @@ workflow, если он есть в сессии и владелец разре�
 не ловят — мутации закаляют тесты против спецификации, а не против ненаписанных правил. Синхронизировано с
 бандлом ревизии 4.2.
 
-**Ревизия 4.6** (2026-11-25, непрерывность шагов 4–8 после утверждения спецификации и обязательная самонастройка
-Docker/JDK по итогам живого прогона пяти вендоров):
+**Ревизия 4.6** (2026-11-25, непрерывность шагов 4–8 после утверждения спецификации, самонастройка Docker/JDK и
+исправление системных сбоев полного прогона `gherkinMutation` по итогам живого прогона пяти вендоров):
 - непрерывный переход от утверждения спецификации к PR: ответ владельца с утверждением на шаге 3 («да» / ответы по
   списку решений) — прямая команда выполнить весь оставшийся маршрут шагов 4–8 (коммит `spec:` и push → TDD →
   `hardener` → `reviewer` → `gauntlet` → PR) в одном ходе без повторной остановки после коммита `spec:`; в
@@ -95,6 +95,15 @@ Docker/JDK по итогам живого прогона пяти вендоро
   локальный образ с `ENV ERL_AFLAGS="+c false"` без правки репозитория; обращаться к человеку можно только при полном
   отсутствии прав в среде (раздел 3, шаг 1; раздел 7; приложение C; приложение D; бандл, `gauntlet/CLAUDE.md`,
   `session_start.sh`, `docker_pause_shim.py`);
+- полный прогон `gherkinMutation` на крупном модуле: `GherkinMutator` при отсутствии кадра `✽.` и `RUNNER` в
+  `TEST-*.xml` восстанавливает строку упавшего шага по NDJSON-потоку Cucumber (`--messages`: `testStepFinished` со
+  статусом `FAILED` на шаге `pickleStepId != null` без упавшего хука), снимая ложные `failed outside a step` на
+  `Awaitility.untilAsserted(...)` (рабочий поток `awaitility-thread`) и на развёртке `ConditionTimeoutException` во
+  вложенный `AssertionError` в Gradle 8.14 (`DefaultThrowableToTestFailureMapper`), при сохранении отсева хуков,
+  трансформеров `@ParameterType` (включая `lambda$<метод>$\d+`) и ранних падений до `firstUse`; `gherkinMutantsRun`
+  получает по умолчанию `maxHeapSize = '2g'` (`gherkin.maxHeapSize`), а `timeout-minutes` задания `gauntlet` в
+  `.github/workflows/gauntlet.yml` поднят с `90` до `360` (бандл, `GherkinMutator.java`, `gauntlet.gradle`,
+  `gauntlet.properties`, `gauntlet.yml`);
 - правки справочных адаптеров пяти вендоров (`docs/drafts/round23/adapters/`): явный список `tools` у `specifier` и
   `hardener` в Antigravity Cloud, автоматический fallback `spawn_agent` без `agent_type` в Codex Cloud, бесшовное
   продолжение при незагруженных хуках в Qwen/Kimi/Grok/Codex/Antigravity.

@@ -2875,11 +2875,12 @@ guard команду основному агенту разрешает. В Clau
 - Не исполнялось здесь: CLI вендоров внешнего маршрута, хук `report_check.py --hook` (не включён; сами ответы в PR #6
   проверены на GitHub).
 
-## Ревизия 4.6: непрерывность после заморозки спецификации и самонастройка среды (по итогам живого прогона пяти вендоров)
+## Ревизия 4.6: непрерывность после заморозки спецификации, самонастройка среды и системные исправления `gherkinMutation` (по итогам живого прогона пяти вендоров)
 
 Первый живой прогон пяти вендоров (Antigravity / Gemini 4 Neon, OpenAI Codex / GPT-6.2 Sol, Grok Build / Grok 4.7,
-Kimi Code / K3.1 Pro, Qwen Code / Qwen4-Max) на одной и той же задаче эталонного проекта выявил четыре практических
-сбоя на стыке процесса, хуков и сред исполнения. Все четыре закрыты без ослабления ни одного гейта или правила guard.
+Kimi Code / K3.1 Pro, Qwen Code / Qwen4-Max) на одной и той же задаче эталонного проекта выявил практические сбои на
+стыке процесса, хуков, сред исполнения и первого многотысячного прогона `gherkinMutation`. Все они закрыты без
+ослабления ни одного гейта или правила guard.
 
 ### 1. «Сон» сессии после коммита `spec:` (шаг 4 → шаг 5)
 
@@ -2976,4 +2977,51 @@ container …: freezer not supported"}`. Ослаблять сценарии и�
   `DOCKER_HOST=unix:///tmp/docker-pause-shim.sock` в дочерний процесс `./gradlew` (Stop-хук исполняется отдельным
   процессом вне интерактивного shell агента). При ручном подъёме в середине сессии агент выполняет `./gradlew --stop`,
   чтобы демон Gradle не держал закэшированный клиент к старому сокету.
+
+### 5. Полный прогон `gherkinMutation` на крупном модуле: обёртка исключений Awaitility/Gradle, куча воркера и таймаут CI
+
+**Что случилось.** Когда шаг впервые затронул общие glue-файлы приёмки крупного модуля (47 `.feature`-файлов → 3 862
+мутанта + 1 042 контроля = 4 904 последовательных сценария в одном JVM `gherkinMutantsRun`), две независимые сессии
+(Gemini 4 Neon и GPT-6.2 Sol) упёрлись в три системных блокера набора 4.5:
+1. **Ложные `MUTANT ERROR … failed outside a step` (225 мутантов).** `GherkinMutator.failureOutcome()` извлекал номер
+   строки упавшего шага исключительно из синтетического кадра `at ✽.<шаг>(file:line)` в `<failure>` файла `TEST-*.xml`.
+   Инспекция байткода зависимостей показала два независимых механизма, стирающих этот кадр на шагах с
+   `Awaitility.untilAsserted(...)`:
+   - В `cucumber-core:8.0.1` (`StackManipulation#lambda$appendStepLocation$1`) кадр `✽.` дописывается только тогда, когда
+     на стеке исключения найден фрейм самого метода шага (`Located#isDefinedAt`). `Awaitility.untilAsserted` исполняет
+     проверочную лямбду (`lambda$<метод>$0`) в отдельном потоке `awaitility-thread`; при пробросе `AssertionError` без
+     внешней обёртки метода шага на стеке нет, и Cucumber вообще не добавляет `✽.`.
+   - Даже когда `ConditionAwaiter#await` оборачивает ошибку во внешний `ConditionTimeoutException` на потоке теста и
+     Cucumber дописывает `✽.` на эту обёртку, в `gradle-testing-jvm-infrastructure:8.14.3`
+     (`DefaultThrowableToTestFailureMapper#createFailure`) обход `current = current.getCause()` находит вложенный
+     `AssertionError` (`OpenTestAssertionFailedMapper` / `AssertErrorMapper`) и сериализует в `TEST-*.xml` только его,
+     отбрасывая внешний `ConditionTimeoutException` вместе с кадром `✽.`.
+2. **Нехватка кучи `512m` на `gherkinMutantsRun`.** При `forkEvery = 0` дефолтный тестовый воркер Gradle получает
+   `-Xmx512m`; накопление отчётов, метаданных сценариев и буферов брокера/клиента к сценарию ~3 900 приводило к паузам
+   GC по 14–18 с и `OutOfMemoryError: Java heap space`.
+3. **Таймаут CI `90` минут.** Последовательный прогон пяти тысяч приёмочных сценариев с полным интеграционным стендом
+   занимает 2,5–3,5 часа и гарантированно обрывается GitHub Actions при `timeout-minutes: 90` (или `150`).
+
+**Почему так исправлено.**
+- **Разрешение шага по NDJSON-потоку Cucumber (`GherkinMutator.java`).** Набор уже с ревизии 4.4 пишет поток сообщений
+  Cucumber (`--messages`, `stream-*.ndjson`) на каждый JVM-прогон `gherkinMutantsRun` для проверки порядка и переписи
+  сценариев. В этом потоке Cucumber сам сообщает истинную границу исполнения: конверт `testCase` перечисляет `testSteps`,
+  разделяя шаги Gherkin (`pickleStepId != null`) и хуки `@Before`/`@After`/`@BeforeStep`/`@AfterStep` (`hookId != null`,
+  `pickleStepId == null`), конверт `pickle` связывает `pickleStep.id` с `astNodeIds[0]` (`PickleCompiler#pickleStep` в
+  `gherkin:42.0.1` всегда кладёт туда ID AST-узла шага с его `location.line`), а `testStepFinished` фиксирует
+  `status == "FAILED"` и стек исключения до любой переупаковки Gradle. Когда в `TEST-*.xml` нет ни `✽.`, ни `RUNNER`,
+  `failureOutcome()` обращается к `StepFailure` этого запуска:
+  - падение в хуке (`inHook == true`) по-прежнему возвращает `failed outside a step`;
+  - стек из XML и NDJSON проверяется через `Glue.hasTransformerFrame(...)` (расширенный на синтетические лямбды
+    `lambda$<метод>$\d+`), поэтому исключение внутри `@ParameterType`/трансформера остаётся `rejected`;
+  - тип исключения по-прежнему обязан проходить `isAssertion(type, trace)`, а строка шага из `pickle` сравнивается с
+    `mutant.firstUse`: падение на шаге раньше мутированной колонки остаётся `early` (`MUTANT ERROR`), и только падение
+    assertion на шаге `>= firstUse` засчитывается как `killed`.
+  Править десятки приёмочных step-классов в сервисах ради обхода сериализации Gradle не требуется и методически было бы
+  неверно: `Awaitility.untilAsserted` — штатный идиоматический способ асинхронной проверки в приёмке.
+- **Куча `2g` и таймаут `360` минут (`gauntlet.gradle`, `gauntlet.properties`, `gauntlet.yml`).** В `gherkinMutantsRun`
+  выставлен дефолт `maxHeapSize = '2g'` (переопределяется свойством `gherkin.maxHeapSize` в `gauntlet.properties` или
+  явным `maxHeapSize` задачи в сборке проекта), а `timeout-minutes` в `.github/workflows/gauntlet.yml` поднят до `360`
+  (шестичасовой потолок GitHub-hosted раннера).
+
 

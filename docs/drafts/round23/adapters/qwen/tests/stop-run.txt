@@ -1,0 +1,15 @@
+ok   SessionStart: status line goes into the model's context: (0, False, True)
+ok   SessionStart: status line says guard and stop hook are on: True
+ok   Stop with nothing changed: no gate, the agent may stop: (False, '')
+ok   Stop, code changed, gate red: Qwen Code keeps the agent working: (2, True)
+ok     ... and the reason it gets is the gate's failure lines: (True, True)
+ok   Stop again (stop_hook_active true): attempt 2: (2, True, True)
+ok   Stop again (stop_hook_active true): attempt 3: (2, True, True)
+ok   Stop a 4th time: released with a warning that the work is NOT done: (0, False, True)
+ok   Stop after a fix, gate green: the agent may stop: False
+ok   Stop after a spec-only change: no gate (the spec waits for the human): (False, 0)
+ok   SubagentStop hardener, mutationGate red: the hardener keeps working: (2, True, True)
+ok   SubagentStop hardener, mutationGate green: the hardener may finish: False
+ok   evidence check: stop_gate.py --verify-ran on a saved gauntletFast log: 0
+ok   evidence check: a log with gate tasks missing is refused: True
+0 failure(s)

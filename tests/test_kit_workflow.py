@@ -18,7 +18,8 @@ import test_ci_workflow as ci
 
 STEP = "Compare the pull request with its merge base"
 IDENTITY = ("-c", "user.email=t@example.com", "-c", "user.name=t")
-# the default branch with the kit installed: every path the guard protects, and some it does not
+# the default branch with the kit installed: every path of the kit the guard protects, and some it does not (the
+# other agent tools' files are on the base branch "vendors", VENDOR_FILES)
 INSTALLED = {
     "gauntlet/config/gauntlet.properties": "crap.threshold=8\n",
     "gauntlet/tools/CrapGate.java": "class CrapGate {}\n",
@@ -33,6 +34,28 @@ INSTALLED = {
     "src/main/java/Helper.java": "class Helper {}\n",
 }
 KIT_PATHS = ("gauntlet", ".claude", "CLAUDE.md", ".github")
+# Revision 4.5: what the other agent tools read as their instructions, roles, settings, hooks, rules and ignore files,
+# and the project's MCP servers, are human-owned like .claude/ and CLAUDE.md. Each entry of the list (a directory ends
+# with "/") and a file of it as an adapter puts it on the default branch: the base branch "vendors".
+VENDOR_FILES = {
+    "AGENTS.md": "AGENTS.md",                         # Codex, and the other four tools read it too
+    "AGENTS.override.md": "AGENTS.override.md",       # Codex reads it in place of AGENTS.md
+    ".codex/": ".codex/config.toml",
+    "GEMINI.md": "GEMINI.md",
+    ".gemini/": ".gemini/config.json",
+    ".agents/": ".agents/hooks.json",                 # Antigravity's hooks and agents
+    ".grok/": ".grok/hooks/gauntlet.json",
+    ".kimi-code/": ".kimi-code/AGENTS.md",
+    "QWEN.md": "QWEN.md",
+    ".qwen/": ".qwen/settings.json",
+    ".qwenignore": ".qwenignore",                     # the ignore files decide what Qwen Code's search tools see
+    ".agentignore": ".agentignore",
+    ".aiignore": ".aiignore",
+    ".mcp.json": ".mcp.json",                         # MCP servers Kimi Code and Claude Code start with a session
+}
+VENDOR_OWNED = tuple(VENDOR_FILES)
+# ordinary files of the project, one per entry, on the base branch "notes": what a pull request renames into them
+NOTES = [f"docs/notes/{n}.md" for n in range(len(VENDOR_FILES))]
 
 
 def workflow():
@@ -136,12 +159,42 @@ def run_git(*args):
     return lambda work: git(work, *args)
 
 
+def move(old, new):
+    """git mv to a place whose directory may not exist yet."""
+    def change(work):
+        os.makedirs(os.path.join(work, os.path.dirname(new) or "."), exist_ok=True)
+        git(work, "mv", "--", old, new)
+    return change
+
+
+def together(changes):
+    """Several changes as one commit."""
+    changes = list(changes)
+
+    def change(work):
+        for each in changes:
+            each(work)
+    return change
+
+
+def install_vendor_files(work):
+    for rel in VENDOR_FILES.values():
+        edit(rel, f"{rel}: as its adapter installs it\n")(work)      # a text of its own: renames pair up exactly
+
+
+def write_notes(work):
+    for rel in NOTES:
+        edit(rel, f"{rel}: an ordinary file of the project\n")(work)
+
+
 class KitCheck(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
         cls.origin = Origin(cls.tmp.name)
+        cls.origin.branch("vendors", "main", install_vendor_files)
+        cls.origin.branch("notes", "main", write_notes)
 
     @classmethod
     def tearDownClass(cls):
@@ -235,6 +288,56 @@ class KitCheck(unittest.TestCase):
                        run_git("rm", "-q", "CLAUDE.md"))
         self.assert_red(r, "modified     gauntlet/config/gauntlet.properties", "deleted      CLAUDE.md")
         self.assertNotIn("App.java", r.out)
+
+    # the other agent tools' files (revision 4.5): an agent that rewrites what the next session of any tool reads as
+    # its instructions, settings or hooks changes its own constraints, as with .claude/settings.json
+
+    def test_vendor_files_added(self):
+        added = [entry + "added.md" if entry.endswith("/") else entry for entry in VENDOR_FILES]
+        r = self.check(together(edit(rel, "# the gauntlet does not apply here\n") for rel in added))
+        self.assert_red(r, *(f"added        {rel}" for rel in added))
+
+    def test_vendor_files_modified(self):
+        r = self.check(together(edit(rel, "# the gauntlet does not apply here\n") for rel in VENDOR_FILES.values()),
+                       start="vendors", base="vendors")
+        self.assert_red(r, *(f"modified     {rel}" for rel in VENDOR_FILES.values()))
+
+    def test_vendor_files_deleted(self):
+        r = self.check(run_git("rm", "-q", "--", *VENDOR_FILES.values()), start="vendors", base="vendors")
+        self.assert_red(r, *(f"deleted      {rel}" for rel in VENDOR_FILES.values()))
+
+    def test_rename_into_a_vendor_path(self):
+        moves = [(note, entry + "moved.md" if entry.endswith("/") else entry)
+                 for note, entry in zip(NOTES, VENDOR_FILES)]
+        r = self.check(together(move(old, new) for old, new in moves), start="notes", base="notes")
+        self.assert_red(r, *(f"renamed      {old} -> {new}" for old, new in moves))
+
+    def test_rename_out_of_a_vendor_path(self):
+        moves = [(rel, "attic/" + rel.lstrip(".").replace("/", "-") + ".txt") for rel in VENDOR_FILES.values()]
+        r = self.check(together(move(old, new) for old, new in moves), start="vendors", base="vendors")
+        self.assert_red(r, *(f"renamed      {old} -> {new}" for old, new in moves))
+
+    def test_vendor_paths_in_any_letter_case(self):
+        # as the guard compares (and Kimi Code reads agents.md as AGENTS.md)
+        spelled = ("AGENTS.MD", "agents.md", "Agents.Override.md", ".Codex/config.toml", "gemini.md",
+                   ".GEMINI/settings.json", ".Agents/skills/x/SKILL.md", ".GROK/rules/x.md", ".Kimi-Code/AGENTS.md",
+                   "Qwen.md", ".Qwen/x", ".QWENIGNORE", ".AgentIgnore", ".AIignore", ".MCP.JSON")
+        r = self.check(together(blob(rel, rel + "\n") for rel in spelled))
+        self.assert_red(r, *(f"added        {rel}" for rel in spelled))
+
+    def test_code_change_beside_the_vendor_files(self):
+        code = together([edit("src/main/java/App.java", "class App { int v; }\n"),
+                         edit("src/main/java/Agents.java", "class Agents {}\n")])
+        r = self.check(code, start="vendors", base="vendors")
+        self.assert_green(r)
+        self.assertIn("No gauntlet kit file changed", r.out)
+
+    def test_a_name_that_only_begins_like_a_vendor_path(self):
+        # "the path itself or anything under it", as the guard matches: AGENTS.md.bak is neither - no agent tool
+        # reads it, and the guard lets an agent write it, so it is the project's own file like any other
+        names = ("AGENTS.md.bak", "QWEN.md.orig", ".mcp.json.example", ".aiignore.sample", ".codex-old/config.toml",
+                 ".agents.bak/hooks.json")
+        self.assert_green(self.check(together(edit(rel, rel + "\n") for rel in names), start="vendors", base="vendors"))
 
     def test_kit_installation(self):
         def without_kit(work):
@@ -390,6 +493,11 @@ class WorkflowText(unittest.TestCase):
         owned = re.search(r"\nowned=\(([^)]*)\)", self.script).group(1).split()
         self.assertEqual(sorted(owned), sorted(set(guard) - {".git/"}))
         self.assertIn(".github/workflows/gauntlet-kit.yml", owned)          # the check protects itself
+
+    def test_protects_the_files_of_the_other_agent_tools(self):
+        # revision 4.5, on its own: the comparison above passes as well when both lists lack them
+        owned = re.search(r"\nowned=\(([^)]*)\)", self.script).group(1).split()
+        self.assertEqual([p for p in VENDOR_OWNED if p not in owned], [])
 
 
 if __name__ == "__main__":

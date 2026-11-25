@@ -1,0 +1,69 @@
+{
+  "$comment": "Report of a gauntlet pre-check card (core.md, section 3) for `qwen -p ... --json-schema @gauntlet/adapters/qwen/report.schema.json`. The schema fixes the form: no claim without evidence, a 'not checked' list that must be present, a commit. Whether the evidence is true is the coordinator's acceptance (core.md, section 2).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["commit", "summary", "coverage", "checked", "not_checked", "questions"],
+  "properties": {
+    "commit": {
+      "type": "string",
+      "description": "The commit the card was checked on (git rev-parse HEAD).",
+      "pattern": "^[0-9a-f]{7,40}$"
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Итог: one or two lines answering the card's question."
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["covered", "total", "items"],
+      "properties": {
+        "covered": { "type": "integer", "minimum": 0 },
+        "total": { "type": "integer", "minimum": 1 },
+        "items": {
+          "type": "array",
+          "description": "Every checklist item of the card with what was done for it.",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "checked": {
+      "type": "array",
+      "description": "Проверено: every claim with its evidence.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["claim", "evidence_kind", "evidence"],
+        "properties": {
+          "claim": { "type": "string", "minLength": 1 },
+          "evidence_kind": { "enum": ["command", "file_line", "source"] },
+          "evidence": {
+            "type": "string",
+            "minLength": 1,
+            "description": "command -> output | path:line: quote | URL and version: quote"
+          }
+        }
+      }
+    },
+    "not_checked": {
+      "type": "array",
+      "description": "Не проверено: may be empty only when the checklist is fully covered.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["what", "why", "risk"],
+        "properties": {
+          "what": { "type": "string", "minLength": 1 },
+          "why": { "type": "string", "minLength": 1 },
+          "risk": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "questions": {
+      "type": "array",
+      "description": "Вопросы и риски для координатора.",
+      "items": { "type": "string" }
+    }
+  }
+}

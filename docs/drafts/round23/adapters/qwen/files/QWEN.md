@@ -22,8 +22,11 @@ Qwen Code отличается от Claude Code. Где они расходят�
 - Окружение и Docker — проверь и настрой сам без остановки на вопрос человеку: `docker info` (если Docker не установлен
   или демон не отвечает — проверь доступные рантаймы Docker Desktop / Colima / `dockerd`, при наличии прав в Linux
   установи `docker.io` через `apt-get` / `sudo -n apt-get`, подними `dockerd --host=unix:///var/run/docker.sock` в фоне и
-  дождись `docker info`; при падении `rabbitmq:*-alpine` на 2-vCPU VM с `OS monotonic time stepped backwards!` собери
-  локальный образ с `ENV ERL_AFLAGS="+c false"` под тем же тегом без правки репозитория), найди или установи нужную JDK
+  дождись `docker info`; при `CgroupDriver=none` / `freezer not supported` на `docker pause` подними
+  `nohup python3 -I -B gauntlet/hooks/docker_pause_shim.py /tmp/docker-pause-shim.sock >/tmp/docker-pause-shim.log 2>&1 &`,
+  перезапусти `./gradlew --stop` и передавай `DOCKER_HOST=unix:///tmp/docker-pause-shim.sock`; при падении
+  `rabbitmq:*-alpine` на 2-vCPU VM с `OS monotonic time stepped backwards!` собери локальный образ с
+  `ENV ERL_AFLAGS="+c false"` под тем же тегом без правки репозитория), найди или установи нужную JDK
   (`project.java.version`, `gate.java.version` → задай `JAVA_HOME`, `GAUNTLET_GATE_JAVA_HOME`) и экспортируй
   `ORG_GRADLE_PROJECT_publicRepositories=true` (иначе сборка пойдёт в корпоративный реестр). Обращайся к владельцу
   только если среда физически не даёт ни прав установки, ни запуска демона.

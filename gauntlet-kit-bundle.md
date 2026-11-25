@@ -685,20 +685,27 @@ Claude Code, роли, настройки, `CLAUDE.md`, CI-workflow, конфи�
   (`pending = specs_pending_approval(features)`): пока `.feature`-файлы не закоммичены, ход не ждёт Gradle, а как
   только спецификация закоммичена (`spec:`), Stop-хук гоняет полный `gauntletFast` вместе с `acceptanceTest` и
   `acceptanceCheck` и удерживает сессию на красном (включая запись + коммит фич одним ходом после прежнего зелёного
-  прогона). Закрыта остановка («сон») сессии сразу после заморозки спецификации без перехода к реализации.
-- `hooks/session_start.sh`: запуск `dockerd` с unix-сокетом в облачной VM работает и от непривилегированного UID при
-  наличии беспарольного `sudo -n` (`chgrp` + `chmod 660` на `/var/run/docker.sock`, без `666`), а переменная
-  `GAUNTLET_DOCKER=force` включает тот же подъём во внешних облачных средах.
+  прогона). Закрыта остановка («сон») сессии сразу после заморозки спецификации без перехода к реализации. При наличии
+  активного сокета `/tmp/docker-pause-shim.sock` и незаданном `DOCKER_HOST` прогон Gradle автоматически получает
+  `DOCKER_HOST=unix:///tmp/docker-pause-shim.sock`.
+- `hooks/docker_pause_shim.py` (новый, Python 3 stdlib `asyncio`) и `hooks/session_start.sh`: в контейнерных средах
+  DinD с `CgroupDriver=none`, где `docker pause` / `unpause` падают с `500 freezer not supported` (Testcontainers
+  `pauseContainerCmd`), Unix-сокет прокси перед `/var/run/docker.sock` перехватывает `POST …/containers/<id>/(pause|unpause)`
+  и отправляет `SIGSTOP`/`SIGCONT` процессам контейнера (`docker top <id> -eo pid`), добавляя `Connection: close` на
+  обычных HTTP/1.1 запросах и `write_eof()` на `Upgrade: tcp`. `session_start.sh` поднимает `dockerd` в облачной VM и
+  от непривилегированного UID через `sudo -n` (`chgrp` + `chmod 660` на `/var/run/docker.sock`, без `666`), включает
+  тот же подъём по `GAUNTLET_DOCKER=force`, а при `CgroupDriver=none` сам стартует `docker_pause_shim.py`.
 - `gauntlet/CLAUDE.md`: обязательная самонастройка окружения и Docker в начале сессии (проверка `docker info` и
   версий JDK из `gauntlet.properties`, установка `docker.io` / `openjdk` и подъём `dockerd` при наличии прав пакета и
-  `sudo -n`, экспорт `JAVA_HOME`, `GAUNTLET_GATE_JAVA_HOME` и `ORG_GRADLE_PROJECT_publicRepositories=true`, локальный
-  двухстрочный образ с `ENV ERL_AFLAGS="+c false"` при падении `rabbitmq:*-alpine` с `OS monotonic time stepped
-  backwards!` на 2-vCPU VM без правки репозитория); в шаге 4 зафиксировано, что утверждение спецификации человеком
-  на шаге 3 — команда непрерывно пройти весь остаток шагов 4–8 до открытого PR в том же ходе без промежуточной
-  остановки.
+  `sudo -n`, экспорт `JAVA_HOME`, `GAUNTLET_GATE_JAVA_HOME` и `ORG_GRADLE_PROJECT_publicRepositories=true`, запуск
+  `docker_pause_shim.py` + `./gradlew --stop` + `DOCKER_HOST` при `CgroupDriver=none` / `freezer not supported`,
+  локальный двухстрочный образ с `ENV ERL_AFLAGS="+c false"` при падении `rabbitmq:*-alpine` с `OS monotonic time
+  stepped backwards!` на 2-vCPU VM без правки репозитория); в шаге 4 зафиксировано, что утверждение спецификации
+  человеком на шаге 3 — команда непрерывно пройти весь остаток шагов 4–8 до открытого PR в том же ходе без
+  промежуточной остановки.
 - `hooks/selftest.py` и `README.md`: +3 проверки в трёх раскладках (4898 → 4907) — коммит `spec:` до написания кода и
-  запись + коммит спецификации одним ходом после зелёного прогона. Синхронизировано с универсальной инструкцией
-  ревизии 4.6.
+  запись + коммит спецификации одним ходом после зелёного прогона; модульные регрессии в `tests/test_hooks_stop_gate.py`
+  и `tests/test_hooks_session_start.py`. Синхронизировано с универсальной инструкцией ревизии 4.6.
 
 ## Как распаковать (Claude выполняет это на шаге 2 протокола `start`)
 
@@ -734,9 +741,9 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md`, `
 - `.github/workflows/gauntlet-kit.yml` (10693 байт)
 - `.github/workflows/gauntlet.yml` (8414 байт)
 - `CLAUDE.md` (279 байт)
-- `gauntlet/CLAUDE.md` (76256 байт)
+- `gauntlet/CLAUDE.md` (76860 байт)
 - `gauntlet/INSTALL.md` (23435 байт)
-- `gauntlet/README.md` (154884 байт)
+- `gauntlet/README.md` (155269 байт)
 - `gauntlet/archtest/gauntlet/architecture/ArchitectureTest.java` (7999 байт)
 - `gauntlet/config/architecture.properties` (1420 байт)
 - `gauntlet/config/checkstyle.xml` (4593 байт)
@@ -746,10 +753,11 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md`, `
 - `gauntlet/config/pit-runerror-allowlist.txt` (1485 байт)
 - `gauntlet/config/pmd-ruleset.xml` (11398 байт)
 - `gauntlet/gauntlet.gradle` (91846 байт)
+- `gauntlet/hooks/docker_pause_shim.py` (4328 байт)
 - `gauntlet/hooks/guard.py` (141909 байт)
 - `gauntlet/hooks/selftest.py` (182551 байт)
-- `gauntlet/hooks/session_start.sh` (4056 байт)
-- `gauntlet/hooks/stop_gate.py` (29299 байт)
+- `gauntlet/hooks/session_start.sh` (4643 байт)
+- `gauntlet/hooks/stop_gate.py` (29668 байт)
 - `gauntlet/install.sh` (17035 байт)
 - `gauntlet/subagents.md` (69444 байт)
 - `gauntlet/templates/acceptanceTest/java/com/example/service/acceptance/CucumberSpringConfiguration.java` (615 байт)
@@ -1600,7 +1608,7 @@ Gradle-сборки живут в этих каталогах: `./gradlew …` �
 **Среда и обязательная самонастройка в начале сессии.**
 - Тесты с базой и брокером (интеграционные и приёмка) поднимают контейнеры через Testcontainers. Без Docker они **падают, а не пропускаются** — так задумано. В облачной
   VM демон поднимает SessionStart-хук (`dockerd` напрямую: `service docker start` там падает на ulimit),
-  строка статуса показывает `docker: up`. Перед первым запуском сборки или тестов проверь `docker info`: если команды `docker` нет или демон не отвечает, **проведи настройку сам без остановки на вопрос человеку** — проверь доступные рантаймы (системный `dockerd`, Docker Desktop, Colima, rootless Docker); если в Linux-среде `docker` не установлен и есть права установки пакетов (`apt-get` от `root` или `sudo -n apt-get`), установи `docker.io` (`DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y docker.io`); подними демон (`nohup dockerd --host=unix:///var/run/docker.sock > /tmp/dockerd.log 2>&1 &`, при ненулевом UID — через `sudo -n` с правом группы `660` на `/var/run/docker.sock`) и дождись `docker info`. Если в облачной 2-vCPU VM контейнер `rabbitmq:*-alpine` падает на старте с `OS monotonic time stepped backwards!`, собери локальный двухстрочный образ-переопределение с `ENV ERL_AFLAGS="+c false"` под тем же тегом без правки файлов репозитория. Красный Stop-хук из-за «Could not find a valid Docker environment» — это окружение, а не код.
+  строка статуса показывает `docker: up`. Перед первым запуском сборки или тестов проверь `docker info`: если команды `docker` нет или демон не отвечает, **проведи настройку сам без остановки на вопрос человеку** — проверь доступные рантаймы (системный `dockerd`, Docker Desktop, Colima, rootless Docker); если в Linux-среде `docker` не установлен и есть права установки пакетов (`apt-get` от `root` или `sudo -n apt-get`), установи `docker.io` (`DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y docker.io`); подними демон (`nohup dockerd --host=unix:///var/run/docker.sock > /tmp/dockerd.log 2>&1 &`, при ненулевом UID — через `sudo -n` с правом группы `660` на `/var/run/docker.sock`) и дождись `docker info`. Если `docker info --format '{{.CgroupDriver}}'` печатает `none` (или `docker pause` отвечает `freezer not supported` в контейнерной среде без cgroup freezer), подними штатный сокет-прокси набора `nohup python3 -I -B gauntlet/hooks/docker_pause_shim.py /tmp/docker-pause-shim.sock >/tmp/docker-pause-shim.log 2>&1 &`, перезапусти демон Gradle (`./gradlew --stop`) и запускай прогоны с `DOCKER_HOST=unix:///tmp/docker-pause-shim.sock` без изменения файлов репозитория. Если в облачной 2-vCPU VM контейнер `rabbitmq:*-alpine` падает на старте с `OS monotonic time stepped backwards!`, собери локальный двухстрочный образ-переопределение с `ENV ERL_AFLAGS="+c false"` под тем же тегом без правки файлов репозитория. Красный Stop-хук из-за «Could not find a valid Docker environment» — это окружение, а не код.
 - Проверь версии Java из `gauntlet/config/gauntlet.properties` (`project.java.version`, `gate.java.version`): если `java -version` или `JAVA_HOME` указывают не туда или не заданы, найди установленную JDK в стандартных каталогах (`/usr/lib/jvm`, `~/.jdks`, `~/.sdkman`, кэш Gradle toolchains, `/workspace`) либо при наличии прав пакета установи `openjdk-<версия>-jdk` и экспортируй `JAVA_HOME` и `GAUNTLET_GATE_JAVA_HOME`. Обращаться к человеку по поводу Docker или JDK допустимо **только** если проверены все доступные способы и среда физически не даёт ни прав установки, ни запуска демона (вывод команд приложи в «Не проверено»).
 - Maven Central через прокси иногда отвечает 429 (Too Many Requests) на пачку новых артефактов: повтори
   через 20–60 секунд, к коду это отношения не имеет.
@@ -2242,6 +2250,7 @@ gauntlet/
   archtest/               ArchUnit-тест, читающий config/architecture.properties
   hooks/                  guard.py (PreToolUse), stop_gate.py (Stop; SubagentStop hardener'а — matcher в
                           .claude/settings.json), session_start.sh (SessionStart; в облаке поднимает dockerd),
+                          docker_pause_shim.py (Unix-сокет прокси SIGSTOP/SIGCONT для DinD с CgroupDriver=none),
                           selftest.py (4907 проверок хуков в трёх раскладках: python3 gauntlet/hooks/selftest.py)
   templates/              конфигурация Cucumber+Spring, пример фичи на русском
   claude/, ci/            только до установки: install.sh переносит их в .claude/ и .github/workflows/
@@ -2491,9 +2500,11 @@ protection базовой ветки и то, что любая попытка �
 
 Ревизия 4.6 — по итогам живого прогона пяти вендоров: непрерывный переход шагов 4–8 после утверждения спецификации
 (`stop_gate.py` пропускает прогон только на незакоммиченном черновике фич, а на коммите `spec:` без реализации гоняет
-полный `gauntletFast` вместе с приёмкой и удерживает сессию на красном) и обязательная самонастройка Docker/JDK на
-старте сессии (`session_start.sh` поддерживает запуск `dockerd` через `sudo -n` с правом группы `660` на сокет) —
-закреплена в `hooks/selftest.py` (4898 → 4907 проверок) и в `tests/test_hooks_stop_gate.py`.
+полный `gauntletFast` вместе с приёмкой и удерживает сессию на красном), обязательная самонастройка Docker/JDK на
+старте сессии (`session_start.sh` поддерживает запуск `dockerd` через `sudo -n` с правом группы `660` на сокет) и
+штатный Unix-сокет прокси `hooks/docker_pause_shim.py` (`SIGSTOP`/`SIGCONT` для контейнерных сред с
+`CgroupDriver=none`, где `docker pause` падает с `freezer not supported`) — закреплена в `hooks/selftest.py` (4898 →
+4907 проверок), `tests/test_hooks_stop_gate.py` и `tests/test_hooks_session_start.py`.
 
 Ревизия 4.5 — сабагенты по доказательствам, роль `checker`, файлы и настройки других агентных инструментов —
 гейтов Gradle не касается и проверена здесь без Gradle, в обе стороны:
@@ -5398,6 +5409,121 @@ def notCacheable = { Task task -> task.notCompatibleWithConfigurationCache('gaun
 plugins.withId('info.solidsoft.pitest') { tasks.named('pitest', notCacheable) }
 
 ===== END FILE gauntlet/gauntlet.gradle =====
+
+===== BEGIN FILE gauntlet/hooks/docker_pause_shim.py =====
+#!/usr/bin/env python3
+"""Unix-socket proxy in front of /var/run/docker.sock for DinD environments with CgroupDriver=none.
+
+When a containerised session runs dockerd without the cgroup freezer controller (`docker info --format
+'{{.CgroupDriver}}'` -> `none`), `POST /containers/<id>/pause` and `/unpause` fail with `500 freezer not
+supported`, breaking Testcontainers scenarios that freeze a dependency (`pauseContainerCmd`) to exercise
+read timeouts. Start this shim outside the repository (`/tmp/docker-pause-shim.sock`), restart any
+existing Gradle daemon (`./gradlew --stop`), and run builds with `DOCKER_HOST=unix:///tmp/docker-pause-shim.sock`:
+
+  nohup python3 -I -B gauntlet/hooks/docker_pause_shim.py /tmp/docker-pause-shim.sock >/tmp/docker-pause-shim.log 2>&1 &
+
+Every Docker Engine API request is forwarded raw to `/var/run/docker.sock` (non-Upgrade HTTP/1.1 requests
+receive `Connection: close` so pooled clients open a fresh stream per request; `Upgrade: tcp` streams half-close
+via `write_eof()` so `docker exec` and `attach` preserve output); `POST .../containers/<id>/(pause|unpause)`
+sends `SIGSTOP` / `SIGCONT` to the container's host PIDs (`docker top <id> -eo pid`) and answers `204 No Content`.
+"""
+import asyncio
+import os
+import re
+import signal
+import subprocess
+import sys
+
+sys.dont_write_bytecode = True
+
+UPSTREAM = os.environ.get("DOCKER_UPSTREAM_SOCK", "/var/run/docker.sock")
+DOCKER_BIN = os.environ.get("DOCKER_CLI_BIN", "docker")
+LISTEN = sys.argv[1] if len(sys.argv) > 1 else "/tmp/docker-pause-shim.sock"
+PAUSE_RE = re.compile(
+    rb"^POST /(?:v[\d.]+/)?containers/([a-zA-Z0-9][a-zA-Z0-9_.-]*)/(pause|unpause)(?:\?[^\s]*)? HTTP/1\.[01]\r\n"
+)
+
+
+def signal_container(cid, sig):
+    out = subprocess.check_output(
+        [DOCKER_BIN, "--host", f"unix://{UPSTREAM}", "top", cid, "-eo", "pid"], text=True
+    )
+    pids = [int(line.strip()) for line in out.splitlines()[1:] if line.strip().isdigit()]
+    if not pids:
+        raise RuntimeError(f"no PIDs found for container {cid}")
+    signaled = 0
+    for pid in pids:
+        try:
+            os.kill(pid, sig)
+            signaled += 1
+        except ProcessLookupError:
+            continue
+        except PermissionError:
+            subprocess.check_call(["sudo", "-n", "kill", f"-{int(sig)}", str(pid)])
+            signaled += 1
+    if signaled == 0:
+        raise RuntimeError(f"all PIDs exited before signal for container {cid}")
+
+
+async def pipe(reader, writer):
+    try:
+        while data := await reader.read(65536):
+            writer.write(data)
+            await writer.drain()
+        if writer.can_write_eof():
+            writer.write_eof()
+    except Exception:
+        pass
+
+
+async def handle_client(creader, cwriter):
+    try:
+        head = await creader.readuntil(b"\r\n\r\n")
+    except Exception:
+        cwriter.close()
+        return
+    m = PAUSE_RE.match(head)
+    if m:
+        cid, action = m.group(1).decode(), m.group(2).decode()
+        try:
+            await asyncio.to_thread(signal_container, cid, signal.SIGSTOP if action == "pause" else signal.SIGCONT)
+            cwriter.write(b"HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n")
+        except Exception as exc:
+            body = f'{{"message":"shim {action} failed: {exc}"}}\n'.encode()
+            cwriter.write(
+                b"HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\n"
+                + f"Content-Length: {len(body)}\r\nConnection: close\r\n\r\n".encode()
+                + body
+            )
+        await cwriter.drain()
+        cwriter.close()
+        return
+    if not re.search(rb"\r\nUpgrade:", head, re.I):
+        head = re.sub(rb"\r\nConnection:[^\r\n]*", b"", head, flags=re.I)
+        head = head[:-2] + b"Connection: close\r\n\r\n"
+    ureader, uwriter = await asyncio.open_unix_connection(UPSTREAM)
+    try:
+        uwriter.write(head)
+        await uwriter.drain()
+        await asyncio.gather(pipe(creader, uwriter), pipe(ureader, cwriter))
+    finally:
+        uwriter.close()
+        cwriter.close()
+
+
+async def main():
+    if os.path.exists(LISTEN):
+        os.unlink(LISTEN)
+    server = await asyncio.start_unix_server(handle_client, path=LISTEN)
+    os.chmod(LISTEN, 0o660)
+    async with server:
+        await server.serve_forever()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+
+===== END FILE gauntlet/hooks/docker_pause_shim.py =====
 
 ===== BEGIN FILE gauntlet/hooks/guard.py =====
 #!/usr/bin/env python3
@@ -10827,6 +10953,15 @@ elif { [ "$CLAUDE_CODE_REMOTE" = "true" ] || [ "${GAUNTLET_DOCKER:-}" = "force" 
     sleep 1
   done
 fi
+if [ "$docker_status" = up ] && [ "${GAUNTLET_DOCKER:-on}" != "off" ] \
+    && [ "$(timeout 5 docker info --format '{{.CgroupDriver}}' 2>/dev/null)" = "none" ]; then
+  shim_sock="${GAUNTLET_DOCKER_SHIM_SOCK:-/tmp/docker-pause-shim.sock}"
+  if [ ! -S "$shim_sock" ] && command -v setsid >/dev/null 2>&1; then
+    setsid nohup python3 -I -B gauntlet/hooks/docker_pause_shim.py "$shim_sock" </dev/null >>/tmp/docker-pause-shim.log 2>&1 &
+    for _ in 1 2 3 4 5 6; do [ -S "$shim_sock" ] && break; sleep 0.5; done
+  fi
+  [ -S "$shim_sock" ] && docker_status="up (pause-shim: $shim_sock)"
+fi
 
 if reachable; then
   echo "[gauntlet] active - scope: changed vs $base; guard: ${GAUNTLET_GUARD:-on}; stop hook: ${GAUNTLET_STOP_HOOK:-on}; docker: $docker_status. Process: gauntlet/CLAUDE.md"
@@ -10867,6 +11002,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 import time
@@ -11139,10 +11275,18 @@ def run_gradle(task, excluded, timeout, module="."):
     log_path = log_file(module, task)
     # Every failure below is a red run, never an exception: a hook that dies exits 1, and Claude Code lets the
     # agent stop on that. A red run goes through the attempts counter, so the agent is never held for ever either.
+    env = None
+    shim_sock = os.environ.get("GAUNTLET_DOCKER_SHIM_SOCK", "/tmp/docker-pause-shim.sock")
+    if not os.environ.get("DOCKER_HOST") and shim_sock:
+        try:
+            if stat.S_ISSOCK(os.stat(shim_sock).st_mode):
+                env = dict(os.environ, DOCKER_HOST=f"unix://{shim_sock}")
+        except OSError:
+            pass
     try:
         os.makedirs(os.path.dirname(log_path), exist_ok=True)
         # bytes, decoded with replacement: one byte that is not UTF-8 must not kill the hook (text=True would)
-        proc = subprocess.run(cmd, cwd=module, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout)
+        proc = subprocess.run(cmd, cwd=module, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout)
         code, output = proc.returncode, proc.stdout.decode("utf-8", "replace")
     except subprocess.TimeoutExpired as e:
         code = 124

@@ -2941,3 +2941,39 @@ Grok) выполнили шаг 4 — закоммитили `.feature` комм
   при отсутствии строки статуса хуков (например, в Qoder Desktop) сессия при `GAUNTLET_GUARD != off` сообщает об этом
   первой строкой и сразу ведёт задачу с ручной самопроверкой гейтов, не блокируясь в ожидании починки хуков.
 
+### 4. Контейнерный DinD с `CgroupDriver=none` (`docker pause` → `500 freezer not supported`)
+
+**Что случилось.** В контейнерной облачной среде Codex Cloud демон `dockerd` работает внутри контейнера с
+`CgroupDriver=none` без контроллера cgroup freezer. Все обычные контейнеры (PostgreSQL, RabbitMQ, MinIO) поднимаются и
+проходят почти три тысячи тестов и новую приёмку, но три унаследованных приёмочных сценария таймаутов чтения к S3
+вызывают `dockerClient().pauseContainerCmd(id)` (Testcontainers) и падают с `Status 500: {"message":"Cannot pause
+container …: freezer not supported"}`. Ослаблять сценарии или менять тестовый стенд проекта ради ограничения среды
+нельзя (правило 2).
+
+**Почему выбран Unix-сокет прокси `gauntlet/hooks/docker_pause_shim.py`.**
+- Testcontainers обращается к Docker Engine API по HTTP поверх `DOCKER_HOST` (`unix:///tmp/docker-pause-shim.sock`).
+  Небольшой прокси на стандартной библиотеке Python (`asyncio`, без внешних пакетов и без записи байткода в `gauntlet/`
+  благодаря `sys.dont_write_bytecode = True`) прозрачно пересылает все запросы в `/var/run/docker.sock`, а
+  `POST /(vX.Y/)?containers/<id>/(pause|unpause)` обслуживает сам: получает PID процессов контейнера через
+  `docker --host unix:///var/run/docker.sock top <id> -eo pid`, отправляет им `SIGSTOP` / `SIGCONT` (с fallback на
+  `sudo -n kill` при чужом UID процесса контейнера) и отвечает `204 No Content`. Для TCP-клиента приложения процесс под
+  `SIGSTOP` неотличим от cgroup freezer: ядро принимает байты в буфер сокета, но процесс не читает и не отвечает, и
+  клиент отрабатывает штатный read timeout, а после `SIGCONT` мгновенно продолжает работу.
+- **Две тонкости протокола Docker Engine API (проверены живым прогоном):**
+  1. `ApacheDockerHttpClient` в Testcontainers переиспользует HTTP/1.1 keep-alive соединения; если пересылать сырой
+     поток байтов целиком, второй запрос в том же соединении (`POST …/pause` после `GET …/json`) уйдёт напрямую в
+     `dockerd` мимо `PAUSE_RE`. Поэтому на всех запросах без `Upgrade:` прокси заменяет/добавляет заголовок
+     `Connection: close`, вынуждая `dockerd` закрыть соединение после ответа, а клиент — открыть новый сокет на
+     следующий запрос.
+  2. Потоковые вызовы `docker exec` и `attach` используют `Upgrade: tcp`. Когда `docker exec` запускается без `-i`,
+     клиент сразу закрывает свою сторону записи (`EOF`); если `pipe()` в этот момент вызывает `writer.close()` на
+     соединении к `dockerd`, сокет закрывается целиком до чтения stdout команды и вывод `exec` теряется. Передача
+     полузакрытия через `writer.write_eof()` и закрытие обоих сокетов только в `finally` после завершения обеих сторон
+     `asyncio.gather(...)` полностью сохраняют вывод `docker exec` и `docker logs`.
+- **Интеграция с хуками:** `session_start.sh` при `docker_status=up` и `CgroupDriver=none` автоматически запускает
+  `docker_pause_shim.py` в фоне (`setsid nohup … </dev/null`) и сообщает путь к сокету в строке статуса, а
+  `stop_gate.py` при наличии живого Unix-сокета `/tmp/docker-pause-shim.sock` и незаданном `DOCKER_HOST` сам передаёт
+  `DOCKER_HOST=unix:///tmp/docker-pause-shim.sock` в дочерний процесс `./gradlew` (Stop-хук исполняется отдельным
+  процессом вне интерактивного shell агента). При ручном подъёме в середине сессии агент выполняет `./gradlew --stop`,
+  чтобы демон Gradle не держал закэшированный клиент к старому сокету.
+

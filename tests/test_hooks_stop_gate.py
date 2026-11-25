@@ -219,6 +219,27 @@ class GreenExitWithoutTheGates(HookCase):
         self.assertEqual(r.returncode, 2, r.stderr)
         self.assertIn("gauntlet: Gradle finished mutationGate without running pitest - no", r.stderr)
 
+    def test_docker_pause_shim_socket_is_passed_to_gradle_when_docker_host_is_unset(self):
+        import socket
+
+        p = self.project()
+        wrapper = kit.read(p.path("gradlew")).replace(
+            'echo "$*" >> gradle-calls',
+            'echo "$*" >> gradle-calls\necho "${DOCKER_HOST:-}" > gradle-docker-host',
+        )
+        p.gradlew(wrapper)
+        shim = os.path.join(self.tmp.name, "pause-shim.sock")
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.bind(shim)
+        self.addCleanup(sock.close)
+        r = p.stop(first=True, GAUNTLET_DOCKER_SHIM_SOCK=shim, DOCKER_HOST="")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(kit.read(p.path("gradle-docker-host")).strip(), f"unix://{shim}")
+        kit.write(p.path("src/main/java/x/Tax.java"), "package x; class Tax {}\n")
+        r = p.stop(first=True, GAUNTLET_DOCKER_SHIM_SOCK=shim, DOCKER_HOST="unix:///custom.sock")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(kit.read(p.path("gradle-docker-host")).strip(), "unix:///custom.sock")
+
 
 class SettingsInAnotherEncoding(HookCase):
 

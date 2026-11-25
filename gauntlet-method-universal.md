@@ -88,10 +88,13 @@ Docker/JDK по итогам живого прогона пяти вендоро
 - обязательная самонастройка окружения и Docker на старте сессии: агент сам проверяет `docker info` и версии JDK
   из `gauntlet.properties`, при необходимости ставит `docker.io` / `openjdk` (если среда даёт `apt-get` / `sudo -n`),
   поднимает `dockerd` с unix-сокетом (в `session_start.sh` — и через `sudo -n` для непривилегированного UID облачной
-  VM с правами `660` на сокет), задаёт `JAVA_HOME`, `GAUNTLET_GATE_JAVA_HOME` и `ORG_GRADLE_PROJECT_publicRepositories=true`,
-  а при сбое монотонных часов Erlang в `rabbitmq:*-alpine` на 2-vCPU VM собирает локальный образ с
-  `ENV ERL_AFLAGS="+c false"` без правки репозитория; обращаться к человеку можно только при полном отсутствии прав
-  в среде (раздел 3, шаг 1; приложение C; приложение D; бандл, `gauntlet/CLAUDE.md`, `session_start.sh`);
+  VM с правами `660` на сокет), задаёт `JAVA_HOME`, `GAUNTLET_GATE_JAVA_HOME` и `ORG_GRADLE_PROJECT_publicRepositories=true`;
+  при `CgroupDriver=none` (`docker pause` → `freezer not supported` в DinD-контейнере) поднимает штатный сокет-прокси
+  `gauntlet/hooks/docker_pause_shim.py` (`SIGSTOP`/`SIGCONT` через `DOCKER_HOST=unix:///tmp/docker-pause-shim.sock` с
+  перезапуском демона Gradle), а при сбое монотонных часов Erlang в `rabbitmq:*-alpine` на 2-vCPU VM собирает
+  локальный образ с `ENV ERL_AFLAGS="+c false"` без правки репозитория; обращаться к человеку можно только при полном
+  отсутствии прав в среде (раздел 3, шаг 1; раздел 7; приложение C; приложение D; бандл, `gauntlet/CLAUDE.md`,
+  `session_start.sh`, `docker_pause_shim.py`);
 - правки справочных адаптеров пяти вендоров (`docs/drafts/round23/adapters/`): явный список `tools` у `specifier` и
   `hardener` в Antigravity Cloud, автоматический fallback `spawn_agent` без `agent_type` в Codex Cloud, бесшовное
   продолжение при незагруженных хуках в Qwen/Kimi/Grok/Codex/Antigravity.
@@ -991,7 +994,7 @@ gauntlet/
                           стеке, а из команд стека повторяет только javap — остальные помечает «не перезапускалась»
                           и выходит с кодом 3, а не 0
   archtest/               ArchUnit-тест | import-linter контракты | dependency-cruiser config
-  hooks/                  guard.py, stop_gate.py, session_start.sh, selftest.py (Python 3). В эталоне в них
+  hooks/                  guard.py, stop_gate.py, session_start.sh, docker_pause_shim.py, selftest.py (Python 3). В эталоне в них
                           зашиты ./gradlew, пути src/main, src/test, src/acceptanceTest, build/ и BUILD_FILES
                           Gradle; при start их выносят в gauntlet.properties (раздел 8.1, шаг 2, п. 1)
   templates/              конфигурация приёмочных тестов стека, пример фичи
@@ -1609,6 +1612,7 @@ api.github.com закрыты политикой платформы, services.gr
 | сессия «засыпает» после коммита `spec:` | получив «да» на шаге 3, агент закоммитил и запушил фичу и завершил ход в ожидании команды «продолжай», а прежний `stop_gate.py` пропускал любой ход, где менялись только фичи; закрыто правилом шага 4 («да» запускает весь остаток шагов 4–8 до PR) и проверкой `pending` в `stop_gate.py` | любые многошаговые процессы с остановкой на согласование |
 | нет Docker или `JAVA_HOME` в среде вендора | агент останавливался с вопросом человеку вместо самонастройки; правило шага 1 требует самому проверить `docker info` и версии JDK, при наличии прав поставить `docker.io` / `openjdk`, поднять `dockerd` и выставить `JAVA_HOME`, `GAUNTLET_GATE_JAVA_HOME`, `ORG_GRADLE_PROJECT_publicRepositories=true` | любые облачные VM и контейнеры сессий |
 | сбой монотонных часов Erlang в RabbitMQ на 2-vCPU VM | `rabbitmq:4.1.2-alpine` (Erlang 27) падает при старте с `OS monotonic time stepped backwards! Aborted` из-за рассинхрона TSC ядер VM; лечится локальным двухстрочным образом `FROM …` + `ENV ERL_AFLAGS="+c false"` под тем же тегом без правки репозитория | любые контейнеры BEAM/Erlang в облачных VM |
+| `docker pause` падает с `freezer not supported` (`CgroupDriver=none`) | в DinD-контейнере без cgroup freezer сценарии приёмки, замораживающие контейнер хранилища (`pauseContainerCmd`) для проверки таймаута чтения, получают `500 freezer not supported`; лечится запуском штатного Unix-сокет прокси `python3 -I -B gauntlet/hooks/docker_pause_shim.py /tmp/docker-pause-shim.sock` (`SIGSTOP`/`SIGCONT` по PID контейнера), перезапуском демона сборки (`./gradlew --stop`) и `DOCKER_HOST=unix:///tmp/docker-pause-shim.sock` без правки файлов репозитория | любые тесты отказоустойчивости с `docker pause` в DinD |
 
 ## Приложение D. Шаблон промпта для сессии задачи
 
@@ -1630,8 +1634,11 @@ gauntlet → PR).
 - Окружение и Docker настрой сам без остановки на вопрос владельцу: проверь `docker info`, нужные JDK
   (`JAVA_HOME`, `GAUNTLET_GATE_JAVA_HOME`) и `ORG_GRADLE_PROJECT_publicRepositories=true`; если Docker или JDK не
   установлены либо демон не запущен и среда даёт права (`apt-get` / `sudo -n`), установи и подними `dockerd`
-  самостоятельно (при падении `rabbitmq:*-alpine` с `OS monotonic time stepped backwards!` на 2-vCPU VM — локальный
-  образ с `ENV ERL_AFLAGS="+c false"` под тем же тегом без правки репозитория).
+  самостоятельно (при `CgroupDriver=none` / `freezer not supported` на `docker pause` подними
+  `python3 -I -B gauntlet/hooks/docker_pause_shim.py /tmp/docker-pause-shim.sock`, перезапусти `./gradlew --stop` и
+  передавай `DOCKER_HOST=unix:///tmp/docker-pause-shim.sock`; при падении `rabbitmq:*-alpine` с `OS monotonic time
+  stepped backwards!` на 2-vCPU VM собери локальный образ с `ENV ERL_AFLAGS="+c false"` под тем же тегом без правки
+  репозитория).
 - ЛИМИТ: предупреждение о 99 % пятичасового или недельного лимита либо сообщение «пауза по лимиту» — пауза
   до сброса, 100 % не ждём: закоммить и запушь свою ветку, напиши статус (что сделано, что красное, что
   дальше). Красный гейт на паузе не чини: Stop-хуку ответь «пауза по лимиту, работа не сделана».

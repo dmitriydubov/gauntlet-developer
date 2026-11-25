@@ -34,38 +34,48 @@
   спецификации (`if pending and all(…)`), а кэш `last-stop` при `not pending` проверяет полный отпечаток `fingerprint`
   (включающий `tree` вместе с фичами). Черновик по-прежнему не ждёт Gradle; как только спецификация закоммичена
   коммитом `spec:`, Stop-хук гоняет полный `gauntletFast` вместе с `acceptanceTest` и `acceptanceCheck` и удерживает
-  сессию на красном (`exit 2` в пределах попыток).
+  сессию на красном (`exit 2` в пределах попыток). При наличии активного сокета `/tmp/docker-pause-shim.sock` и
+  незаданном `DOCKER_HOST` прогон Gradle автоматически получает `DOCKER_HOST=unix:///tmp/docker-pause-shim.sock`.
 - **Процесс (шаг 4) и шаблон промпта (приложение D):** явно закреплено, что ответ человека с утверждением спецификации
   на шаге 3 — команда выполнить весь оставшийся маршрут шагов 4–8 вплоть до открытого PR в том же ходе без повторной
   остановки после коммита `spec:`.
-- **Обязательная самонастройка окружения и Docker (`gauntlet/CLAUDE.md`, шаг 1 инструкции, приложения C и D,
-  `session_start.sh`):** перед первой сборкой и тестами агент сам проверяет `docker info`, версии JDK
-  (`project.java.version`, `gate.java.version`) и публичный режим репозиториев; при наличии прав пакета / `sudo -n` сам
-  устанавливает `docker.io` / `openjdk`, поднимает `dockerd --host=unix:///var/run/docker.sock` (в `session_start.sh` —
-  и от непривилегированного UID через `sudo -n` с правом группы `660` на сокет, а также по `GAUNTLET_DOCKER=force`),
-  выставляет `JAVA_HOME`, `GAUNTLET_GATE_JAVA_HOME` и `ORG_GRADLE_PROJECT_publicRepositories=true`, а при падении
-  `rabbitmq:*-alpine` с `OS monotonic time stepped backwards!` на 2-vCPU VM собирает локальный двухстрочный образ с
-  `ENV ERL_AFLAGS="+c false"` без правки репозитория. Обращаться к человеку допустимо только при физическом отсутствии
-  прав в среде.
+- **Обязательная самонастройка окружения, Docker и `CgroupDriver=none` (`gauntlet/CLAUDE.md`, шаг 1 инструкции,
+  приложения C и D, `session_start.sh`, `gauntlet/hooks/docker_pause_shim.py`):** перед первой сборкой и тестами агент
+  сам проверяет `docker info`, версии JDK (`project.java.version`, `gate.java.version`) и публичный режим репозиториев;
+  при наличии прав пакета / `sudo -n` сам устанавливает `docker.io` / `openjdk`, поднимает
+  `dockerd --host=unix:///var/run/docker.sock` (в `session_start.sh` — и от непривилегированного UID через `sudo -n` с
+  правом группы `660` на сокет, а также по `GAUNTLET_DOCKER=force`), выставляет `JAVA_HOME`, `GAUNTLET_GATE_JAVA_HOME`
+  и `ORG_GRADLE_PROJECT_publicRepositories=true`. Для контейнерных сред DinD без cgroup freezer (`CgroupDriver=none`,
+  где `docker pause` падает с `500 freezer not supported`) в набор добавлен чистый Python-прокси
+  `gauntlet/hooks/docker_pause_shim.py` (`SIGSTOP`/`SIGCONT` по PID контейнера с корректным `Connection: close` на
+  обычных HTTP/1.1 запросах и `write_eof()` на `Upgrade: tcp`), который `session_start.sh` стартует автоматически при
+  `CgroupDriver=none`, а агент при ручном запуске подключает через `./gradlew --stop` и
+  `DOCKER_HOST=unix:///tmp/docker-pause-shim.sock`. При падении `rabbitmq:*-alpine` с `OS monotonic time stepped
+  backwards!` на 2-vCPU VM собирается локальный двухстрочный образ с `ENV ERL_AFLAGS="+c false"` без правки
+  репозитория. Обращаться к человеку допустимо только при физическом отсутствии прав в среде.
 - **Справочные адаптеры пяти вендоров (`docs/drafts/round23/adapters/`):** синхронизированы правила самонастройки
-  Docker/JDK, непрерывности шагов 4–8 после утверждения спецификации и продолжения задачи при незагруженных хуках (при
-  `GAUNTLET_GUARD != off`); в Antigravity добавлен явный список `tools` в `specifier/agent.md` и `hardener/agent.md`; в
-  Codex добавлен штатный fallback `spawn_agent` без `agent_type` с передачей текста роли в промпте.
+  Docker/JDK (включая `docker_pause_shim.py` при `CgroupDriver=none`), непрерывности шагов 4–8 после утверждения
+  спецификации и продолжения задачи при незагруженных хуках (при `GAUNTLET_GUARD != off`); в Antigravity добавлен явный
+  список `tools` в `specifier/agent.md` и `hardener/agent.md`; в Codex добавлен штатный fallback `spawn_agent` без
+  `agent_type` с передачей текста роли в промпте.
 - **Тесты:** `hooks/selftest.py` — 4898 → 4907 проверок в трёх раскладках (+3 сценария `stop_tests`: коммит `spec:` без
-  кода и запись + коммит фичи одним ходом после зелёного прогона); `tests/test_hooks_stop_gate.py` — тест перехода от
-  незакоммиченного черновика фичи к коммиту `spec:` без реализации.
+  кода и запись + коммит фичи одним ходом после зелёного прогона); `tests/test_hooks_stop_gate.py` — переход от
+  черновика фичи к коммиту `spec:` и передача `DOCKER_HOST` при активном сокете `docker-pause-shim.sock`;
+  `tests/test_hooks_session_start.py` — проверка `docker_pause_shim.py` (`SIGSTOP`/`SIGCONT`, keep-alive, `Upgrade:
+  tcp`, отсутствие `__pycache__`) и автостарта из `session_start.sh` при `CgroupDriver=none`.
 
 ### Манифест бандла
 
-Размер в байтах; файлов в манифесте 35.
+Размер в байтах; файлов в манифесте 36 (+1 новый).
 
 | Файл | 4.5 | 4.6 |
 |---|---|---|
-| `gauntlet/CLAUDE.md` | 72527 | 76256 |
-| `gauntlet/README.md` | 153554 | 154884 |
+| `gauntlet/CLAUDE.md` | 72527 | 76860 |
+| `gauntlet/README.md` | 153554 | 155269 |
+| `gauntlet/hooks/docker_pause_shim.py` | — | 4328 |
 | `gauntlet/hooks/selftest.py` | 181104 | 182551 |
-| `gauntlet/hooks/session_start.sh` | 3492 | 4056 |
-| `gauntlet/hooks/stop_gate.py` | 29033 | 29299 |
+| `gauntlet/hooks/session_start.sh` | 3492 | 4643 |
+| `gauntlet/hooks/stop_gate.py` | 29033 | 29668 |
 
 Остальные 30 файлов не правились.
 

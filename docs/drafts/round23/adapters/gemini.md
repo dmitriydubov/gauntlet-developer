@@ -161,7 +161,7 @@
 
 ## B. Промпты
 
-### B.1. `GEMINI.md` — файл инструкций проекта (18 319 байт, предел правила 24 000)
+### B.1. `GEMINI.md` — файл инструкций проекта (18 643 байт, предел правила 24 000)
 
 Несёт жёсткие правила набора по ссылке и кратко, правило тщательности и формат отчёта ядра (разделы 4–5),
 замены механизмов Claude Code и меры против сбоев Antigravity (разделы 2, 3, 6).
@@ -185,7 +185,7 @@
    Antigravity он не встроен намеренно: правило обрезается на 24 KB, а файл больше 60 KB, и «Жёсткие правила» лежат за
    этой границей. Докажи чтение: приведи `wc -l gauntlet/CLAUDE.md` и заголовки его разделов `##`. После сжатия
    контекста (compaction) прочитай заново.
-3. Проверь готовность окружения без остановки на вопрос человеку: `docker info` (если Docker не установлен или демон не запущен — установи `docker.io` через `sudo -n apt-get` при наличии прав, подними `dockerd` с unix-сокетом и дождись `docker info`; при падении `rabbitmq:*-alpine` на 2-vCPU VM с `OS monotonic time stepped backwards!` собери локальный образ с `ENV ERL_AFLAGS="+c false"` под тем же тегом без правки репозитория), версии JDK (`project.java.version`, `gate.java.version` → найди или установи JDK и задай `JAVA_HOME`, `GAUNTLET_GATE_JAVA_HOME`) и `ORG_GRADLE_PROJECT_publicRepositories=true`.
+3. Проверь готовность окружения без остановки на вопрос человеку: `docker info` (если Docker не установлен или демон не запущен — установи `docker.io` через `sudo -n apt-get` при наличии прав, подними `dockerd` с unix-сокетом и дождись `docker info`; при `CgroupDriver=none` / `freezer not supported` на `docker pause` подними `nohup python3 -I -B gauntlet/hooks/docker_pause_shim.py /tmp/docker-pause-shim.sock >/tmp/docker-pause-shim.log 2>&1 &`, перезапусти `./gradlew --stop` и передавай `DOCKER_HOST=unix:///tmp/docker-pause-shim.sock`; при падении `rabbitmq:*-alpine` на 2-vCPU VM с `OS monotonic time stepped backwards!` собери локальный образ с `ENV ERL_AFLAGS="+c false"` под тем же тегом без правки репозитория), версии JDK (`project.java.version`, `gate.java.version` → найди или установи JDK и задай `JAVA_HOME`, `GAUNTLET_GATE_JAVA_HOME`) и `ORG_GRADLE_PROJECT_publicRepositories=true`.
 4. Сабагенты пред-проверки и ревью читают то, что требует их карточка, а не весь файл.
 
 ## 1. Жёсткие правила (кратко; полный текст — gauntlet/CLAUDE.md, «Жёсткие правила»)

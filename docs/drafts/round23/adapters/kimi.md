@@ -209,9 +209,11 @@ Kimi собирает инструкции так: `~/.kimi-code/AGENTS.md`, п�
 3. Прочитай `gauntlet/config/gauntlet.properties`; если задан `module` — и настройки модуля в `gauntlet/config/<module>/`.
 4. Окружение и Docker — настрой сам без остановки на вопрос человеку: проверь `docker info` (если Docker не установлен или
    демон не отвечает — при наличии прав установи `docker.io` через `apt-get` / `sudo -n apt-get`, подними
-   `dockerd --host=unix:///var/run/docker.sock` в фоне и дождись `docker info`; при падении `rabbitmq:*-alpine` на 2-vCPU
-   VM с `OS monotonic time stepped backwards!` собери локальный образ с `ENV ERL_AFLAGS="+c false"` под тем же тегом без
-   правки репозитория), найди или установи JDK нужной версии (`project.java.version`, `gate.java.version` → экспортируй
+   `dockerd --host=unix:///var/run/docker.sock` в фоне и дождись `docker info`; при `CgroupDriver=none` / `freezer not
+   supported` на `docker pause` подними `nohup python3 -I -B gauntlet/hooks/docker_pause_shim.py /tmp/docker-pause-shim.sock >/tmp/docker-pause-shim.log 2>&1 &`,
+   перезапусти `./gradlew --stop` и передавай `DOCKER_HOST=unix:///tmp/docker-pause-shim.sock`; при падении
+   `rabbitmq:*-alpine` на 2-vCPU VM с `OS monotonic time stepped backwards!` собери локальный образ с
+   `ENV ERL_AFLAGS="+c false"` под тем же тегом без правки репозитория), найди или установи JDK нужной версии (`project.java.version`, `gate.java.version` → экспортируй
    `JAVA_HOME`, `GAUNTLET_GATE_JAVA_HOME`) и задай `ORG_GRADLE_PROJECT_publicRepositories=true` (иначе сборка пойдёт в
    корпоративный реестр и набор не подключится). Спрашивай владельца только если среда физически не даёт ни прав установки,
    ни запуска демона.

@@ -695,7 +695,9 @@ Build заменяет механизмы Claude Code, и задаёт прав�
    прочитай файл сам от начала до конца, прежде чем что-то делать.
 3. Проверь готовность окружения и при необходимости настрой его сам без остановки на вопрос владельцу: `docker info`
    (если Docker не установлен или демон не запущен — установи `docker.io` через `apt-get` / `sudo -n apt-get` при наличии
-   прав, подними `dockerd --host=unix:///var/run/docker.sock` в фоне и дождись `docker info`; при падении
+   прав, подними `dockerd --host=unix:///var/run/docker.sock` в фоне и дождись `docker info`; при `CgroupDriver=none` /
+   `freezer not supported` на `docker pause` подними `nohup python3 -I -B gauntlet/hooks/docker_pause_shim.py /tmp/docker-pause-shim.sock >/tmp/docker-pause-shim.log 2>&1 &`,
+   перезапусти `./gradlew --stop` и передавай `DOCKER_HOST=unix:///tmp/docker-pause-shim.sock`; при падении
    `rabbitmq:*-alpine` на 2-vCPU VM с `OS monotonic time stepped backwards!` собери локальный образ с
    `ENV ERL_AFLAGS="+c false"` под тем же тегом без правки репозитория), нужную JDK из `gauntlet/config/gauntlet.properties`
    (`JAVA_HOME`, `GAUNTLET_GATE_JAVA_HOME`) и `ORG_GRADLE_PROJECT_publicRepositories=true`.

@@ -963,10 +963,12 @@ class RunOrderTest(Sandbox):
                 self.assertNotIn("ran at the same time", out)
 
     def test_a_mutant_and_its_controls_in_different_test_jvms_prove_nothing(self):
-        # forks: each JVM is a stream of its own
+        # forks or mid-run OOM restart: each JVM is a stream of its own
         code, out = self.judge([generated("c1", 0, 10), generated("z1", 31, 40)],
                                [generated("m1", 11, 20), generated("m2", 21, 30)])
         self.assertEqual(1, code, out)
+        self.assertIn("MUTANT ERROR    run order: worker JVM restarted or split scenarios across 2 Cucumber message"
+                      " streams (jvm-1.ndjson, jvm-2.ndjson) - check OutOfMemoryError / gherkin.maxHeapSize", out)
         self.assertIn("MUTANT ERROR    run order: m1 did not run between its controls c1 and z1 - c1 did not run in the"
                       " same test JVM (jvm-2.ndjson)", out)
 
@@ -1945,6 +1947,82 @@ class GlueImpactScope(Sandbox):
         self.assertEqual(0, code, out)
         self.assertIn("removed or re-scoped hook p/Steps#reset", out)
         self.assertEqual(3, len(self.mutated_features()))
+
+
+class VerifiedCache(Sandbox):
+    """Per-feature verified cache (--verified-cache): saves green features even when another feature fails, skips them
+    on the next run if their bytes match, and never caches kills from a broken run-order stream."""
+
+    def write_feature(self, name, val):
+        return write(
+            os.path.join(self.dir, "features", name),
+            f"Feature: {name}\n  Scenario Outline: S\n    When x is <v>\n    Examples:\n      | v |\n      | {val} |\n",
+        )
+
+    def test_passing_feature_is_cached_across_sibling_survivor_and_broken_order_never_caches(self):
+        self.write_feature("a.feature", "10")
+        self.write_feature("b.feature", "20")
+        cache = os.path.join(self.dir, "cache", "env1.tsv")
+
+        # 1. Broken run order must NOT populate verified cache even if XML says killed
+        code, out = tool("generate", "--features", "features", "--out", "mutants", "--verified-cache", cache, cwd=self.dir)
+        self.assertEqual(0, code, out)
+        write_results(self.results, [(control_name(c), PASSED) for c in ("c1", "z1", "c2", "z2")]
+                      + [(mutant_name(m), thrown(ASSERTION, "boom", (GLUE_FRAME, step_frame(4)))) for m in (1, 2)])
+        # Empty messages directory -> runOrder error -> cache must remain absent
+        os.makedirs(self.path("messages"), exist_ok=True)
+        code, out = tool("verdict", "--mutants", "mutants", "--results", "results", "--messages", "messages",
+                         "--verified-cache", cache, cwd=self.dir)
+        self.assertEqual(1, code, out)
+        self.assertFalse(os.path.exists(cache))
+
+        # 2. Valid run order where a.feature (m1, c1, z1) is killed, but b.feature (m2) SURVIVES:
+        #    verdict fails (exit 1), yet a.feature IS recorded in cache and b.feature is NOT
+        write_results(self.results, [(control_name(c), PASSED) for c in ("c1", "z1", "c2", "z2")]
+                      + [(mutant_name(1), thrown(ASSERTION, "boom", (GLUE_FRAME, step_frame(4)))), (mutant_name(2), PASSED)])
+        write_messages(self.path("messages", "jvm-1.ndjson"), [
+            generated("c1", 0, 5), generated("m1", 6, 10), generated("z1", 11, 15),
+            generated("c2", 16, 20), generated("m2", 21, 25), generated("z2", 26, 30),
+        ])
+        code, out = tool("verdict", "--mutants", "mutants", "--results", "results", "--messages", "messages",
+                         "--verified-cache", cache, cwd=self.dir)
+        self.assertEqual(1, code, out)
+        self.assertIn("MUTANT SURVIVED m2", out)
+        self.assertTrue(os.path.isfile(cache))
+        cached_text = kit.read(cache)
+        self.assertIn("features/a.feature\t", cached_text)
+        self.assertNotIn("features/b.feature\t", cached_text)
+
+        # 3. Edit b.feature -> generate skips a.feature via cache and emits ONLY b.feature (1 mutant + 2 controls)
+        self.write_feature("b.feature", "30")
+        code, out = tool("generate", "--features", "features", "--out", "mutants", "--verified-cache", cache, cwd=self.dir)
+        self.assertEqual(0, code, out)
+        self.assertIn("verified cache matched 1 of 2 feature file(s) in scope (1 mutant(s) + 2 control(s) already verified on current runtime) - mutating 1 remaining", out)
+        self.assertIn("1 mutant(s) + 2 control(s) from 1 feature file(s) in scope", out)
+
+        # 4. Kill b.feature's mutant (now m1, c1, z1) -> verdict exits 0 and caches b.feature too
+        shutil.rmtree(self.results)
+        shutil.rmtree(self.path("messages"))
+        write_results(self.results, [(control_name(c), PASSED) for c in ("c1", "z1")]
+                      + [(mutant_name(1), thrown(ASSERTION, "boom", (GLUE_FRAME, step_frame(4))))])
+        write_messages(self.path("messages", "jvm-1.ndjson"), [
+            generated("c1", 0, 5), generated("m1", 6, 10), generated("z1", 11, 15),
+        ])
+        code, out = tool("verdict", "--mutants", "mutants", "--results", "results", "--messages", "messages",
+                         "--verified-cache", cache, cwd=self.dir)
+        self.assertEqual(0, code, out)
+        self.assertIn("Gherkin mutation: OK", out)
+
+        # 5. Next generate with zero edits hits all-cached.tsv (0 remaining) and verdict passes immediately
+        code, out = tool("generate", "--features", "features", "--out", "mutants", "--verified-cache", cache, cwd=self.dir)
+        self.assertEqual(0, code, out)
+        self.assertIn("verified cache matched all 2 feature file(s) in scope (2 mutant(s) + 4 control(s) already verified on current runtime) - 0 remaining", out)
+        self.assertTrue(os.path.isfile(os.path.join(self.dir, "mutants", "all-cached.tsv")))
+        code, out = tool("verdict", "--mutants", "mutants", "--results", "results", "--messages", "messages",
+                         "--verified-cache", cache, cwd=self.dir)
+        self.assertEqual(0, code, out)
+        self.assertIn("2 mutant(s) + 4 control(s) already verified on current runtime - OK", out)
+        self.assertIn("Gherkin mutation: OK", out)
 
 
 if __name__ == "__main__":

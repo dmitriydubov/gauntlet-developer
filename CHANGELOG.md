@@ -3,6 +3,64 @@
 История ревизий метода Gauntlet и бандла эталонного набора. Документы в репозитории версионируются вместе:
 ревизия инструкции `gauntlet-method-universal.md` и ревизия бандла `gauntlet-kit-bundle.md` совпадают.
 
+## Ревизия 4.7.2 — 2026-11-26
+
+Пофайловый кэш верифицированных `.feature`-файлов в `gherkinMutation` без ослабления проверок, зеркало Maven Central в
+Google Cloud Storage для холодных раннеров GitHub Actions, явная диагностика перезапуска тестового воркера на нескольких
+потоках `*.ndjson` и закрепление операционных практик по итогам живых прогонов шагов серии в пяти агентных средах.
+
+### Что было до правок (база, ревизия 4.7.1)
+
+- Отпечаток `build/gherkin-mutation/verified.sha256` был монолитным на весь модуль и записывался только при `exit 0`.
+  Если в области из 18 `.feature` 17 файлов проходили полностью (`0 survived`, `0 error`, `100 %` контролей), а в одной
+  фиче выживал единственный мутант, после правки этой одной `.feature` без изменения байткода и ресурсов повторный прогон
+  заново генерировал и запускал мутантов по всем 18 фичам (~1,5 ч вместо ~1 мин).
+- На холодных раннерах GitHub Actions прямые обращения Gradle к `repo.maven.apache.org` периодически падали на первых
+  секундах сборки с `HTTP 429 Too Many Requests`.
+- При падении или перезапуске JVM воркера посреди `gherkinMutantsRun` (например, `OutOfMemoryError`) появление нескольких
+  файлов `jvm-*.ndjson` сопровождалось только построчными ошибками `did not run in the same test JVM` без верхней сводной
+  строки о перезапуске воркера и проверке `gherkin.maxHeapSize`.
+- В облачных сессиях длинный финальный прогон `./gradlew gauntlet --continue` без предварительного `git push` после
+  шагов 5 и 7 грозил потерей локальных коммитов реализации при истечении времени жизни контейнера.
+
+### Что изменилось
+
+- **Пофайловый кэш верифицированных фич (`gauntlet/tools/GherkinMutator.java`, `gauntlet/gauntlet.gradle`):** добавлен
+  параметр `--verified-cache` (`build/gherkin-mutation/verified-features/<envStamp>.tsv`, где `envStamp` — SHA-256 по
+  `GherkinMutator.java`, всем элементам `acceptanceTest.runtimeClasspath` кроме `.feature`, `gauntlet/config/`, скриптам
+  сборки, версии/куче JVM и флагам окружения). При чистом порядке прогона (`order.isEmpty()`) `verdict` записывает в кэш
+  каждую фичу текущего прогона, у которой `0` выживших мутантов, `0` ошибок и `100 %` зелёных контролей, даже если другая
+  фича упала. На следующем запуске при том же `envStamp` уже подтверждённые фичи с неизменным SHA-256 пропускаются (при
+  частичном совпадении мутируются только оставшиеся, при полном пишется `all-cached.tsv` и `gherkinMutantsRun` штатно
+  пропускается; `--rerun-tasks` очищает кэш). Замыкание фильтрации классов в `jacocoTestReport` вынесено в класс
+  `ExcludeJacocoGlobs implements Action<ConfigurableFileTree>` для чистоты configuration cache.
+- **Явный диагноз перезапуска воркера (`gauntlet/tools/GherkinMutator.java`):** в `runOrder` при наличии ошибок порядка
+  на нескольких потоках `*.ndjson` первой строкой добавляется `worker JVM restarted or split scenarios across N Cucumber
+  message streams (...) - check OutOfMemoryError / gherkin.maxHeapSize in gauntlet.properties, forkEvery, or
+  maxParallelForks` (штатный полный повтор всех сценариев и контролей в отдельном JVM по-прежнему проходит).
+- **Зеркало Maven Central в CI (`.github/workflows/gauntlet.yml`):** шаг `Configure Maven Central GCS mirror` создаёт
+  `${GRADLE_USER_HOME:-$HOME/.gradle}/init.d/gauntlet-maven-central-mirror.init.gradle`, переписывающий URL репозиториев
+  `repo.maven.apache.org/maven2` и `repo1.maven.org/maven2` на `https://maven-central.storage-download.googleapis.com/maven2/`
+  без затрагивания Gradle Plugin Portal и корпоративных реестров.
+- **Практики процесса и среды (`gauntlet/CLAUDE.md`, `gauntlet/INSTALL.md`, `gauntlet/README.md`, `gauntlet/subagents.md`):**
+  промежуточный `git push origin HEAD` после зелёного `gauntletFast` на шаге 5 и после `APPROVED` на шаге 7 до старта
+  финального `gauntlet`; паттерн пустого тела `record {}` со статическими фабриками в companion-классе против `RUN_ERROR`
+  PIT на Java 21; автонастройка macOS + Lima rootless Docker (`DOCKER_HOST`, `TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE`);
+  условные `@Before`/`@After` приёмочного стенда и дренирование очередей `basicGet` вместо `queue.purge`; формулировка
+  шапки отчёта сабагента `модель задана средой (не интроспектируется), уровень задан средой` для IDE без интроспекции.
+
+### Размеры изменившихся файлов манифеста бандла (байты, 4.7.1 → 4.7.2)
+
+| Путь в бандле | 4.7.1 | 4.7.2 |
+|---|---|---|
+| `.github/workflows/gauntlet.yml` | 8518 | 10322 |
+| `gauntlet/CLAUDE.md` | 77309 | 79188 |
+| `gauntlet/INSTALL.md` | 23435 | 24524 |
+| `gauntlet/README.md` | 157129 | 157671 |
+| `gauntlet/gauntlet.gradle` | 100995 | 102903 |
+| `gauntlet/subagents.md` | 69444 | 69716 |
+| `gauntlet/tools/GherkinMutator.java` | 193699 | 201724 |
+
 ## Ревизия 4.7.1 — 2026-11-26
 
 Точечное исправление разбора шагов-хуков (`HookTestStep`) в `GherkinMutator.GlueImpact.testCaseImpacted`, обнаруженное на

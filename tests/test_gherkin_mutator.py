@@ -1778,12 +1778,12 @@ class GlueImpactScope(Sandbox):
         for idx, (rel_feature, step_ids, hook_ids, used_params) in enumerate(feature_cases):
             uri = pathlib.Path(self.path(rel_feature)).resolve().as_uri()
             lines.append({"pickle": {"id": f"p{idx}", "uri": uri, "name": f"sc{idx}", "steps": [], "astNodeIds": ["s1"]}})
-            test_steps = [{"id": f"h-{idx}-{h}", "hookId": h} for h in hook_ids]
+            test_steps = [{"id": f"h-{idx}-{h}", "hookId": h,
+                           "stepDefinitionIds": [], "stepMatchArgumentsLists": []} for h in hook_ids]
             arg_lists = [{"stepMatchArguments": [{"parameterTypeName": p, "group": {}} for p in used_params]}] if used_params else []
             for s in step_ids:
-                ts = {"id": f"ts-{idx}-{s}", "pickleStepId": "ps1", "stepDefinitionIds": [s]}
-                if arg_lists:
-                    ts["stepMatchArgumentsLists"] = arg_lists
+                ts = {"id": f"ts-{idx}-{s}", "pickleStepId": "ps1", "stepDefinitionIds": [s],
+                      "stepMatchArgumentsLists": arg_lists}
                 test_steps.append(ts)
             lines.append({"testCase": {"id": f"tc{idx}", "pickleId": f"p{idx}", "testSteps": test_steps}})
         write(stream_path, "".join(json.dumps(e) + "\n" for e in lines))
@@ -1860,6 +1860,28 @@ class GlueImpactScope(Sandbox):
         self.assertEqual(0, code, out)
         self.assertIn("glue impact narrowed scope to 1 of 3 feature file(s)", out)
         self.assertEqual(["features/f_c.feature"], self.mutated_features())
+        # A changed tagged @Before hook impacts only the feature whose scenarios execute that hook
+        base_tagged = {
+            **base,
+            "p/TaggedHooks.java": "package p;\nimport io.cucumber.java.Before;\n"
+                                  "public class TaggedHooks { @Before(\"@b\") public void onlyB() { int x = 1; } }\n",
+        }
+        head_tagged = {
+            **base_tagged,
+            "p/TaggedHooks.java": "package p;\nimport io.cucumber.java.Before;\n"
+                                  "public class TaggedHooks { @Before(\"@b\") public void onlyB() { int x = 2; } }\n",
+        }
+        hooks_tagged = hooks + [("hOnlyB", "p.TaggedHooks", "onlyB", [])]
+        cases_tagged = [
+            ("features/f_a.feature", ["sdA", "sdR"], ["hReset"], ["int"]),
+            ("features/f_b.feature", ["sdB", "sdR"], ["hReset", "hOnlyB"], ["int"]),
+            ("features/f_c.feature", ["sdA", "sdR"], ["hReset"], ["int"]),
+        ]
+        code2, out2 = self.run_impact(base_tagged, head_tagged, [], step_defs[:2] + [step_defs[3]],
+                                      hooks_tagged, [], cases_tagged)
+        self.assertEqual(0, code2, out2)
+        self.assertIn("glue impact narrowed scope to 1 of 3 feature file(s)", out2)
+        self.assertEqual(["features/f_b.feature"], self.mutated_features())
 
     def test_transitive_helper_and_polymorphic_override_include_impacted_features_only(self):
         base = {

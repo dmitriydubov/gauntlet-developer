@@ -3,6 +3,38 @@
 История ревизий метода Gauntlet и бандла эталонного набора. Документы в репозитории версионируются вместе:
 ревизия инструкции `gauntlet-method-universal.md` и ревизия бандла `gauntlet-kit-bundle.md` совпадают.
 
+## Ревизия 4.7.1 — 2026-11-26
+
+Точечное исправление разбора шагов-хуков (`HookTestStep`) в `GherkinMutator.GlueImpact.testCaseImpacted`, обнаруженное на
+живом прогоне `contract-service` (`521` сценарий, `47` фич, Cucumber-JVM 8.0.1).
+
+### Что было до правок (база, ревизия 4.7)
+
+- В `io.cucumber.core.runner.TestCase.createTestStep` (Cucumber 7.23 и 8.0) каждый сценарный хук (`@Before`, `@After`,
+  `@BeforeStep`, `@AfterStep`) записывается в NDJSON как `{"hookId": "<uuid>", "id": "<uuid>", "stepDefinitionIds": [],
+  "stepMatchArgumentsLists": []}`. В `GherkinMutator.GlueImpact.testCaseImpacted` при неизменённом хуке условие
+  `if (ts.get("hookId") instanceof String hookId && changedHookIds.contains(hookId))` не завершало итерацию `continue`,
+  после чего исполнение попадало в проверку не-хукового шага `if (sdIds.size() != 1) return true;` (`0 != 1`) и включало в
+  область мутаций каждую фичу, у сценариев которой есть хотя бы один `@Before` или `@After` (`47 of 47` вместо `1 of 47`).
+
+### Что изменилось
+
+- **`gauntlet/tools/GherkinMutator.java` (`GlueImpact.testCaseImpacted`):** для любого элемента `testCase.testSteps` с
+  непустым `hookId` проверяется, известен ли хук потоку (`knownHookIds`) и изменился ли его байткод (`changedHookIds`);
+  если хук известен и не менялся, выполняется `continue` к следующему шагу сценария без провала в проверку
+  `stepDefinitionIds`. Для не-хуковых шагов (`PickleStepTestStep`) консервативное требование `stepDefinitionIds.size() == 1`
+  сохранено полностью.
+- **Регрессионные тесты (`tests/test_gherkin_mutator.py`, `tests/test_gradle_e2e.py`):** в `GlueImpactScope` все шаги-хуки
+  теперь записываются с `"stepDefinitionIds": [], "stepMatchArgumentsLists": []` (как в байткоде `TestCase.createTestStep`),
+  добавлена проверка точечного включения фичи при изменении тегированного `@Before("@b")`, а сквозной E2E-тест на реальном
+  Gradle + Cucumber дополнен неизменёнными `@Before` и `@After` хуками на базовой ветке.
+
+### Размеры изменившихся файлов манифеста бандла (байты, 4.7 → 4.7.1)
+
+| Путь в бандле | 4.7 | 4.7.1 |
+|---|---|---|
+| `gauntlet/tools/GherkinMutator.java` | 193578 | 193699 |
+
 ## Ревизия 4.7 — 2026-11-25
 
 Точное сужение области `gherkinMutation` по транзитивному байткоду методов и полей приёмочного glue против потока

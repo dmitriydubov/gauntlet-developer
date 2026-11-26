@@ -931,6 +931,16 @@ class GherkinScope(GradleCase):
 
     def test_added_step_in_shared_glue_mutates_only_impacted_feature_and_skips_repeat_mutant_run(self):
         self.project()
+        self.git("checkout", "-q", "main")
+        self.file(
+            GLUE + "StandHooks.java",
+            "package com.example.service.acceptance;\n\nimport io.cucumber.java.After;\nimport io.cucumber.java.Before;\n\n"
+            "public class StandHooks {\n    @Before\n    public void beforeScenario() {}\n\n"
+            "    @After\n    public void afterScenario() {}\n}\n",
+        )
+        self.commit("unchanged scenario hooks on main")
+        self.git("push", "-q", "origin", "main")
+        self.git("checkout", "-q", "-B", "feature", "main")
         # Add a new step + static field to DiscountSteps (used by example_discount.feature) and a new vip.feature
         vip_steps = DISCOUNT_STEPS.replace(
             "public class DiscountSteps {\n",

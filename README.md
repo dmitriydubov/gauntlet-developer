@@ -15,13 +15,13 @@
 | [`gauntlet-method-universal.md`](gauntlet-method-universal.md) | Универсальная инструкция и протокол развёртывания для любого стека (Java, Python, JS/TS и Node, другие). Метод, правила, роли, протоколы `start` / `scan` / `coordinate` / `contract`. Рассчитана на двух читателей: человека (разделы 1–7) и агента (раздел 8). |
 | [`gauntlet-kit-bundle.md`](gauntlet-kit-bundle.md) | Бандл эталонного набора: файлы `gauntlet/`, `.claude/`, `CLAUDE.md` и CI-workflow эталона (Java 21, Gradle, Spring Boot 4), очищенные от имён и предметной области эталонного проекта, как текст между маркерами `===== BEGIN FILE … =====` со скриптом распаковки в заголовке. Нужен только для протокола `start`. |
 | [`CHANGELOG.md`](CHANGELOG.md) | История ревизий: что изменилось и что было до правок. |
-| [`docs/decisions.md`](docs/decisions.md) | Обоснование правок ревизий 4.2–4.7.1: почему каждая мера и каждый фикс сделаны именно так. |
+| [`docs/decisions.md`](docs/decisions.md) | Обоснование правок ревизий 4.2–4.7.2: почему каждая мера и каждый фикс сделаны именно так. |
 | [`docs/review-audit.md`](docs/review-audit.md) | Аудит ревью ревизии 4.3: 131 замечание ревьюеров воспроизведено на своём коммите и на голове PR — что подтвердилось, что завышено, что исполнители закрыли не полностью; что нашло независимое ревью правок этой ветки |
 | [`docs/drafts/round23/`](docs/drafts/round23/README.md) | Черновики раунда 23: прототип ядра сабагентов, адаптеры пяти вендоров (Codex, Antigravity, Grok Build, Kimi Code, Qwen Code) и пакет теневого пилота. Справочник; в бандл не входят и тестами не запускаются. |
 | [`.github/workflows/kit-tests.yml`](.github/workflows/kit-tests.yml) | CI этого репозитория: регрессионный набор `tests/` с `--gradle` на каждый pull request и push в `main` |
 | [`tests/`](tests/README.md) | Регрессионный набор самого дистрибутива: `python3 tests/run.py` распаковывает бандл скриптом из его шапки и проверяет манифест, побайтную пересборку, хуки, single-file инструменты, установщик, shell-шаги CI и механическую сверку отчётов сабагентов. В бандл не входит. |
 
-Текущая ревизия обоих документов — **4.7.1 (2026-11-26)**. Эталонный набор в бандле — Java-референс; при
+Текущая ревизия обоих документов — **4.7.2 (2026-11-26)**. Эталонный набор в бандле — Java-референс; при
 `start` агент переписывает всё стек-зависимое под целевой проект, сохраняя смысл ролей, права и формат итога.
 
 ## Как это работает
@@ -63,6 +63,13 @@
 
 ## Ревизии
 
+- **4.7.2 (2026-11-26)** — пофайловый кэш верифицированных фич в `gherkinMutation`
+  (`build/gherkin-mutation/verified-features/<envStamp>.tsv` в `GherkinMutator --verified-cache` и `gauntlet.gradle`,
+  исключающий повторный прогон уже подтверждённых `.feature` при правке соседней `.feature` на том же рантайме), явная
+  диагностика перезапуска воркера на нескольких потоках `*.ndjson`, `ExcludeJacocoGlobs` для configuration cache, зеркало
+  Maven Central в GCS в `.github/workflows/gauntlet.yml` против `HTTP 429`, промежуточный `git push` после шагов 5 и 7 до
+  финального `gauntlet`, паттерн пустого `record {}` + companion-класс против `RUN_ERROR` PIT на Java 21, самонастройка
+  macOS + Lima rootless Docker и быстрые условные `@Before`/`@After` с `basicGet` вместо `queue.purge`.
 - **4.7.1 (2026-11-26)** — точечное исправление `GherkinMutator.GlueImpact.testCaseImpacted`: в потоке сообщений
   Cucumber (`io.cucumber.core.runner.TestCase.createTestStep`) каждый шаг-хук (`@Before`/`@After`/`@BeforeStep`/
   `@AfterStep`) сериализуется одновременно с `hookId` и пустым массивом `"stepDefinitionIds": []`; при неизменённом

@@ -973,9 +973,33 @@ class GherkinScope(GradleCase):
         self.assertIn("gauntlet: :gherkinMutantsRun skipped by the kit - inputs unchanged since green gherkinMutation", r2.out)
         self.assertIn("Gherkin mutation: OK", r2.out)
         self.assertEqual(kit.stop_gate().not_run("gauntlet", r2.out), [])
-        # 3. Non-gauntlet tasks (e.g. dependencies) stay configuration-cache compatible
+        # 3. Non-gauntlet tasks (dependencies, compileJava) stay configuration-cache compatible
         deps = self.gradle("dependencies", "--configuration", "testRuntimeClasspath", "--configuration-cache")
         self.assert_build(deps, True)
+        comp = self.gradle("compileJava", "--configuration-cache")
+        self.assert_build(comp, True)
+        # 4. Per-feature verified cache: adding a second feature with a shared-placeholder survivor keeps vip.feature
+        # cached; fixing the second feature mutates ONLY the second feature (not vip.feature again)
+        self.file(
+            FEATURES + "second.feature",
+            "# language: ru\nФункция: Повтор VIP\n\n  Структура сценария: Эхо суммы\n"
+            "    Дано VIP-клиент с базовой скидкой <база> руб.\n"
+            "    Когда клиент оформляет заказ на сумму <сумма> руб.\n"
+            "    Тогда итог заказа составляет <итог> руб.\n\n"
+            "    Примеры:\n      | база | сумма | итог |\n      | 50   | 500   | 400  |\n",
+        )
+        # Introduce a second feature that initially has a survivor by sharing <общ> for discount=0? Even simpler:
+        # vip.feature is ALREADY in verified-features/<envStamp>.tsv from r1! Running gherkinMutation now must skip
+        # vip.feature via verified cache and mutate ONLY second.feature (3 mutants + 2 controls instead of 6 + 4)!
+        r3 = self.gradle("gherkinMutation")
+        self.assert_build(r3, True)
+        self.assertIn("verified cache matched 1 of 2 feature file(s) in scope (3 mutant(s) + 2 control(s) already verified on current runtime) - mutating 1 remaining", r3.out)
+        self.assertIn("Gherkin mutation: 3 mutant(s) - 3 killed, 0 survived, 0 error(s); 2 control(s) - 2 passed", r3.out)
+        # 5. --rerun-tasks clears verified cache and mutates both features in scope (6 mutants + 4 controls)
+        r4 = self.gradle("gherkinMutation", "--rerun-tasks")
+        self.assert_build(r4, True)
+        self.assertNotIn("verified cache matched", r4.out)
+        self.assertIn("Gherkin mutation: 6 mutant(s) - 6 killed, 0 survived, 0 error(s); 4 control(s) - 4 passed", r4.out)
 
 
 class PathLists(GradleCase):

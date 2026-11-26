@@ -1,4 +1,4 @@
-# Бандл эталонного набора gauntlet (ревизия 4.7.1 от 2026-11-26)
+# Бандл эталонного набора gauntlet (ревизия 4.7.2 от 2026-11-26)
 
 Этот файл — самодостаточный источник эталона для протокола `start` из инструкции «Метод Gauntlet». Он
 содержит файлы набора после очистки от имён и примеров эталонного проекта (раздел 8.4 инструкции; ревизия 4 снята с ветки эталона, в которой смержены все правки набора по 2026-10-05): хуки
@@ -741,6 +741,34 @@ Claude Code, роли, настройки, `CLAUDE.md`, CI-workflow, конфи�
   заметка о `rabbit_classic_queue_index_v2:new_segment_file/3` `{error,enametoolong}` в `rabbitmq:4.1.2-alpine` при
   многотысячных `queue.purge`. Синхронизировано с универсальной инструкцией ревизии 4.7.
 
+**Изменения против ревизии 4.7 (ревизия 4.7.1, 2026-11-26) — учёт шагов-хуков в `GherkinMutator.GlueImpact`.**
+- `tools/GherkinMutator.java` (`GlueImpact.testCaseImpacted`): в потоке сообщений Cucumber каждый сценарный хук
+  (`@Before`/`@After`/`@BeforeStep`/`@AfterStep`) записывается с непустым `hookId` и пустым `"stepDefinitionIds": []`;
+  неизменённый известный `hookId` теперь завершает проверку шага через `continue`, не проваливаясь в ветку не-хукового
+  шага `sdIds.size() != 1`. Синхронизировано с универсальной инструкцией ревизии 4.7.1.
+
+**Изменения против ревизии 4.7.1 (ревизия 4.7.2, 2026-11-26) — пофайловый кэш верифицированных фич в `gherkinMutation`, зеркало Maven Central в CI и операционная устойчивость.**
+- `tools/GherkinMutator.java` (`--verified-cache`) и `gauntlet/gauntlet.gradle`: пофайловый кэш
+  `build/gherkin-mutation/verified-features/<envStamp>.tsv` сохраняет SHA-256 и счётчики мутантов/контролей каждой
+  `.feature`, полностью прошедшей `verdict` без выживших мутантов, ошибок и нарушений порядка прогона при текущем
+  отпечатке рантайма (весь `acceptanceTest.runtimeClasspath` без `.feature`, конфиги, скрипты сборки, флаги JVM и сам
+  `GherkinMutator.java`), даже если соседняя `.feature` в том же прогоне упала. Повторный запуск после правки только
+  `.feature` мутирует и исполняет лишь изменённые или ещё не подтверждённые фичи, а при 100 %-ном совпадении пропускает
+  `gherkinMutantsRun` (`all-cached.tsv`; `--rerun-tasks` сбрасывает кэш). Замыкание `jacocoTestReport` вынесено в
+  `ExcludeJacocoGlobs implements Action<ConfigurableFileTree>` для чистоты configuration cache.
+- `tools/GherkinMutator.java` (`runOrder`): при падении порядка прогона на нескольких потоках `*.ndjson` первой строкой
+  выводится явный диагноз перезапуска воркера или разбиения сценариев между JVM (`check OutOfMemoryError /
+  gherkin.maxHeapSize, forkEvery, or maxParallelForks`).
+- `.github/workflows/gauntlet.yml`: шаг `Configure Maven Central GCS mirror` прописывает пользовательский init-скрипт
+  Gradle, перенаправляющий `repo.maven.apache.org/maven2` и `repo1.maven.org/maven2` в официальное зеркало Google Cloud
+  Storage (`https://maven-central.storage-download.googleapis.com/maven2/`), устраняя сбои `HTTP 429 Too Many Requests`
+  на холодных раннерах GitHub Actions без изменения скриптов сборки проекта.
+- `gauntlet/CLAUDE.md`, `gauntlet/INSTALL.md`, `gauntlet/README.md`, `gauntlet/subagents.md`: промежуточный `git push`
+  рабочей ветки после шагов 5 и 7 до запуска длинного финального `gauntlet`, паттерн пустого тела `record {}` со
+  статическими фабриками в companion-классе против `RUN_ERROR` PIT на Java 21, самонастройка macOS + Lima rootless
+  Docker, быстрые условные `@Before`/`@After` и дренирование очередей `basicGet` вместо `queue.purge`, а также формулировка
+  шапки отчёта сабагента в IDE без интроспекции модели. Синхронизировано с универсальной инструкцией ревизии 4.7.2.
+
 ## Как распаковать (Claude выполняет это на шаге 2 протокола `start`)
 
 Каждый файл лежит между строками `===== BEGIN FILE <путь> =====` и `===== END FILE <путь> =====`.
@@ -773,11 +801,11 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md`, `
 - `.claude/agents/specifier.md` (5738 байт)
 - `.claude/settings.json` (2543 байт)
 - `.github/workflows/gauntlet-kit.yml` (10693 байт)
-- `.github/workflows/gauntlet.yml` (8518 байт)
+- `.github/workflows/gauntlet.yml` (10322 байт)
 - `CLAUDE.md` (279 байт)
-- `gauntlet/CLAUDE.md` (77309 байт)
-- `gauntlet/INSTALL.md` (23435 байт)
-- `gauntlet/README.md` (157129 байт)
+- `gauntlet/CLAUDE.md` (79188 байт)
+- `gauntlet/INSTALL.md` (24524 байт)
+- `gauntlet/README.md` (157671 байт)
 - `gauntlet/archtest/gauntlet/architecture/ArchitectureTest.java` (7999 байт)
 - `gauntlet/config/architecture.properties` (1420 байт)
 - `gauntlet/config/checkstyle.xml` (4593 байт)
@@ -786,19 +814,19 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md`, `
 - `gauntlet/config/integrity-allowlist.txt` (872 байт)
 - `gauntlet/config/pit-runerror-allowlist.txt` (1485 байт)
 - `gauntlet/config/pmd-ruleset.xml` (11398 байт)
-- `gauntlet/gauntlet.gradle` (100995 байт)
+- `gauntlet/gauntlet.gradle` (102903 байт)
 - `gauntlet/hooks/docker_pause_shim.py` (6023 байт)
 - `gauntlet/hooks/guard.py` (141909 байт)
 - `gauntlet/hooks/selftest.py` (182551 байт)
 - `gauntlet/hooks/session_start.sh` (4767 байт)
 - `gauntlet/hooks/stop_gate.py` (29668 байт)
 - `gauntlet/install.sh` (17035 байт)
-- `gauntlet/subagents.md` (69444 байт)
+- `gauntlet/subagents.md` (69716 байт)
 - `gauntlet/templates/acceptanceTest/java/com/example/service/acceptance/CucumberSpringConfiguration.java` (615 байт)
 - `gauntlet/templates/acceptanceTest/resources/features/example_discount.feature` (1258 байт)
 - `gauntlet/tools/CrapGate.java` (33988 байт)
 - `gauntlet/tools/DryGate.java` (8887 байт)
-- `gauntlet/tools/GherkinMutator.java` (193699 байт)
+- `gauntlet/tools/GherkinMutator.java` (201724 байт)
 - `gauntlet/tools/IntegrityCheck.java` (77690 байт)
 - `gauntlet/tools/PitSummary.java` (12720 байт)
 - `gauntlet/tools/TestCensus.java` (37511 байт)
@@ -1530,6 +1558,40 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
+      # Shared GitHub Actions runner egress IPs periodically hit HTTP 429 Too Many Requests on repo.maven.apache.org.
+      # Rewrite Maven Central repository URLs to Google's official Maven Central GCS mirror via a user init script,
+      # leaving corporate registry settings, Gradle Plugin Portal, and custom repositories untouched.
+      - name: Configure Maven Central GCS mirror
+        run: |
+          init_dir="${GRADLE_USER_HOME:-$HOME/.gradle}/init.d"
+          mkdir -p "$init_dir"
+          cat > "$init_dir/gauntlet-maven-central-mirror.init.gradle" <<'EOF'
+          def gcsMirror = URI.create('https://maven-central.storage-download.googleapis.com/maven2/')
+          def isCentral = { ArtifactRepository repo ->
+              repo instanceof MavenArtifactRepository &&
+                      repo.url.toString().replaceAll('/+$', '') in [
+                              'https://repo.maven.apache.org/maven2',
+                              'https://repo1.maven.org/maven2'
+                      ]
+          }
+          gradle.beforeSettings { Settings settings ->
+              settings.pluginManagement.repositories.all { ArtifactRepository repo ->
+                  if (isCentral(repo)) { repo.url = gcsMirror }
+              }
+              settings.dependencyResolutionManagement.repositories.all { ArtifactRepository repo ->
+                  if (isCentral(repo)) { repo.url = gcsMirror }
+              }
+          }
+          gradle.allprojects { Project p ->
+              p.buildscript.repositories.all { ArtifactRepository repo ->
+                  if (isCentral(repo)) { repo.url = gcsMirror }
+              }
+              p.repositories.all { ArtifactRepository repo ->
+                  if (isCentral(repo)) { repo.url = gcsMirror }
+              }
+          }
+          EOF
+
       - name: Resolve the base branch
         id: base
         env:
@@ -1626,8 +1688,8 @@ jobs:
 | Команда | Что проверяет |
 |---|---|
 | `./gradlew gauntletFast` | integrity (нет отключённых тестов и подавлений) → Checkstyle (размер, структура, CC ≤ 3) → PMD (антипаттерны) → unit-тесты → архитектура (ArchUnit) → перепись тестов (каждый тестовый класс, который скомпилировали `test` и `archTest`, запущен) → приёмка (Cucumber, ни одного skipped) → CRAP ≤ 8 → дубли |
-| `./gradlew mutationGate` | PIT по изменённым классам: каждый покрытый мутант убит (test strength 100 %), покрытие строк мутируемых классов ≥ 80 %; мутант RUN_ERROR (JVM тестов упала на `redefineClasses`, обычно на record; PIT считает его обнаруженным) убитым не засчитывается — только по строке `gauntlet/config/pit-runerror-allowlist.txt`, которую человек добавил, прочитав тесты |
-| `./gradlew gherkinMutation` | каждое значение из Examples мутируется по очереди; сценарий обязан упасть в шаге (выжил — step игнорирует значение). Контроли — та же строка без изменений до мутантов (`cN`) и после них (`zN`) — обязаны пройти: красный контроль (`MUTANT ERROR cN/zN control …`) значит, что сценарий не исполняется сам по себе (зависит от соседнего сценария, от фикстуры, от своего имени; `zN` — строку нельзя повторить на одном стенде) — чини независимость сценария (`@Before`, сбрасывающий состояние), а не step-определения; если нужна правка самой фичи — это вопрос к человеку |
+| `./gradlew mutationGate` | PIT по изменённым классам: каждый покрытый мутант убит (test strength 100 %), покрытие строк мутируемых классов ≥ 80 %; мутант RUN_ERROR (JVM тестов упала на `redefineClasses`, обычно на record с пользовательскими методами; PIT считает его обнаруженным) убитым не засчитывается — только по строке `gauntlet/config/pit-runerror-allowlist.txt`, которую человек добавил, прочитав тесты |
+| `./gradlew gherkinMutation` | каждое значение из Examples мутируется по очереди; сценарий обязан упасть в шаге (выжил — step игнорирует значение). Контроли — та же строка без изменений до мутантов (`cN`) и после них (`zN`) — обязаны пройти: красный контроль (`MUTANT ERROR cN/zN control …`) значит, что сценарий не исполняется сам по себе (зависит от соседнего сценария, от фикстуры, от своего имени; `zN` — строку нельзя повторить на одном стенде) — чини независимость сценария (`@Before`, сбрасывающий состояние), а не step-определения; если нужна правка самой фичи — это вопрос к человеку. Фичи, все мутанты и контроли которых уже прошли при текущем отпечатке рантайма, запоминаются в `build/gherkin-mutation/verified-features/<envStamp>.tsv` и не гоняются повторно при правке соседней `.feature` |
 | `./gradlew gauntlet` | всё вместе |
 
 Область проверки — diff относительно базовой ветки плюс незакоммиченные файлы (`baseRef` в
@@ -1642,7 +1704,7 @@ Gradle-сборки живут в этих каталогах: `./gradlew …` �
 **Среда и обязательная самонастройка в начале сессии.**
 - Тесты с базой и брокером (интеграционные и приёмка) поднимают контейнеры через Testcontainers. Без Docker они **падают, а не пропускаются** — так задумано. В облачной
   VM демон поднимает SessionStart-хук (`dockerd` напрямую: `service docker start` там падает на ulimit),
-  строка статуса показывает `docker: up`. Перед первым запуском сборки или тестов проверь `docker info`: если команды `docker` нет или демон не отвечает, **проведи настройку сам без остановки на вопрос человеку** — проверь доступные рантаймы (системный `dockerd`, Docker Desktop, Colima, rootless Docker); если в Linux-среде `docker` не установлен и есть права установки пакетов (`apt-get` от `root` или `sudo -n apt-get`), установи `docker.io` (`DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y docker.io`); подними демон (`nohup dockerd --host=unix:///var/run/docker.sock > /tmp/dockerd.log 2>&1 &`, при ненулевом UID — через `sudo -n` с правом группы `660` на `/var/run/docker.sock`) и дождись `docker info`. Если `docker info --format '{{.CgroupDriver}}'` печатает `none` (или `docker pause` отвечает `freezer not supported` в контейнерной среде без cgroup freezer), подними штатный сокет-прокси набора `nohup python3 -I -B gauntlet/hooks/docker_pause_shim.py /tmp/docker-pause-shim.sock >/tmp/docker-pause-shim.log 2>&1 &`, перезапусти демон Gradle (`./gradlew --stop`) и запускай прогоны с `DOCKER_HOST=unix:///tmp/docker-pause-shim.sock` без изменения файлов репозитория. Если в облачной 2-vCPU VM контейнер `rabbitmq:*-alpine` падает на старте с `OS monotonic time stepped backwards!`, собери локальный двухстрочный образ-переопределение с `ENV ERL_AFLAGS="+c false"` под тем же тегом без правки файлов репозитория (в `rabbitmq:4.1.2-alpine` при многотысячной серии `queue.purge` на одной классической очереди возможен внутренний сбой `rabbit_classic_queue_index_v2:new_segment_file/3` `{error,enametoolong}` из-за накопления `/` в пути сегмента — это дефект брокера на длинном полном прогоне, а не кода сервиса). Красный Stop-хук из-за «Could not find a valid Docker environment» — это окружение, а не код.
+  строка статуса показывает `docker: up`. Перед первым запуском сборки или тестов проверь `docker info`: если команды `docker` нет или демон не отвечает, **проведи настройку сам без остановки на вопрос человеку** — проверь доступные рантаймы (системный `dockerd`, Docker Desktop, Colima, Lima, rootless Docker); на macOS с Lima rootless задай `DOCKER_HOST=$(limactl list <vm> --format 'unix://{{.Dir}}/sock/docker.sock')` и `TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/run/user/<uid>/docker.sock` (где `<uid>` — UID внутри Lima VM из `limactl shell <vm> id -u`, без `sudo` на хосте; при переиспользовании внешнего контейнера PostgreSQL убедись, что его `max_connections` покрывает пулы параллельных прогонов); если в Linux-среде `docker` не установлен и есть права установки пакетов (`apt-get` от `root` или `sudo -n apt-get`), установи `docker.io` (`DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y docker.io`); подними демон (`nohup dockerd --host=unix:///var/run/docker.sock > /tmp/dockerd.log 2>&1 &`, при ненулевом UID — через `sudo -n` с правом группы `660` на `/var/run/docker.sock`) и дождись `docker info`. Если `docker info --format '{{.CgroupDriver}}'` печатает `none` (или `docker pause` отвечает `freezer not supported` в контейнерной среде без cgroup freezer), подними штатный сокет-прокси набора `nohup python3 -I -B gauntlet/hooks/docker_pause_shim.py /tmp/docker-pause-shim.sock >/tmp/docker-pause-shim.log 2>&1 &`, перезапусти демон Gradle (`./gradlew --stop`) и запускай прогоны с `DOCKER_HOST=unix:///tmp/docker-pause-shim.sock` без изменения файлов репозитория. Если в облачной 2-vCPU VM контейнер `rabbitmq:*-alpine` падает на старте с `OS monotonic time stepped backwards!`, собери локальный двухстрочный образ-переопределение с `ENV ERL_AFLAGS="+c false"` под тем же тегом без правки файлов репозитория (в `rabbitmq:4.1.2-alpine` при многотысячной серии `queue.purge` на одной классической очереди возможен внутренний сбой `rabbit_classic_queue_index_v2:new_segment_file/3` `{error,enametoolong}` из-за накопления `/` в пути сегмента — в приёмочном стенде дренируй очереди циклом `basicGet` вместо `queue.purge`). Красный Stop-хук из-за «Could not find a valid Docker environment» — это окружение, а не код.
 - Проверь версии Java из `gauntlet/config/gauntlet.properties` (`project.java.version`, `gate.java.version`): если `java -version` или `JAVA_HOME` указывают не туда или не заданы, найди установленную JDK в стандартных каталогах (`/usr/lib/jvm`, `~/.jdks`, `~/.sdkman`, кэш Gradle toolchains, `/workspace`) либо при наличии прав пакета установи `openjdk-<версия>-jdk` и экспортируй `JAVA_HOME` и `GAUNTLET_GATE_JAVA_HOME`. Обращаться к человеку по поводу Docker или JDK допустимо **только** если проверены все доступные способы и среда физически не даёт ни прав установки, ни запуска демона (вывод команд приложи в «Не проверено»).
 - Maven Central через прокси иногда отвечает 429 (Too Many Requests) на пачку новых артефактов: повтори
   через 20–60 секунд, к коду это отношения не имеет.
@@ -1690,7 +1752,7 @@ Gradle-сборки живут в этих каталогах: `./gradlew …` �
    Если в `gauntlet.properties` стоит `spec.approval=pr`, не останавливайся: человек прочитает Gherkin в PR.
 4. **Заморозка и непрерывный переход к реализации.** Ответ человека с утверждением спецификации («да», в том числе вместе с ответами «1) … 2) …» по списку шага 3) — это прямая команда выполнить **весь оставшийся маршрут шагов 4–8 вплоть до открытого PR в этом же ходе без повторной остановки**. Закоммить только фичи отдельным коммитом `spec: <что описано>`, сразу запушь ветку (`git push -u origin HEAD` — с этого момента спецификация видна человеку на GitHub, а хук замораживает её для всех агентов) и **немедленно, не заканчивая ход, переходи к шагу 5**. Завершать ход после коммита `spec:` с сообщением «спецификация заморожена, жду команды продолжать» запрещено (Stop-хук запускает полный `gauntletFast` уже на закоммиченной спецификации и не выпускает ход на красной приёмке); остановиться после шага 4 допустимо только по основаниям раздела «Когда застрял», на находке типа «правило» (шаг 7) или по правилу «Лимит токенов». Если по ходу реализации спецификация окажется противоречивой или невыполнимой — остановись и опиши проблему; не подгоняй ни код, ни тесты, ни спецификацию.
 5. **Реализация (ты).** TDD маленькими шагами по правилам ниже; step-классы в `src/acceptanceTest/java`.
-   `./gradlew gauntletFast --continue` до зелёного.
+   `./gradlew gauntletFast --continue` до зелёного; затем закоммить реализацию и сделай промежуточный `git push origin HEAD` (чтобы готовый код не остался только на диске при обрыве облачной VM).
 6. **Закалка.** Сабагент `hardener` (название фичи и список изменённых классов): убивает выживших мутантов
    и пустые step-определения, правит только тестовый код. Его предложения по продакшен-коду применяй
    сам, затем снова `gauntletFast`. Если PIT нечего мутировать (правка только конфигурации), ручные мутанты
@@ -1714,7 +1776,8 @@ Gradle-сборки живут в этих каталогах: `./gradlew …` �
    его делегат), затем один проход реализации против всего правила. Исправь все blocker/major типа
    «дефект», повтори прогон, верни результат ревьюеру. **Не больше 2 раундов**; после второго
    CHANGES REQUESTED с непогашенными находками остановись и опиши остаток, а не начинай третий круг.
-   Рекомендация противоречит утверждённой спецификации — вопрос человеку.
+   Рекомендация противоречит утверждённой спецификации — вопрос человеку. После `APPROVED` закоммить правки
+   ревью (если были) и сделай промежуточный `git push origin HEAD` перед запуском длинного финального `gauntlet`.
 8. **Финал.** `./gradlew gauntlet --continue` зелёный → коммит → `git push` своей ветки → открой PR
    (`gh pr create`, в описании — отчёт ниже; если не получилось, скажи об этом: пользователь нажмёт
    Create PR сам). Тот же отчёт — в чат. **Никогда не мержи** и не проси мержить за тебя: merge — это
@@ -2014,7 +2077,10 @@ PDF читаются инструментом Read (страницами). До�
 - Мутант RUN_ERROR вне `pit-runerror-allowlist.txt` (`mutationGate: N RUN_ERROR mutant(s) …`) — прочитай тесты
   и назови ассерт, который упал бы ровно на этой мутации. Есть такой — **остановись** и предложи человеку строку
   `Class#method Mutator # тест`; нет — это слабый тест, напиши тест, который убил бы мутанта. Падение JVM не чинится
-  исключением класса из PIT и не обходится тегом `no-mutate`.
+  исключением класса из PIT и не обходится тегом `no-mutate`. Чтобы не попадать в сбой `redefineClasses` на Java 21 у
+  новых `record` (включая `@Embeddable record`), держи тело `record` пустым `{}` и выноси статические фабрики и
+  предикаты в соседний `final`-класс: чистый `record` без своих методов пропускается встроенным фильтром PIT, а
+  companion-класс штатно мутируется без `RUN_ERROR`.
 - Спецификация противоречит unit-тесту или коду — остановись и спроси; не правь ни одну сторону,
   чтобы «подружить» их.
 - Ревью или координатор нашёл поведение, которое спецификация не определяет (находка типа «правило»), —
@@ -2166,7 +2232,13 @@ PIT оставляет тесту прежние вердикты. Гейт от
   `acceptanceTestRuntimeOnly 'tools.jackson.core:jackson-databind'` или Jackson 2 —
   `com.fasterxml.jackson.core:jackson-databind` вместе с `com.fasterxml.jackson.datatype:jackson-datatype-jdk8`.
 - Если контексту нужны PostgreSQL, RabbitMQ и т. п. — добавь в этот класс Testcontainers так же, как в
-  существующих интеграционных тестах (`@ServiceConnection` / `@DynamicPropertySource`).
+  существующих интеграционных тестах (`@ServiceConnection` / `@DynamicPropertySource`). На полном прогоне
+  `gherkinMutation` сценарии выполняются тысячами подряд в одном JVM, поэтому держи `@Before`/`@After` быстрыми:
+  очищай только непустые таблицы (проверкой `EXISTS` перед `TRUNCATE`), восстановление отказов стенда (пауза контейнера,
+  сброс блокировки лидера, повторная подписка слушателей брокера) запускай в `@After` только если в сценарии реально
+  вызывался шаг инжекции отказа (снимая флаг отказа лишь после полной переподписки слушателей), а тестовые очереди
+  RabbitMQ дренируй циклом `basicGet` вместо `channel.queuePurge` (тысячи `queue.purge` на классической очереди
+  RabbitMQ 4.1 копят `/` в пути сегмента индекса до `{error,enametoolong}`).
 - Пример фичи `templates/.../example_discount.feature` **не копируй**: это только образец формата.
   Каталог `src/acceptanceTest/resources/features/` создай пустым (файл `.gitkeep`).
 
@@ -3100,10 +3172,13 @@ CI на GitHub. Оттуда — правки ревизии 3: RUN_ERROR в `mu
   компилирует базовую копию glue из `merge-base`, строит транзитивный граф байткода методов и полей против текущего glue
   и сужает область мутаций до изменённых фич плюс фич, чьи сценарии в потоке `acceptanceTest` вызывали изменённые шаги,
   хуки или `@ParameterType`; удаление файла glue, правка не-Java ресурсов приёмки, несобираемость базового glue против
-  нового `src/main` или изменение глобальной конфигурации контекста/хуков/трансформеров мутирует все фичи. После зелёного
-  `gherkinMutation` отпечаток входов (`build/gherkin-mutation/verified.sha256`) позволяет финальному `gauntlet` не гонять
-  повторно `gherkinMutantsRun`, если мутанты, classpath, скрипты сборки, конфиги и флаги не менялись (`gherkinMutants` и
-  `gherkinMutation` при этом исполняются всегда). Правку glue в отдельном модуле или в общем source set шагов область
+  нового `src/main` или изменение глобальной конфигурации контекста/хуков/трансформеров мутирует все фичи. Пофайловый кэш
+  `build/gherkin-mutation/verified-features/<envStamp>.tsv` запоминает каждую `.feature`, все мутанты и контроли которой
+  уже прошли при текущем отпечатке рантайма (весь runtime-classpath без `.feature`, конфиги, скрипты сборки, флаги JVM и
+  `GherkinMutator.java`), даже если соседняя фича в том же прогоне упала: повторный запуск после правки только `.feature`
+  гоняет лишь изменённые или ещё не подтверждённые фичи, а при полном совпадении входов вместе с `verified.sha256`
+  позволяет финальному `gauntlet` пропустить `gherkinMutantsRun` (`gherkinMutants` и `gherkinMutation` исполняются всегда;
+  `--rerun-tasks` сбрасывает кэш). Правку glue в отдельном модуле или в общем source set шагов область
   `changed` не видит: `gherkinMutation` проверит пустое множество.
 - Transformer (`@ParameterType` и т. п.) читается из базовой копии класса. В multi-release JAR, где аннотация есть
   только в версионной копии, отвергнутое значение засчитается как kill. Glue набора — каталог классов, и в
@@ -5003,6 +5078,19 @@ tasks.register('acceptanceCheck', Exec) {
 jacoco {
     toolVersion = setting('jacoco.version', '0.8.15')
 }
+class ExcludeJacocoGlobs implements Action<ConfigurableFileTree> {
+    private final List<String> patterns
+
+    ExcludeJacocoGlobs(List<String> patterns) {
+        this.patterns = patterns
+    }
+
+    @Override
+    void execute(ConfigurableFileTree tree) {
+        tree.exclude(patterns)
+    }
+}
+
 def jacocoExcludes = excludedClassGlobs.collectMany { ["**/${it}.class", "**/${it}\$*.class"] }
 tasks.named('jacocoTestReport', JacocoReport) {
     dependsOn 'test'
@@ -5011,7 +5099,7 @@ tasks.named('jacocoTestReport', JacocoReport) {
         html.required = true
     }
     classDirectories.setFrom(files(sourceSets.main.output.classesDirs.files.collect { dir ->
-        fileTree(dir) { exclude jacocoExcludes }
+        fileTree(dir, new ExcludeJacocoGlobs(jacocoExcludes))
     }))
 }
 
@@ -5196,22 +5284,26 @@ def mutantsDir = buildDirFile('gherkin-mutation/mutants')
 def mutantResults = buildDirFile('gherkin-mutation/results')
 def mutantMessages = buildDirFile('gherkin-mutation/messages')
 def verifiedMutantsStamp = buildDirFile('gherkin-mutation/verified.sha256')
+def verifiedFeaturesDir = buildDirFile('gherkin-mutation/verified-features')
 
-def updateDigestWithTree = { java.security.MessageDigest md, File root ->
+def updateDigestWithTree = { java.security.MessageDigest md, File root, boolean excludeFeatures = false ->
     if (!root.exists()) {
         md.update("MISSING\n".getBytes('UTF-8'))
         return
     }
     if (root.isFile()) {
-        md.update("FILE:${root.name}:".getBytes('UTF-8'))
-        md.update(root.bytes)
-        md.update("\n".getBytes('UTF-8'))
+        if (!excludeFeatures || !root.name.endsWith('.feature')) {
+            md.update("FILE:${root.name}:".getBytes('UTF-8'))
+            md.update(root.bytes)
+            md.update("\n".getBytes('UTF-8'))
+        }
         return
     }
     def rootPath = root.toPath().toAbsolutePath().normalize()
     def entries = []
     Files.walk(rootPath).withCloseable { stream ->
-        stream.filter { Files.isRegularFile(it) }.forEach { entries << it }
+        stream.filter { Files.isRegularFile(it) && (!excludeFeatures || !it.toString().endsWith('.feature')) }
+                .forEach { entries << it }
     }
     entries.sort { a, b -> rootPath.relativize(a).toString() <=> rootPath.relativize(b).toString() }
     entries.each { p ->
@@ -5221,15 +5313,15 @@ def updateDigestWithTree = { java.security.MessageDigest md, File root ->
     }
 }
 
-def computeMutantRunStamp = { Test runTask ->
+def computeMutantEnvStamp = { Test runTask ->
     def md = java.security.MessageDigest.getInstance('SHA-256')
-    md.update("MUTANTS\n".getBytes('UTF-8'))
-    updateDigestWithTree(md, mutantsDir)
+    md.update("TOOL\n".getBytes('UTF-8'))
+    updateDigestWithTree(md, gauntletFile('tools/GherkinMutator.java'))
     md.update("CLASSPATH\n".getBytes('UTF-8'))
     sourceSets.acceptanceTest.runtimeClasspath.files.each { entry ->
         if (entry.isDirectory()) {
             md.update("DIR:${entry.canonicalPath}\n".getBytes('UTF-8'))
-            updateDigestWithTree(md, entry)
+            updateDigestWithTree(md, entry, true)
         } else if (entry.isFile()) {
             md.update("JAR:${entry.canonicalPath}:${entry.length()}:${entry.lastModified()}\n".getBytes('UTF-8'))
         }
@@ -5249,6 +5341,14 @@ def computeMutantRunStamp = { Test runTask ->
     ['_JAVA_OPTIONS', 'JAVA_TOOL_OPTIONS', 'JDK_JAVA_OPTIONS'].each { envKey ->
         md.update("ENV:${envKey}=${runTask.environment[envKey] ?: ''}\n".getBytes('UTF-8'))
     }
+    return md.digest().encodeHex().toString()
+}
+
+def computeMutantRunStamp = { Test runTask ->
+    def md = java.security.MessageDigest.getInstance('SHA-256')
+    md.update("MUTANTS\n".getBytes('UTF-8'))
+    updateDigestWithTree(md, mutantsDir)
+    md.update("ENV:${computeMutantEnvStamp(runTask)}\n".getBytes('UTF-8'))
     return md.digest().encodeHex().toString()
 }
 
@@ -5351,6 +5451,14 @@ tasks.register('gherkinMutants', Exec) {
     executable javaBin
     args sourceUtf8, "${tools}/GherkinMutator.java", 'generate', '--features', featuresPath, '--out', mutantsDir.absolutePath
     doFirst {
+        if (gradle.startParameter.rerunTasks) {
+            verifiedFeaturesDir.deleteDir()
+            verifiedMutantsStamp.delete()
+        } else {
+            def envStamp = computeMutantEnvStamp(tasks.getByName('gherkinMutantsRun') as Test)
+            verifiedFeaturesDir.listFiles()?.findAll { it.name != "${envStamp}.tsv" }?.each { it.delete() }
+            args '--verified-cache', new File(verifiedFeaturesDir, "${envStamp}.tsv").absolutePath
+        }
         def changed = changedFiles()
         if (changed != null) {
             // The step definitions are what this gate checks: a changed glue file or acceptance resource can hollow
@@ -5400,8 +5508,11 @@ tasks.register('gherkinMutantsRun', Test) {
     outputs.upToDateWhen { false }
     jacoco { enabled = false }
     onlyIf { task ->
-        (hasFeatures(mutantsDir) || skippedByTheKit(task, 'no Examples value in scope')) &&
-                (!verifiedMutantRunMatches(task as Test) || skippedByTheKit(task, 'inputs unchanged since green gherkinMutation'))
+        (!new File(mutantsDir, 'all-cached.tsv').isFile() ||
+                skippedByTheKit(task, 'inputs unchanged since green gherkinMutation')) &&
+                (hasFeatures(mutantsDir) || skippedByTheKit(task, 'no Examples value in scope')) &&
+                (!verifiedMutantRunMatches(task as Test) ||
+                        skippedByTheKit(task, 'inputs unchanged since green gherkinMutation'))
     }
     def stream = cucumberMessages(it, mutantMessages)
     doFirst { Test task ->
@@ -5477,9 +5588,14 @@ tasks.register('gherkinMutation', Exec) {
     doFirst {
         verifiedMutantsStamp.delete()
         args '--glue-file', pathList('glue-classpath', glueClasspath.files*.absolutePath)
+        if (!gradle.startParameter.rerunTasks) {
+            def envStamp = computeMutantEnvStamp(tasks.getByName('gherkinMutantsRun') as Test)
+            args '--verified-cache', new File(verifiedFeaturesDir, "${envStamp}.tsv").absolutePath
+        }
     }
     doLast { task ->
-        if (task.executionResult.getOrNull()?.exitValue == 0 && hasFeatures(mutantsDir)) {
+        if (task.executionResult.getOrNull()?.exitValue == 0 &&
+                (hasFeatures(mutantsDir) || new File(mutantsDir, 'all-cached.tsv').isFile())) {
             verifiedMutantsStamp.parentFile.mkdirs()
             verifiedMutantsStamp.setText(computeMutantRunStamp(tasks.getByName('gherkinMutantsRun') as Test) + '\n', 'UTF-8')
         } else {
@@ -12401,7 +12517,8 @@ NEXT
 вывод инструмента поиска среды — не вывод команды. При полном покрытии «Не проверено» пусто или «- нет». Ревизия —
 коммит проверки; «рабочее дерево» — только для отчёта о незакоммиченном коде сессии (карточка, которую основной
 агент даёт до коммита): цитаты сверка читает с диска, а команды не повторяет, и принимающий сверяет их по журналу.
-Модель и уровень — как их задал запуск, иначе «неизвестен». Итоги ролей сессии — в форматах ролей (4.5).
+Модель и уровень — как их задал запуск (`модель <имя, уровень>`), а в IDE и средах без интроспекции модели у сабагента —
+`модель задана средой (не интроспектируется), уровень задан средой` (не угадывать имя модели). Итоги ролей сессии — в форматах ролей (4.5).
 
 ## 4. Карточки задач
 
@@ -13956,10 +14073,11 @@ public class GherkinMutator {
                 case "generate" -> generate(Path.of(opts.getOrDefault("--features", "src/acceptanceTest/resources/features")),
                         Path.of(opts.getOrDefault("--out", "build/gherkin-mutation/mutants")),
                         opts.containsKey("--only-file") ? pathList(Path.of(opts.get("--only-file"))) : null,
-                        optionalPath(opts, "--glue-impact"), out);
+                        optionalPath(opts, "--glue-impact"), optionalPath(opts, "--verified-cache"), out);
                 case "verdict" -> verdict(Path.of(opts.getOrDefault("--mutants", "build/gherkin-mutation/mutants")),
                         Path.of(opts.getOrDefault("--results", "build/gherkin-mutation/results")),
-                        glue(glue, opts.get("--glue-file")), optionalPath(opts, "--messages"), out);
+                        glue(glue, opts.get("--glue-file")), optionalPath(opts, "--messages"),
+                        optionalPath(opts, "--verified-cache"), out);
                 case "no-skipped" -> noSkipped(Path.of(opts.getOrDefault("--results", "build/test-results/acceptanceTest")),
                         optionalPath(opts, "--features"), new Census(optionalPath(opts, "--messages"),
                                 Path.of(opts.getOrDefault("--root", ".")), optionalPath(opts, "--allowlist")), out);
@@ -13980,12 +14098,23 @@ public class GherkinMutator {
 
     // ---------------------------------------------------------------- generate
 
+    record CachedFeature(String sha256, int mutants, int controls) {
+    }
+
+    record FeaturePlan(FeatureDoc doc, String key, String sha256, int mutants, int controls) {
+    }
+
     static int generate(Path featuresDir, Path outDir, List<String> only, PrintStream out) throws IOException {
-        return generate(featuresDir, outDir, only, null, out);
+        return generate(featuresDir, outDir, only, null, null, out);
     }
 
     static int generate(Path featuresDir, Path outDir, List<String> only, Path glueImpactFile, PrintStream out)
             throws IOException {
+        return generate(featuresDir, outDir, only, glueImpactFile, null, out);
+    }
+
+    static int generate(Path featuresDir, Path outDir, List<String> only, Path glueImpactFile, Path verifiedCacheFile,
+                        PrintStream out) throws IOException {
         deleteRecursively(outDir);
         Files.createDirectories(outDir);
         if (!Files.isDirectory(featuresDir)) {
@@ -14018,8 +14147,7 @@ public class GherkinMutator {
         if (glueImpactFile != null) {
             only = GlueImpact.narrow(files, only, pathList(glueImpactFile), out);
         }
-        List<Mutant> mutants = new ArrayList<>();
-        List<Control> controls = new ArrayList<>();
+        List<FeaturePlan> mutatablePlans = new ArrayList<>();
         int inScope = 0;
         int unreadable = 0;
         int vacuous = 0;
@@ -14027,6 +14155,7 @@ public class GherkinMutator {
             if (only != null && !matchesAny(file, only)) {
                 continue;
             }
+            byte[] rawBytes = Files.readAllBytes(file);
             List<String> lines = new ArrayList<>(Files.readAllLines(file, StandardCharsets.UTF_8));
             if (!lines.isEmpty() && lines.get(0).startsWith("\uFEFF")) {
                 lines.set(0, lines.get(0).substring(1));   // UTF-8 byte order mark
@@ -14042,8 +14171,9 @@ public class GherkinMutator {
                         + "'; supported: " + LANGUAGES.keySet() + " - add the keywords to GherkinMutator.LANGUAGES)");
                 continue;
             }
-            int before = mutants.size();
-            collectMutants(doc, mutants, controls);
+            List<Mutant> probeMutants = new ArrayList<>();
+            List<Control> probeControls = new ArrayList<>();
+            collectMutants(doc, probeMutants, probeControls);
             Keywords kw = LANGUAGES.get(doc.language);
             for (Scenario sc : doc.scenarios) {
                 if (stepCount(sc, kw) == 0) {
@@ -14053,8 +14183,8 @@ public class GherkinMutator {
                                                            // before prepending Background - so no step definition runs.
                 }
                 boolean checked = false;
-                for (int mi = before; mi < mutants.size(); mi++) {
-                    if (mutants.get(mi).scenario() == sc) {
+                for (Mutant m : probeMutants) {
+                    if (m.scenario() == sc) {
                         checked = true;
                         break;
                     }
@@ -14065,6 +14195,51 @@ public class GherkinMutator {
                             + " value to mutate - gherkinMutation cannot check its step definitions");
                 }
             }
+            if (!probeMutants.isEmpty()) {
+                mutatablePlans.add(new FeaturePlan(doc, tsv(doc.path), sha256Hex(rawBytes),
+                        probeMutants.size(), probeControls.size()));
+            }
+        }
+        Map<String, CachedFeature> cache = unreadable == 0 && vacuous == 0
+                ? readVerifiedCache(verifiedCacheFile)
+                : Map.of();
+        List<FeaturePlan> cachedPlans = new ArrayList<>();
+        List<FeaturePlan> emitPlans = new ArrayList<>();
+        for (FeaturePlan plan : mutatablePlans) {
+            CachedFeature hit = cache.get(plan.key());
+            if (hit != null && hit.sha256().equals(plan.sha256())) {
+                cachedPlans.add(plan);
+            } else {
+                emitPlans.add(plan);
+            }
+        }
+        if (!cachedPlans.isEmpty() && emitPlans.isEmpty()) {
+            int cachedMutants = cachedPlans.stream().mapToInt(FeaturePlan::mutants).sum();
+            int cachedControls = cachedPlans.stream().mapToInt(FeaturePlan::controls).sum();
+            Files.writeString(outDir.resolve("all-cached.tsv"),
+                    cachedMutants + "\t" + cachedControls + "\n", StandardCharsets.UTF_8);
+            Files.write(outDir.resolve("manifest.tsv"),
+                    List.of("id\tfeature\tline\tscenario\tkey\toriginal\tmutated\tuses"), StandardCharsets.UTF_8);
+            out.println("Gherkin mutation: verified cache matched all " + cachedPlans.size()
+                    + " feature file(s) in scope (" + cachedMutants + " mutant(s) + " + cachedControls
+                    + " control(s) already verified on current runtime) - 0 remaining");
+            return 0;
+        }
+        if (!cachedPlans.isEmpty()) {
+            int cachedMutants = cachedPlans.stream().mapToInt(FeaturePlan::mutants).sum();
+            int cachedControls = cachedPlans.stream().mapToInt(FeaturePlan::controls).sum();
+            out.println("Gherkin mutation: verified cache matched " + cachedPlans.size() + " of "
+                    + mutatablePlans.size() + " feature file(s) in scope (" + cachedMutants + " mutant(s) + "
+                    + cachedControls + " control(s) already verified on current runtime) - mutating "
+                    + emitPlans.size() + " remaining");
+        }
+        List<Mutant> mutants = new ArrayList<>();
+        List<Control> controls = new ArrayList<>();
+        List<String> featureDigests = new ArrayList<>();
+        for (FeaturePlan plan : emitPlans) {
+            collectMutants(plan.doc(), mutants, controls);
+            featureDigests.add(String.join("\t", plan.key(), plan.sha256(),
+                    String.valueOf(plan.mutants()), String.valueOf(plan.controls())));
         }
         List<String> manifest = new ArrayList<>();
         manifest.add("id\tfeature\tline\tscenario\tkey\toriginal\tmutated\tuses");
@@ -14081,8 +14256,19 @@ public class GherkinMutator {
                     tsv(c.scenario().name), CONTROL_KEY, "", "", ""));
         }
         Files.write(outDir.resolve("manifest.tsv"), manifest, StandardCharsets.UTF_8);
+        if (verifiedCacheFile != null) {
+            Path pending = Path.of(verifiedCacheFile + ".pending");
+            if (featureDigests.isEmpty()) {
+                Files.deleteIfExists(pending);
+            } else {
+                if (pending.getParent() != null) {
+                    Files.createDirectories(pending.getParent());
+                }
+                Files.write(pending, featureDigests, StandardCharsets.UTF_8);
+            }
+        }
         out.println("Gherkin mutation: " + mutants.size() + " mutant(s) + " + controls.size() + " control(s) from "
-                + inScope + " feature file(s) in scope -> " + outDir);
+                + (cachedPlans.isEmpty() ? inScope : emitPlans.size()) + " feature file(s) in scope -> " + outDir);
         if (vacuous > 0) {
             out.println("  Every value a scenario depends on must be an Examples parameter (Scenario Outline), so that");
             out.println("  a hollow step definition shows up as a surviving mutant. The specifier rewrites the feature;");
@@ -14607,6 +14793,11 @@ public class GherkinMutator {
     // ---------------------------------------------------------------- verdict
 
     static int verdict(Path mutantsDir, Path resultsDir, Glue glue, Path messages, PrintStream out) throws IOException {
+        return verdict(mutantsDir, resultsDir, glue, messages, null, out);
+    }
+
+    static int verdict(Path mutantsDir, Path resultsDir, Glue glue, Path messages, Path verifiedCacheFile,
+                       PrintStream out) throws IOException {
         Path manifestFile = mutantsDir.resolve("manifest.tsv");
         if (!Files.isRegularFile(manifestFile)) {
             out.println("Gherkin mutation: no manifest at " + manifestFile + " - nothing to judge.");
@@ -14620,6 +14811,16 @@ public class GherkinMutator {
             (CONTROL_ID.matcher(f[0]).matches() ? controls : manifest).put(f[0], f);
         }
         if (manifest.isEmpty()) {
+            Path allCached = mutantsDir.resolve("all-cached.tsv");
+            if (Files.isRegularFile(allCached)) {
+                String[] counts = Files.readString(allCached, StandardCharsets.UTF_8).trim().split("\t");
+                if (counts.length >= 2) {
+                    out.println("Gherkin mutation: " + counts[0] + " mutant(s) + " + counts[1]
+                            + " control(s) already verified on current runtime - OK");
+                    out.println("Gherkin mutation: OK");
+                    return 0;
+                }
+            }
             out.println("Gherkin mutation: no mutants (no Examples values in scope) - OK.");
             return 0;
         }
@@ -14632,31 +14833,40 @@ public class GherkinMutator {
         int byOtherException = 0;
         List<String> survived = new ArrayList<>();
         List<String> errors = new ArrayList<>();
+        Set<String> failedFeatures = new HashSet<>();
         for (Map.Entry<String, String[]> e : manifest.entrySet()) {
             String[] f = e.getValue();
             String what = f[1] + ":" + f[2] + " \"" + f[3] + "\" " + f[4] + ": " + f[5] + " -> " + f[6];
             int uses = firstUseLine(f);
             Outcome o = combine(attempts.get(e.getKey()), attempt -> mutantVerdict(attempt, uses));
             if (o == null) {
+                failedFeatures.add(f[1]);
                 errors.add("MUTANT ERROR    " + e.getKey() + " not executed  " + what);
             } else if (o.kind().equals("passed")) {
+                failedFeatures.add(f[1]);
                 survived.add("MUTANT SURVIVED " + e.getKey() + "  " + what);
             } else if (o.kind().equals("aborted")) {
+                failedFeatures.add(f[1]);
                 errors.add("MUTANT ERROR    " + e.getKey() + " skipped/aborted, not a kill  " + what);
             } else if (o.kind().equals("error")) {
+                failedFeatures.add(f[1]);
                 errors.add("MUTANT ERROR    " + e.getKey() + " failed outside a step (" + thrown(o)
                         + " - hook, fixture or context), not a kill  " + what);
             } else if (o.kind().equals("inconsistent")) {
+                failedFeatures.add(f[1]);
                 errors.add("MUTANT ERROR    " + e.getKey() + " ran more than once with different results (a retry or a"
                         + " rerun) - the detection is not stable, not a kill  " + what);
             } else if (o.kind().equals("rejected")) {
+                failedFeatures.add(f[1]);
                 errors.add("MUTANT ERROR    " + e.getKey() + " the value never reached a step definition (" + thrown(o)
                         + ": Cucumber could not convert it, a transformer rejected it, the glue object failed or the step"
                         + " is ambiguous), not a kill  " + what);
             } else if (mutantVerdict(o, uses).equals("unused")) {
+                failedFeatures.add(f[1]);
                 errors.add("MUTANT ERROR    " + e.getKey() + " failed, but no step uses <" + f[4] + "> (the scenario title"
                         + " at most) - the changed value did not cause it, not a kill  " + what);
             } else if (mutantVerdict(o, uses).equals("early")) {
+                failedFeatures.add(f[1]);
                 errors.add("MUTANT ERROR    " + e.getKey() + " failed on line " + o.line() + ", before the first step that"
                         + " uses <" + f[4] + "> (line " + uses + ") - the changed value did not cause it, not a"
                         + " kill  " + what);
@@ -14677,6 +14887,7 @@ public class GherkinMutator {
             if (o != null && o.kind().equals("passed")) {
                 controlsPassed++;
             } else {
+                failedFeatures.add(f[1]);
                 // "MUTANT ERROR" on purpose: the Stop hook hands lines with that prefix back to the agent
                 brokenControls.add("MUTANT ERROR    " + e.getKey() + " control (unmutated scenario"
                         + (e.getKey().startsWith("z") ? ", after the mutants" : "") + ") " + controlProblem(o)
@@ -14685,6 +14896,9 @@ public class GherkinMutator {
         }
         if (messages != null) {
             order.addAll(runOrder(streams, manifest, controls, attempts));
+        }
+        if (verifiedCacheFile != null && order.isEmpty()) {
+            updateVerifiedCache(verifiedCacheFile, Path.of(verifiedCacheFile + ".pending"), failedFeatures);
         }
         out.println("Gherkin mutation: " + manifest.size() + " mutant(s) - " + killed + " killed"
                 + (byUndefinedStep > 0 ? " (" + byUndefinedStep + " only because no step definition matched the new value)" : "")
@@ -14729,6 +14943,63 @@ public class GherkinMutator {
             out.println("  file, a JVM argument provider, a doFirst or doLast of the project. Keep them off gherkinMutantsRun.");
         }
         return 1;
+    }
+
+    static String sha256Hex(byte[] bytes) {
+        MessageDigest md = GlueImpact.sha256();
+        md.update(bytes);
+        return GlueImpact.hex(md);
+    }
+
+    static Map<String, CachedFeature> readVerifiedCache(Path cacheFile) throws IOException {
+        Map<String, CachedFeature> map = new LinkedHashMap<>();
+        if (cacheFile == null || !Files.isRegularFile(cacheFile)) {
+            return map;
+        }
+        for (String line : Files.readAllLines(cacheFile, StandardCharsets.UTF_8)) {
+            if (line.isBlank() || line.startsWith("#")) {
+                continue;
+            }
+            String[] p = line.split("\t", -1);
+            if (p.length >= 4) {
+                try {
+                    map.put(p[0], new CachedFeature(p[1], Integer.parseInt(p[2]), Integer.parseInt(p[3])));
+                } catch (NumberFormatException ignored) {
+                    // ignore malformed entry
+                }
+            }
+        }
+        return map;
+    }
+
+    static void updateVerifiedCache(Path cacheFile, Path digestsFile, Set<String> failedFeatures) throws IOException {
+        if (!Files.isRegularFile(digestsFile)) {
+            return;
+        }
+        Map<String, CachedFeature> cache = readVerifiedCache(cacheFile);
+        for (String line : Files.readAllLines(digestsFile, StandardCharsets.UTF_8)) {
+            if (line.isBlank()) {
+                continue;
+            }
+            String[] p = line.split("\t", -1);
+            if (p.length >= 4) {
+                if (failedFeatures.contains(p[0])) {
+                    cache.remove(p[0]);
+                } else {
+                    cache.put(p[0], new CachedFeature(p[1], Integer.parseInt(p[2]), Integer.parseInt(p[3])));
+                }
+            }
+        }
+        if (cacheFile.getParent() != null) {
+            Files.createDirectories(cacheFile.getParent());
+        }
+        List<String> outLines = new ArrayList<>();
+        for (Map.Entry<String, CachedFeature> e : cache.entrySet()) {
+            CachedFeature v = e.getValue();
+            outLines.add(String.join("\t", e.getKey(), v.sha256(),
+                    String.valueOf(v.mutants()), String.valueOf(v.controls())));
+        }
+        Files.write(cacheFile, outLines, StandardCharsets.UTF_8);
     }
 
     // ---------------------------------------------------------------- run order (Cucumber's message stream)
@@ -14780,6 +15051,12 @@ public class GherkinMutator {
                         + recorded + " by the message stream - " + (recorded < reported
                         ? "the order of an attempt is unknown" : "the stream is not of the run the XML reports"));
             }
+        }
+        if (streams.size() > 1 && !errors.isEmpty()) {
+            List<String> streamNames = streams.stream().map(s -> s.name).toList();
+            errors.add(0, "MUTANT ERROR    run order: worker JVM restarted or split scenarios across "
+                    + streams.size() + " Cucumber message streams (" + String.join(", ", streamNames)
+                    + ") - check OutOfMemoryError / gherkin.maxHeapSize in gauntlet.properties, forkEvery, or maxParallelForks");
         }
         return errors;
     }

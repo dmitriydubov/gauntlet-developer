@@ -3090,3 +3090,44 @@ true` не кэшировался после красного `gherkinMutation`)
 inspect --format '{{.State.Pid}}'` с рекурсивным сбором потомков по `/proc/<pid>/stat` → `docker kill
 --signal=SIGSTOP|SIGCONT <id>`, а `session_start.sh` проверяет живой ответ `docker --host unix://$shim_sock info` и
 перезапускает прокси при мёртвом сокете.
+
+## Ревизия 4.7.1 (2026-11-26) — учёт шагов-хуков (`HookTestStep`) в `GlueImpact.testCaseImpacted`
+
+**Что случилось.** В Cucumber 7 и 8 `TestCase.createTestStep` сериализует каждый сценарный хук (`@Before`/`@After`)
+одновременно с `hookId` и пустым списком `"stepDefinitionIds": []`. В ревизии 4.7 неизменённый `hookId` не завершал
+проверку шага через `continue`, из-за чего условие `sdIds.size() != 1` помечало затронутыми все фичи с хуками.
+
+**Почему так исправлено.** Ветка `ts.get("hookId") instanceof String hookId && !hookId.isEmpty()` возвращает `true` на
+неизвестном или изменённом хуке и делает `continue` на известном неизменённом, оставляя проверку `stepDefinitionIds`
+строго для обычных шагов сценария.
+
+## Ревизия 4.7.2 (2026-11-26) — пофайловый кэш верифицированных фич, зеркало Maven Central в CI и операционная устойчивость
+
+### 1. Пофайловый кэш верифицированных `.feature` (`verified-features/<envStamp>.tsv`)
+
+**Что случилось.** На задаче с 18 затронутыми фичами (`1 838` мутантов + `512` контролей) у двух независимых исполнителей
+17 фич прошли на `100 %`, а в одной унаследованной фиче выжил единственный мутант из-за общего плейсхолдера входа и
+ожидания. Монолитный штамп `verified.sha256` писался только при `exit 0`, поэтому после 7-строчной правки одной
+`.feature` повторный прогон заново гонял все 18 фич (`1 ч 46 мин`).
+
+**Почему так исправлено.**
+- В `gauntlet.gradle` отпечаток среды `computeMutantEnvStamp` отделён от текста самих `.feature` (хэшируются
+  `GherkinMutator.java`, все элементы `acceptanceTest.runtimeClasspath` без `.feature`, `gauntlet/config/**`, скрипты
+  сборки, версия/куча JVM и флаги окружения).
+- При генерации мутантов `GherkinMutator` сохраняет в `<envStamp>.tsv.pending` точный SHA-256 байтов каждой сгенерированной
+  `.feature` (исключая TOCTOU при правке файла во время прогона и не засоряя каталог `mutants/`), а `verdict` при валидном порядке прогона
+  (`order.isEmpty()`) записывает полностью прошедшие фичи (`0 survived`, `0 error`, `100 %` контролей) в
+  `build/gherkin-mutation/verified-features/<envStamp>.tsv`, удаляя оттуда упавшие. На следующем запуске при том же
+  `envStamp` фичи с совпавшим SHA-256 пропускаются без потери проверок, а при полном совпадении пишется `all-cached.tsv`.
+
+### 2. Зеркало Maven Central в GCS (`.github/workflows/gauntlet.yml`) и диагностика перезапуска воркера
+
+**Что случилось.** Холодные раннеры GitHub Actions периодически получали `HTTP 429 Too Many Requests` от
+`repo.maven.apache.org` на первых секундах сборки, а перезапуск JVM воркера по `OutOfMemoryError` посреди
+`gherkinMutantsRun` давал несколько `jvm-*.ndjson` с десятками косвенных ошибок `did not run in the same test JVM`.
+
+**Почему так исправлено.** В `gauntlet.yml` добавлен init-скрипт Gradle в `~/.gradle/init.d/`, переписывающий URL
+`repo.maven.apache.org/maven2` и `repo1.maven.org/maven2` на официальное зеркало Google Cloud Storage без правки скриптов
+проекта, а `GherkinMutator.runOrder` при ошибках порядка на нескольких потоках `*.ndjson` выводит первой строкой явный
+диагноз перезапуска воркера и указание проверить `gherkin.maxHeapSize`.
+

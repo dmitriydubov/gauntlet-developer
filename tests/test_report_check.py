@@ -1103,6 +1103,14 @@ class HookTest(Base):
         r = self.hook(self.transcript("a1", final=text), last=text)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
+    def test_non_introspected_ide_model_header_is_accepted(self):
+        hdr = (f"## Карточка 4.1, карта кода; ревизия {self.sha}; "
+               "модель задана средой (не интроспектируется), уровень задан средой; лимит среды: не достигнут")
+        text = report(self.sha, self.claim(1, "Два вызова", evidence=(GENUINE_FILE,)),
+                      coverage="1 из 1", unchecked=("- нет",), header=hdr)
+        r = self.hook(self.transcript("a2", final=text), last=text)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
     def test_no_report_at_all_is_blocked(self):
         r = self.hook(os.path.join(self.tmp, "subagents", "agent-none.jsonl"))
         self.assertEqual(r.returncode, 2, r.stdout + r.stderr)

@@ -124,6 +124,21 @@ class WorkflowText(unittest.TestCase):
     def test_full_history_is_fetched(self):
         self.assertIn("fetch-depth: 0", workflow())
 
+    def test_maven_central_gcs_mirror_init_script_is_installed_safely(self):
+        mirror = "Configure Maven Central GCS mirror"
+        script = step_script(mirror)
+        self.assertNotIn("${{", script)
+        with tempfile.TemporaryDirectory() as tmp:
+            gradle_home = os.path.join(tmp, "gradle-home")
+            ws = Workspace(tmp)
+            r = ws.step(mirror, GRADLE_USER_HOME=gradle_home)
+            self.assertEqual(r.code, 0, r)
+            init_file = os.path.join(gradle_home, "init.d", "gauntlet-maven-central-mirror.init.gradle")
+            self.assertTrue(os.path.isfile(init_file))
+            content = kit.read(init_file)
+            self.assertIn("https://maven-central.storage-download.googleapis.com/maven2/", content)
+            self.assertIn("https://repo.maven.apache.org/maven2", content)
+
 
 class PlanStep(unittest.TestCase):
 

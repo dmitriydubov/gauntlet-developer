@@ -205,6 +205,134 @@ class DockerPauseShim(unittest.TestCase):
             self.assertIn(f"docker: up (pause-shim: {shim_sock})", r.stdout)
             self.assertTrue(stat.S_ISSOCK(os.stat(shim_sock).st_mode))
 
+    def test_pause_falls_back_to_inspect_pid_and_docker_kill_when_docker_top_fails(self):
+        import socket
+        import time
+
+        with tempfile.TemporaryDirectory() as tmp:
+            upstream = os.path.join(tmp, "upstream.sock")
+            listen = os.path.join(tmp, "shim-fallback.sock")
+            fake_docker = os.path.join(tmp, "fake-docker")
+            kill_log = os.path.join(tmp, "kills.log")
+            target = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+            self.addCleanup(lambda: (target.kill(), target.wait()))
+
+            # Simulates Docker 29+ with CgroupDriver=none where `docker top` fails:
+            # container `c-inspect` resolves via `docker inspect {{.State.Pid}}`, `c-kill` falls back to `docker kill --signal=...`
+            kit.write(
+                fake_docker,
+                f"""#!/bin/sh
+if [ "$3" = "top" ]; then
+  echo "Error response from daemon: unable to get all container pids" >&2
+  exit 1
+fi
+if [ "$3" = "inspect" ]; then
+  if [ "$6" = "c-inspect" ]; then echo "{target.pid}"; else echo "0"; fi
+  exit 0
+fi
+if [ "$3" = "kill" ]; then
+  echo "$4 $5" >> "{kill_log}"
+  exit 0
+fi
+exit 1
+""",
+            )
+            os.chmod(fake_docker, 0o755)
+
+            shim_src = os.path.join(kit.kit(), "gauntlet", "hooks", "docker_pause_shim.py")
+            env = dict(os.environ, DOCKER_UPSTREAM_SOCK=upstream, DOCKER_CLI_BIN=fake_docker)
+            shim = subprocess.Popen([sys.executable, "-I", shim_src, listen], env=env)
+            self.addCleanup(lambda: (shim.terminate(), shim.wait()))
+            for _ in range(50):
+                if os.path.exists(listen):
+                    break
+                time.sleep(0.05)
+
+            def call(raw):
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as c:
+                    c.connect(listen)
+                    c.sendall(raw)
+                    chunks = []
+                    while data := c.recv(4096):
+                        chunks.append(data)
+                    return b"".join(chunks)
+
+            # Tier 2: docker inspect + /proc freezes and resumes target.pid
+            self.assertIn(b"204 No Content", call(b"POST /v1.47/containers/c-inspect/pause HTTP/1.1\r\nHost: d\r\n\r\n"))
+            if os.path.exists(f"/proc/{target.pid}/stat"):
+                for _ in range(20):
+                    if ") T " in kit.read(f"/proc/{target.pid}/stat"):
+                        break
+                    time.sleep(0.05)
+                self.assertIn(") T ", kit.read(f"/proc/{target.pid}/stat"))
+            self.assertIn(b"204 No Content", call(b"POST /v1.47/containers/c-inspect/unpause HTTP/1.1\r\nHost: d\r\n\r\n"))
+            if os.path.exists(f"/proc/{target.pid}/stat"):
+                for _ in range(20):
+                    if ") T " not in kit.read(f"/proc/{target.pid}/stat"):
+                        break
+                    time.sleep(0.05)
+                self.assertNotIn(") T ", kit.read(f"/proc/{target.pid}/stat"))
+
+            # Tier 3: docker kill --signal=SIGSTOP / SIGCONT fallback
+            self.assertIn(b"204 No Content", call(b"POST /v1.47/containers/c-kill/pause HTTP/1.1\r\nHost: d\r\n\r\n"))
+            self.assertIn(b"204 No Content", call(b"POST /v1.47/containers/c-kill/unpause HTTP/1.1\r\nHost: d\r\n\r\n"))
+            self.assertEqual("--signal=SIGSTOP c-kill\n--signal=SIGCONT c-kill\n", kit.read(kill_log))
+
+    def test_session_start_replaces_stale_shim_socket(self):
+        import socket
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = os.path.join(tmp, "repo")
+            os.makedirs(repo)
+            git(repo, "init", "-q", "-b", "main")
+            shutil.copytree(os.path.join(kit.kit(), "gauntlet"), os.path.join(repo, "gauntlet"),
+                            ignore=shutil.ignore_patterns("__pycache__"))
+            git(repo, "add", "-A")
+            git(repo, "commit", "-q", "-m", "base")
+            git(tmp, "clone", "-q", "--bare", repo, "origin.git")
+            clone = os.path.join(tmp, "clone")
+            git(tmp, "clone", "-q", os.path.join(tmp, "origin.git"), clone)
+
+            shim_sock = os.path.join(tmp, "stale-pause-shim.sock")
+            stale = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            stale.bind(shim_sock)
+            stale.close()  # leaves a dead socket file on disk
+
+            bin_dir = os.path.join(tmp, "bin")
+            os.makedirs(bin_dir)
+            fake_docker = os.path.join(bin_dir, "docker")
+            kit.write(
+                fake_docker,
+                f"""#!{sys.executable}
+import socket, sys
+if "--host" in sys.argv:
+    sock_path = sys.argv[sys.argv.index("--host") + 1].removeprefix("unix://")
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.connect(sock_path)
+    s.close()
+    sys.exit(0)
+if "--format" in sys.argv:
+    print("none")
+else:
+    print("ok")
+""",
+            )
+            os.chmod(fake_docker, 0o755)
+            self.addCleanup(lambda: subprocess.run(["pkill", "-f", shim_sock], stderr=subprocess.DEVNULL))
+
+            env = {k: v for k, v in os.environ.items() if not k.startswith(("GAUNTLET_", "CLAUDE_"))}
+            env.update(
+                CLAUDE_PROJECT_DIR=clone,
+                GAUNTLET_DOCKER="on",
+                GAUNTLET_DOCKER_SHIM_SOCK=shim_sock,
+                PATH=bin_dir + os.pathsep + env.get("PATH", ""),
+            )
+            r = subprocess.run(["bash", os.path.join(clone, "gauntlet", "hooks", "session_start.sh")], cwd=clone,
+                               input='{"session_id": "s"}', stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                               env=env)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn(f"docker: up (pause-shim: {shim_sock})", r.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

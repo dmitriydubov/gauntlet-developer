@@ -1716,5 +1716,214 @@ class CensusTest(Sandbox):
         self.assertEqual(0, code, out)
 
 
+GLUE_IMPACT_STUBS = {
+    **CUCUMBER_STUBS,
+    "io/cucumber/java/Before.java": "package io.cucumber.java;\nimport java.lang.annotation.*;\n"
+    "@Retention(RetentionPolicy.RUNTIME)\n@Target(ElementType.METHOD)\npublic @interface Before {\n"
+    "    String value() default \"\";\n}\n",
+    "io/cucumber/java/DataTableType.java": "package io.cucumber.java;\nimport java.lang.annotation.*;\n"
+    "@Retention(RetentionPolicy.RUNTIME)\n@Target(ElementType.METHOD)\npublic @interface DataTableType {}\n",
+    "io/cucumber/java/en/When.java": "package io.cucumber.java.en;\nimport java.lang.annotation.*;\n"
+    "@Retention(RetentionPolicy.RUNTIME)\n@Target(ElementType.METHOD)\npublic @interface When {\n    String value();\n}\n",
+    "io/cucumber/spring/CucumberContextConfiguration.java": "package io.cucumber.spring;\nimport java.lang.annotation.*;\n"
+    "@Retention(RetentionPolicy.RUNTIME)\n@Target(ElementType.TYPE)\npublic @interface CucumberContextConfiguration {}\n",
+}
+
+
+class GlueImpactScope(Sandbox):
+    """--glue-impact narrows scope by resolved method/field bytecode + acceptanceTest Cucumber NDJSON stream."""
+
+    FEATURE_TEXT = (
+        "Feature: {title}\n\n  Scenario Outline: Check {title}\n    When step {step} gets <val>\n"
+        "    Then result is <val>\n\n    Examples:\n      | val |\n      | 10  |\n"
+    )
+
+    def compile_glue(self, out_name, sources):
+        src_dir = self.path(out_name + "-src")
+        cls_dir = self.path(out_name + "-classes")
+        os.makedirs(cls_dir, exist_ok=True)
+        java_files = []
+        for rel, code in {**GLUE_IMPACT_STUBS, **sources}.items():
+            p = os.path.join(src_dir, rel)
+            write(p, code)
+            java_files.append(p)
+        r = subprocess.run(["javac", "--release", "21", "-nowarn", "-d", cls_dir, *sorted(java_files)],
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=kit.java_env())
+        self.assertEqual(0, r.returncode, r.stdout)
+        return cls_dir
+
+    def write_acceptance_stream(self, stream_path, step_defs, hooks, param_types, feature_cases):
+        lines = [{"meta": {"protocolVersion": "34.2.1"}}, {"testRunStarted": {"timestamp": stamp(0)}}]
+        for sd_id, cls_name, method, params in step_defs:
+            lines.append({"stepDefinition": {
+                "id": sd_id,
+                "pattern": {"source": method, "type": "CUCUMBER_EXPRESSION"},
+                "sourceReference": {"javaMethod": {"className": cls_name, "methodName": method,
+                                                   "methodParameterTypes": list(params)}},
+            }})
+        for h_id, cls_name, method, params in hooks:
+            lines.append({"hook": {
+                "id": h_id,
+                "sourceReference": {"javaMethod": {"className": cls_name, "methodName": method,
+                                                   "methodParameterTypes": list(params)}},
+            }})
+        for pt_name, ref in param_types:
+            body = {"id": "pt-" + pt_name, "name": pt_name, "regularExpressions": [".*"],
+                    "preferForRegularExpressionMatch": False, "useForSnippets": True}
+            if ref is not None:
+                cls_name, method, params = ref
+                body["sourceReference"] = {"javaMethod": {"className": cls_name, "methodName": method,
+                                                          "methodParameterTypes": list(params)}}
+            lines.append({"parameterType": body})
+        for idx, (rel_feature, step_ids, hook_ids, used_params) in enumerate(feature_cases):
+            uri = pathlib.Path(self.path(rel_feature)).resolve().as_uri()
+            lines.append({"pickle": {"id": f"p{idx}", "uri": uri, "name": f"sc{idx}", "steps": [], "astNodeIds": ["s1"]}})
+            test_steps = [{"id": f"h-{idx}-{h}", "hookId": h} for h in hook_ids]
+            arg_lists = [{"stepMatchArguments": [{"parameterTypeName": p, "group": {}} for p in used_params]}] if used_params else []
+            for s in step_ids:
+                ts = {"id": f"ts-{idx}-{s}", "pickleStepId": "ps1", "stepDefinitionIds": [s]}
+                if arg_lists:
+                    ts["stepMatchArgumentsLists"] = arg_lists
+                test_steps.append(ts)
+            lines.append({"testCase": {"id": f"tc{idx}", "pickleId": f"p{idx}", "testSteps": test_steps}})
+        write(stream_path, "".join(json.dumps(e) + "\n" for e in lines))
+
+    def run_impact(self, base_sources, head_sources, changed_features, step_defs, hooks, param_types, feature_cases):
+        for suffix, step in (("a", "A"), ("b", "B"), ("c", "C")):
+            write(self.path(f"features/f_{suffix}.feature"), self.FEATURE_TEXT.format(title=suffix.upper(), step=step))
+        base_cls = self.compile_glue("base", base_sources)
+        head_cls = self.compile_glue("head", head_sources)
+        msg_dir = self.path("acc-messages")
+        self.write_acceptance_stream(os.path.join(msg_dir, "jvm-1.ndjson"), step_defs, hooks, param_types, feature_cases)
+        only_file = self.path("only.nul")
+        write(only_file, "".join(f + "\0" for f in changed_features))
+        impact_file = self.path("impact.nul")
+        write(impact_file, "\0".join([msg_dir, "--base", base_cls, "--head", head_cls]) + "\0")
+        return tool("generate", "--features", "features", "--out", "mutants",
+                    "--only-file", only_file, "--glue-impact", impact_file, cwd=self.dir)
+
+    def mutated_features(self):
+        manifest = read_lines(self.path("mutants", "manifest.tsv"))
+        return sorted({row.split("\t")[1] for row in manifest[1:] if row and row.startswith("m")})
+
+    def test_adding_steps_static_fields_lambdas_and_relaxing_helper_visibility_keeps_untouched_features_out(self):
+        base = {
+            "p/Helper.java": "package p;\npublic class Helper {\n    public int calcA(int x) { return x + 1; }\n"
+                             "    public int calcB(int x) { return x + 2; }\n}\n",
+            "p/SharedSteps.java": (
+                "package p;\nimport io.cucumber.java.*;\nimport io.cucumber.java.en.*;\nimport java.util.*;\n"
+                "public class SharedSteps {\n"
+                "    private static final List<String> EXISTING = List.of(\"x\", \"y\");\n"
+                "    private final Helper helper;\n"
+                "    public SharedSteps(Helper helper) { this.helper = helper; }\n"
+                "    @Before public void reset() {}\n"
+                "    @DataTableType public Map<String, String> row(Map<String, String> r) { return r; }\n"
+                "    private void publish(int v) { EXISTING.forEach(s -> { if (s.length() == v) helper.calcA(v); }); }\n"
+                "    @When(\"step A gets {int}\") public void stepA(int v) { publish(helper.calcA(v)); }\n"
+                "    @When(\"step B gets {int}\") public void stepB(int v) { publish(helper.calcB(v)); }\n"
+                "    @Then(\"result is {int}\") public void result(int v) {}\n}\n"
+            ),
+        }
+        head = {
+            **base,
+            "p/SharedSteps.java": (
+                "package p;\nimport io.cucumber.java.*;\nimport io.cucumber.java.en.*;\nimport java.util.*;\n"
+                "public class SharedSteps {\n"
+                "    private static final Set<String> NEW_FIELDS = Set.of(\"p1\", \"p2\");\n"
+                "    private static final List<String> EXISTING = List.of(\"x\", \"y\");\n"
+                "    private final Helper helper;\n"
+                "    public SharedSteps(Helper helper) { this.helper = helper; }\n"
+                "    @Before public void reset() {}\n"
+                "    @DataTableType public Map<String, String> row(Map<String, String> r) { return r; }\n"
+                "    @When(\"step C gets {int}\") public void stepC(int v) {\n"
+                "        NEW_FIELDS.forEach(f -> publish(v + f.length()));\n"
+                "    }\n"
+                "    void publish(int v) { EXISTING.forEach(s -> { if (s.length() == v) helper.calcA(v); }); }\n"
+                "    @When(\"step A gets {int}\") public void stepA(int v) { publish(helper.calcA(v)); }\n"
+                "    @When(\"step B gets {int}\") public void stepB(int v) { publish(helper.calcB(v)); }\n"
+                "    @Then(\"result is {int}\") public void result(int v) {}\n}\n"
+            ),
+        }
+        step_defs = [
+            ("sdA", "p.SharedSteps", "stepA", ["int"]),
+            ("sdB", "p.SharedSteps", "stepB", ["int"]),
+            ("sdC", "p.SharedSteps", "stepC", ["int"]),
+            ("sdR", "p.SharedSteps", "result", ["int"]),
+        ]
+        hooks = [("hReset", "p.SharedSteps", "reset", [])]
+        cases = [
+            ("features/f_a.feature", ["sdA", "sdR"], ["hReset"], ["int"]),
+            ("features/f_b.feature", ["sdB", "sdR"], ["hReset"], ["int"]),
+            ("features/f_c.feature", ["sdC", "sdR"], ["hReset"], ["int"]),
+        ]
+        code, out = self.run_impact(base, head, ["features/f_c.feature"], step_defs, hooks, [], cases)
+        self.assertEqual(0, code, out)
+        self.assertIn("glue impact narrowed scope to 1 of 3 feature file(s)", out)
+        self.assertEqual(["features/f_c.feature"], self.mutated_features())
+
+    def test_transitive_helper_and_polymorphic_override_include_impacted_features_only(self):
+        base = {
+            "p/Verifier.java": "package p;\npublic class Verifier { public int check(int x) { return x; } }\n",
+            "p/StrictVerifier.java": "package p;\npublic class StrictVerifier extends Verifier {\n"
+                                     "    @Override public int check(int x) { return x + 1; }\n}\n",
+            "p/Steps.java": (
+                "package p;\nimport io.cucumber.java.en.*;\npublic class Steps {\n"
+                "    private final Verifier v = new StrictVerifier();\n"
+                "    @When(\"step A gets {int}\") public void stepA(int x) {}\n"
+                "    @When(\"step B gets {int}\") public void stepB(int x) { v.check(x); }\n"
+                "    @When(\"step C gets {int}\") public void stepC(int x) {}\n"
+                "    @Then(\"result is {int}\") public void result(int x) {}\n}\n"
+            ),
+        }
+        head = {
+            **base,
+            "p/StrictVerifier.java": "package p;\npublic class StrictVerifier extends Verifier {\n"
+                                     "    @Override public int check(int x) { return x + 99; }\n}\n",
+        }
+        step_defs = [
+            ("sdA", "p.Steps", "stepA", ["int"]),
+            ("sdB", "p.Steps", "stepB", ["int"]),
+            ("sdC", "p.Steps", "stepC", ["int"]),
+            ("sdR", "p.Steps", "result", ["int"]),
+        ]
+        cases = [
+            ("features/f_a.feature", ["sdA", "sdR"], [], ["int"]),
+            ("features/f_b.feature", ["sdB", "sdR"], [], ["int"]),
+            ("features/f_c.feature", ["sdC", "sdR"], [], ["int"]),
+        ]
+        code, out = self.run_impact(base, head, [], step_defs, [], [], cases)
+        self.assertEqual(0, code, out)
+        self.assertIn("glue impact narrowed scope to 1 of 3 feature file(s)", out)
+        self.assertEqual(["features/f_b.feature"], self.mutated_features())
+
+    def test_global_context_or_removed_hook_or_changed_datatable_falls_back_to_all_features(self):
+        base = {
+            "p/StandConfig.java": "package p;\nimport io.cucumber.spring.CucumberContextConfiguration;\n"
+                                  "@CucumberContextConfiguration\npublic class StandConfig { int port = 8080; }\n",
+            "p/Steps.java": (
+                "package p;\nimport io.cucumber.java.*;\nimport io.cucumber.java.en.*;\nimport java.util.*;\n"
+                "public class Steps {\n"
+                "    @Before public void reset() {}\n"
+                "    @DataTableType public Map<String, String> row(Map<String, String> r) { return r; }\n"
+                "    @When(\"step A gets {int}\") public void stepA(int x) {}\n"
+                "    @Then(\"result is {int}\") public void result(int x) {}\n}\n"
+            ),
+        }
+        step_defs = [("sdA", "p.Steps", "stepA", ["int"]), ("sdR", "p.Steps", "result", ["int"])]
+        cases = [(f"features/f_{s}.feature", ["sdA", "sdR"], [], ["int"]) for s in ("a", "b", "c")]
+        # 1. Context configuration changed -> all 3 features
+        head_ctx = {**base, "p/StandConfig.java": base["p/StandConfig.java"].replace("8080", "9090")}
+        code, out = self.run_impact(base, head_ctx, [], step_defs, [], [], cases)
+        self.assertEqual(0, code, out)
+        self.assertIn("glue impact affects global glue (context configuration p/StandConfig) - every feature is mutated", out)
+        self.assertEqual(["features/f_a.feature", "features/f_b.feature", "features/f_c.feature"], self.mutated_features())
+        # 2. Removed @Before hook -> all 3 features
+        head_no_hook = {**base, "p/Steps.java": base["p/Steps.java"].replace("@Before public void reset() {}\n", "")}
+        code, out = self.run_impact(base, head_no_hook, [], step_defs, [], [], cases)
+        self.assertEqual(0, code, out)
+        self.assertIn("removed or re-scoped hook p/Steps#reset", out)
+        self.assertEqual(3, len(self.mutated_features()))
+
+
 if __name__ == "__main__":
     unittest.main()

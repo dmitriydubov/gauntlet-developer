@@ -3024,4 +3024,69 @@ container …: freezer not supported"}`. Ослаблять сценарии и�
   явным `maxHeapSize` задачи в сборке проекта), а `timeout-minutes` в `.github/workflows/gauntlet.yml` поднят до `360`
   (шестичасовой потолок GitHub-hosted раннера).
 
+## Ревизия 4.7 (2026-11-25) — точное сужение области `gherkinMutation` по байткоду glue и отпечаток `verified.sha256`
 
+### 1. Почему грубое правило `changedGlue -> мутировать все фичи` и даже поклассовое сужение неприемлемы на зрелом модуле
+
+**Что случилось.** На модуле из ~48 `.feature`-файлов любая поведенческая задача почти неизбежно добавляет новые шаги
+приёмки или расширяет существующий общий класс шагов (`TaskPublishingSteps`, `ServiceLogSteps`, `OneCPublishingSteps`,
+`IssuanceRecords`). Грубая ветка `if (changedGlue)` превращала локальную задачу на 1 новой фиче (~70–130 мутантов, 4–6
+минут) в последовательный прогон всех 48 фич (~4 800 сценариев с контролями `cN`/`zN`, 2 ч 44 мин в один JVM), выбивая
+двухчасовые лимиты сабагентов и квоты токенов. При этом наивное сужение на уровне целых Java-классов не решает проблему:
+в реальных диффах шага модели добавляют новый метод `@Когда`, поле `private static final Set<String>` или лямбду прямо в
+общий `TaskPublishingSteps` / `ServiceLogSteps`, где уже живут неизменённые `@DataTableType row(Map)` и `@Before`-хуки,
+вызываемые в 40–46 из 48 фич.
+
+**Почему так исправлено (`GherkinMutator.GlueImpact` + `gauntlet.gradle`).**
+- `gherkinMutation` проверяет не продакшен-код (`src/main` уже проверен всеми сценариями `acceptanceTest` и PIT в
+  `mutationGate`), а то, не ослаблены ли step-определения (glue) для значений `Examples`.
+- Когда все затронутые файлы glue — существующие `.java` в `sourceSets.acceptanceTest.java`, `gherkinMutants` извлекает
+  базовое дерево `acceptanceTest` из `merge-base` (`git archive --format=zip`) и компилирует его в
+  `build/gherkin-mutation/base-glue-classes`.
+- `GlueImpact` разбирает `.class`-файлы `base` и `head` (константный пул, символические аннотации без зависимости от
+  сдвига индексов CP, `BootstrapMethods`, все 202 опкода JVM):
+  1. Прямолинейный `<clinit>` нарезается по границам `putstatic thisClass.<field>`, поэтому новое `private static final`
+     поле в общем классе шагов не меняет подпись соседних полей и старых шагов; если же `<clinit>` содержит ветвления,
+     таблицу исключений или хвост после последнего `putstatic`, зависимость на `<clinit>` консервативно получают все
+     методы и поля этого класса.
+  2. Сквозная по-классовая нумерация синтетических методов `lambda$<метод>$\d+` в `javac` нормализуется в локальном
+     байткоде до `<lambda>`, а в транзитивной подписи метода обходится в детерминированном порядке вызова (`L#0`, `L#1`, …),
+     поэтому добавление лямбды выше существующего метода не меняет подпись нетронутого метода ниже по файлу.
+  3. Чистые DI-конструкторы (`Object.<init>()V` + `putfield thisClass.<f>`) не связывают старые методы с новыми полями
+     класса, которых эти методы не читают; ослабление видимости `private` → package-private у непереопределённого
+     helper-метода не даёт ложного срабатывания, тогда как изменение тела helper-метода или полиморфного переопределения
+     в подклассе транзитивно меняет подпись всех вызывающих шагов.
+  4. Любое изменение глобального контекста (`@CucumberContextConfiguration`, `@Configuration`, `@TestConfiguration`,
+     `@SpringBootTest`, `@Aspect`, `@Bean`, `@RabbitListener`, `@EventListener`, `@PostConstruct`, `@BeforeAll`/`@AfterAll`,
+     `@DocStringType`, `@Default*Transformer`), удаление шага, удаление/перенацеливание хука или `@ParameterType`,
+     изменение существующего `@DataTableType`, удаление файла glue, правка не-Java ресурсов приёмки или несобираемость
+     базового glue против текущего `src/main` возвращает полный прогон по всем фичам.
+
+### 2. Исключение повторного прогона `gherkinMutantsRun` на неизменных входах (`verified.sha256`) и сохранение configuration cache
+
+**Что случилось.** В штатном процессе `hardener` прогоняет `./gradlew gherkinMutation` до зелёного, затем `reviewer`
+читает код без правок, и финальный шаг запускает `./gradlew gauntlet` — гоняя `gherkinMutantsRun` второй раз на тех же
+байтах ради `outputs.upToDateWhen { false }` (нужного, чтобы зелёный по коду выхода `gherkinMutantsRun` с `ignoreFailures =
+true` не кэшировался после красного `gherkinMutation`). Одновременно замыкание `task.doFirst { buildLock.get().hold(path) }`
+в `tasks.configureEach` захватывало объект `Script` и ломало `org.gradle.configuration-cache=true` на обычных задачах
+вроде `./gradlew dependencies`.
+
+**Почему так исправлено.**
+- Только после зелёного вердикта `gherkinMutation` (`exit 0`) записывается `build/gherkin-mutation/verified.sha256`
+  (SHA-256 по сгенерированным файлам `mutants/`, `acceptanceTest.runtimeClasspath`, `gauntlet/config/**`, скриптам сборки,
+  JVM гейта, `-P`-свойствам и переменным окружения JVM); старт `gherkinMutantsRun` и старт `gherkinMutation` предварительно
+  удаляют этот файл. При совпадении отпечатка и наличии XML/NDJSON на диске `gherkinMutantsRun` пропускается штатным
+  `skippedByTheKit(task, 'inputs unchanged since green gherkinMutation')`, а `gherkinMutants` и `gherkinMutation`
+  выполняются полностью и перепроверяют вердикт.
+- Захват `GauntletBuildLock` вынесен в статический класс `HoldGauntletBuildLock implements Action<Task>`, не удерживающий
+  ссылку на `Script`/`Project`.
+
+### 3. Docker Engine 29+ с `CgroupDriver=none` в `docker_pause_shim.py`
+
+**Что случилось.** В Docker Engine 29.9.2 без cgroup (`CgroupDriver=none`) вызов `docker top <id> -eo pid` падает с
+`unable to get all container pids` из-за отсутствия `/sys/fs/cgroup/<id>`.
+
+**Почему так исправлено.** `docker_pause_shim.py` разрешает процессы контейнера в три ступени: `docker top` → `docker
+inspect --format '{{.State.Pid}}'` с рекурсивным сбором потомков по `/proc/<pid>/stat` → `docker kill
+--signal=SIGSTOP|SIGCONT <id>`, а `session_start.sh` проверяет живой ответ `docker --host unix://$shim_sock info` и
+перезапускает прокси при мёртвом сокете.

@@ -929,6 +929,44 @@ class GherkinScope(GradleCase):
     def test_a_leading_dot_in_the_features_setting(self):
         self.changed_feature_under("./src/acceptanceTest/resources/features")
 
+    def test_added_step_in_shared_glue_mutates_only_impacted_feature_and_skips_repeat_mutant_run(self):
+        self.project()
+        # Add a new step + static field to DiscountSteps (used by example_discount.feature) and a new vip.feature
+        vip_steps = DISCOUNT_STEPS.replace(
+            "public class DiscountSteps {\n",
+            "public class DiscountSteps {\n    private static final int VIP_BONUS = 50;\n",
+        ).replace(
+            "    @Тогда(\"итог заказа составляет {int} руб.\")",
+            "    @Дано(\"VIP-клиент с базовой скидкой {int} руб.\")\n"
+            "    public void vipClient(int base) {\n        discount = base + VIP_BONUS;\n    }\n\n"
+            "    @Тогда(\"итог заказа составляет {int} руб.\")",
+        ) % "assertEquals(expected, total)"
+        self.file(GLUE + "DiscountSteps.java", vip_steps)
+        self.file(
+            FEATURES + "vip.feature",
+            "# language: ru\nФункция: VIP-скидка\n\n  Структура сценария: Заказ VIP-клиента\n"
+            "    Дано VIP-клиент с базовой скидкой <база> руб.\n"
+            "    Когда клиент оформляет заказ на сумму <сумма> руб.\n"
+            "    Тогда итог заказа составляет <итог> руб.\n\n"
+            "    Примеры:\n      | база | сумма | итог |\n      | 100  | 1000  | 850  |\n",
+        )
+        self.commit("vip discount step in shared glue")
+        # 1. gherkinMutation narrows scope to vip.feature only (3 mutants + 2 controls, not 9+3=12)
+        r1 = self.gradle("gherkinMutation")
+        self.assert_build(r1, True)
+        self.assertIn("narrowing scope via bytecode + message stream", r1.out)
+        self.assertIn("glue impact narrowed scope to 1 of 2 feature file(s)", r1.out)
+        self.assertIn("Gherkin mutation: 3 mutant(s) - 3 killed, 0 survived, 0 error(s); 2 control(s) - 2 passed", r1.out)
+        # 2. Immediate `gauntlet` skips re-running gherkinMutantsRun while executing gherkinMutants + gherkinMutation
+        r2 = self.gradle("gauntlet", "--continue")
+        self.assert_build(r2, True)
+        self.assertIn("gauntlet: :gherkinMutantsRun skipped by the kit - inputs unchanged since green gherkinMutation", r2.out)
+        self.assertIn("Gherkin mutation: OK", r2.out)
+        self.assertEqual(kit.stop_gate().not_run("gauntlet", r2.out), [])
+        # 3. Non-gauntlet tasks (e.g. dependencies) stay configuration-cache compatible
+        deps = self.gradle("dependencies", "--configuration", "testRuntimeClasspath", "--configuration-cache")
+        self.assert_build(deps, True)
+
 
 class PathLists(GradleCase):
     """A name that holds a separator reaches every tool whole (review of 2c1cd0b)."""

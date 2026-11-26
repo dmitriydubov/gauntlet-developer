@@ -3,6 +3,82 @@
 История ревизий метода Gauntlet и бандла эталонного набора. Документы в репозитории версионируются вместе:
 ревизия инструкции `gauntlet-method-universal.md` и ревизия бандла `gauntlet-kit-bundle.md` совпадают.
 
+## Ревизия 4.7 — 2026-11-25
+
+Точное сужение области `gherkinMutation` по транзитивному байткоду методов и полей приёмочного glue против потока
+сообщений Cucumber (`acceptanceTest`), пропуск повторного прогона `gherkinMutantsRun` внутри `./gradlew gauntlet` при
+побайтно неизменных входах после зелёного `gherkinMutation`, сохранение configuration cache на обычных задачах проекта и
+точечные доработки облачной среды по итогам полного прогона первого шага в пяти вендорских средах. Ни один порог и ни
+одно правило вердикта гейтов не ослаблены: любая глобальная или недоказуемая правка glue консервативно возвращает полный
+прогон по всем `.feature`.
+
+### Что было до правок (база, ревизия 4.6)
+
+- В `gauntlet.gradle` любое касание или добавление хотя бы одного файла в `src/acceptanceTest/` включало ветку
+  `if (changedGlue) { /* every feature is mutated */ }`. Поскольку почти каждая задача, меняющая поведение сервиса,
+  добавляет новый step-класс или дописывает шаг в общий `*Steps.java`, `gherkinMutation` на модуле из ~48 фич вместо
+  1–3 затронутых фич (~130–350 сценариев, 4–8 минут) мутировал все 48 фич (~4 800 сценариев, 2 ч 44 мин в один JVM),
+  выжигая лимиты таймаутов сабагентов (2 ч у Kimi Code) и квоты токенов сессий. При этом сужение на уровне целых классов
+  недостаточно: общие классы вроде `TaskPublishingSteps` и `ServiceLogSteps` одновременно несут неизменённые `@Before` и
+  `@DataTableType`, вызываемые в 40–46 фичах.
+- В маршруте задачи `hardener` обязан довести до зелёного `./gradlew gherkinMutation`, после чего `reviewer` работает
+  только на чтение, а финальный шаг запускает `./gradlew gauntlet` — из-за `outputs.upToDateWhen { false }` на
+  `gherkinMutantsRun` тот же многотысячный прогон мутантов выполнялся второй раз подряд на побайтно тех же входах.
+- В `tasks.configureEach` блокировка `.gradle/gauntlet-build.lock` вешалась замыканием скрипта
+  `task.doFirst { buildLock.get().hold(path) }`, захватывающим объект `Script` (`Project`), из-за чего в модулях с
+  `org.gradle.configuration-cache=true` падали обычные задачи вне списка `notCompatibleWithConfigurationCache`
+  (например, `./gradlew dependencies`).
+- В облачной среде с Docker Engine 29+ и `CgroupDriver=none` команда `docker top <id> -eo pid` падала с
+  `unable to get all container pids` из-за отсутствия `/sys/fs/cgroup/<id>`, поэтому `docker_pause_shim.py` не находил
+  PID контейнера; в `rabbitmq:4.1.2-alpine` после ~4 000 вызовов `queue.purge` на одной классической очереди возникал
+  внутренний сбой `rabbit_classic_queue_index_v2:new_segment_file/3` `{error,enametoolong}`; в `AGENTS.md` / `GEMINI.md`
+  формулировка про пустой `printenv GAUNTLET_GUARD` смешивала «защита не выключена конфигурацией» и «хуки реально
+  сработали».
+
+### Что изменилось
+
+- **Точное сужение области `gherkinMutation` по методам и полям байткода (`gauntlet/tools/GherkinMutator.java`
+  `--glue-impact`, `gauntlet/gauntlet.gradle`, `gauntlet/README.md`):** если все изменённые файлы glue — существующие
+  `.java` в `sourceSets.acceptanceTest.java`, `gherkinMutants` извлекает базовое дерево `acceptanceTest` из `merge-base`
+  (`git archive --format=zip`), компилирует его `javac` приёмки и передаёт `base` и `head` каталоги классов вместе с
+  потоком `build/cucumber-messages/acceptanceTest` в `GherkinMutator generate --glue-impact`. Внутренний анализатор
+  `GlueImpact` разбирает пул констант, `BootstrapMethods`, символические аннотации и все 202 опкода JVM, нарезает
+  прямолинейный `<clinit>` по полям `putstatic`, нормализует сквозную нумерацию `lambda$…$N` и ослабление `private` →
+  package-private у непереопределённых helper-методов, учитывает наследование и полиморфные переопределения и сопоставляет
+  изменённые `stepDefinition`, `hook` и `parameterType` с `testCase.testSteps` каждого сценария приёмки. Полный прогон
+  по всем фичам сохраняется при удалении файла glue, правке не-Java ресурсов приёмки, несобираемости базового glue против
+  нового `src/main`, а также при любом изменении `@CucumberContextConfiguration` / `@Configuration` / `@TestConfiguration`
+  / `@SpringBootTest` / `@Aspect`, методов `@Bean` / `@RabbitListener` / `@EventListener` / `@PostConstruct` /
+  `@BeforeAll` / `@AfterAll` / `@DocStringType` / `@Default*Transformer`, удалении или перенацеливании хука /
+  `@ParameterType` / шага или изменении существующего `@DataTableType`.
+- **Отпечаток верифицированного прогона `verified.sha256` и сохранение configuration cache (`gauntlet/gauntlet.gradle`):**
+  после зелёного `gherkinMutation` (`exit 0`) записывается `build/gherkin-mutation/verified.sha256` (SHA-256 по всем
+  сгенерированным файлам `mutants/`, `acceptanceTest.runtimeClasspath`, `gauntlet/config/**`, скриптам сборки, JVM гейта,
+  `-P`-свойствам и `_JAVA_OPTIONS` / `JAVA_TOOL_OPTIONS` / `JDK_JAVA_OPTIONS`). Если к моменту финального
+  `./gradlew gauntlet` ни один байт входов не изменился и результаты/поток лежат на диске, `gherkinMutantsRun`
+  пропускается штатным `skippedByTheKit(task, 'inputs unchanged since green gherkinMutation')`, тогда как `gherkinMutants`
+  и `gherkinMutation` (`verdict`) исполняются полностью; любой красный прогон или изменение входа сбрасывает отпечаток.
+  Захват блокировки `GauntletBuildLock` переведён на статический класс `HoldGauntletBuildLock implements Action<Task>` без
+  ссылки на `Script`.
+- **Доработки `docker_pause_shim.py`, `session_start.sh`, `gauntlet/CLAUDE.md` и справочных адаптеров:** в
+  `docker_pause_shim.py` добавлен трёхуровневый поиск и заморозка процессов контейнера (`docker top` → `docker inspect
+  --format '{{.State.Pid}}'` с обходом потомков в `/proc` → `docker kill --signal=SIGSTOP|SIGCONT`), в
+  `session_start.sh` — проверка живого ответа `docker --host unix://$shim_sock info` и переподъём при мёртвом сокете; в
+  `gauntlet/CLAUDE.md` задокументирован сбой `rabbitmq:4.1.2-alpine` `{error,enametoolong}` на многотысячных
+  `queue.purge`; в `docs/drafts/round23/adapters/` уточнена диагностика `GAUNTLET_GUARD` без `SessionStart`, переименование
+  `current.ndjson -> jvm-1.ndjson` и обход `gh pr create` `Forbidden` через GitHub-коннектор в Codex Cloud.
+
+### Размеры изменившихся файлов манифеста бандла (байты, 4.6 → 4.7)
+
+| Путь в бандле | 4.6 | 4.7 |
+|---|---|---|
+| `gauntlet/CLAUDE.md` | 76860 | 77309 |
+| `gauntlet/README.md` | 155803 | 157129 |
+| `gauntlet/gauntlet.gradle` | 92297 | 100995 |
+| `gauntlet/hooks/docker_pause_shim.py` | 4328 | 6023 |
+| `gauntlet/hooks/session_start.sh` | 4643 | 4767 |
+| `gauntlet/tools/GherkinMutator.java` | 123280 | 193578 |
+
 ## Ревизия 4.6 — 2026-11-25
 
 Непрерывное выполнение шагов 4–8 после утверждения спецификации (без «сна» после коммита `spec:`), обязательная

@@ -1001,6 +1001,71 @@ class GherkinScope(GradleCase):
         self.assertNotIn("verified cache matched", r4.out)
         self.assertIn("Gherkin mutation: 6 mutant(s) - 6 killed, 0 survived, 0 error(s); 4 control(s) - 4 passed", r4.out)
 
+    def test_sharded_mutant_run_executes_shards_in_parallel_silences_expected_stack_traces_and_reports_slowest(self):
+        # Even when build.gradle enables full stack traces for all Test tasks, gherkinMutantsRun stays quiet on killed
+        # mutants (both for shards=1 and shards=2), while acceptanceTest still prints full stack traces on failure.
+        noisy_logging = """
+tasks.withType(Test).configureEach {
+    testLogging {
+        events 'failed'
+        exceptionFormat = 'full'
+        showStackTraces = true
+    }
+}
+"""
+        self.project(build_extra=noisy_logging)
+        self.file(
+            FEATURES + "second_discount.feature",
+            "# language: ru\nФункция: Второй расчёт скидки\n\n  Структура сценария: Корпоративная скидка\n"
+            "    Дано клиент со скидкой <скидка> руб.\n"
+            "    Когда клиент оформляет заказ на сумму <сумма> руб.\n"
+            "    Тогда итог заказа составляет <итог> руб.\n\n"
+            "    Примеры:\n      | скидка | сумма | итог |\n      | 250    | 2000  | 1750 |\n",
+        )
+        self.commit("add second feature")
+
+        # 1. Single-shard run silences expected mutant failure stack traces despite project-wide tasks.withType(Test)
+        r1 = self.gradle("gauntlet", "-Pgauntlet.scope=all", "-Pgauntlet.gherkinShards=1", "--continue")
+        self.assert_build(r1, True)
+        self.assertNotIn("AssertionFailedError", r1.out)
+        self.assertIn("Acceptance slowest scenario(s)", r1.out)
+        self.assertIn("Acceptance slowest step(s)", r1.out)
+        self.assertIn("Gherkin mutation slowest scenario(s)", r1.out)
+        self.assertIn("Gherkin mutation slowest step(s)", r1.out)
+
+        # 2. 2-shard run splits the 2 features into s1 and s2, executes 2 isolated shard JVMs concurrently,
+        #    keeps logs clean, reports Top-N slowest from NDJSON, and passes every gate
+        r2 = self.gradle("gauntlet", "-Pgauntlet.scope=all", "-Pgauntlet.gherkinShards=2", "--continue")
+        self.assert_build(r2, True)
+        self.assertNotIn("AssertionFailedError", r2.out)
+        self.assertIn("running 2 Gherkin mutant shards in parallel (s1, s2)", r2.out)
+        self.assertIn("Gherkin mutation: 12 mutant(s) - 12 killed, 0 survived, 0 error(s); 8 control(s) - 8 passed", r2.out)
+        self.assertIn("Gherkin mutation slowest scenario(s) (top 10 of 20):", r2.out)
+        self.assertIn("Gherkin mutation: OK", r2.out)
+        self.assertTrue(os.path.isfile(os.path.join(self.lab, "build/gherkin-mutation/results/TEST-gherkin-shard-s1.xml")))
+        self.assertTrue(os.path.isfile(os.path.join(self.lab, "build/gherkin-mutation/results/TEST-gherkin-shard-s2.xml")))
+        self.assertTrue(os.path.isfile(os.path.join(self.lab, "build/gherkin-mutation/messages/s1-jvm-1.ndjson")))
+        self.assertTrue(os.path.isfile(os.path.join(self.lab, "build/gherkin-mutation/messages/s2-jvm-1.ndjson")))
+        self.assertEqual(kit.stop_gate().not_run("gauntlet", r2.out), [])
+
+        # 3. Immediate repeat run with shards=2 skips gherkinMutantsRun cleanly via verified.sha256
+        r3 = self.gradle("gauntlet", "-Pgauntlet.scope=all", "-Pgauntlet.gherkinShards=2", "--continue")
+        self.assert_build(r3, True)
+        self.assertIn("gauntlet: :gherkinMutantsRun skipped by the kit - inputs unchanged since green gherkinMutation", r3.out)
+
+        # 4. A broken acceptance scenario still prints full stack trace in acceptanceTest
+        self.file(
+            FEATURES + "second_discount.feature",
+            "# language: ru\nФункция: Второй расчёт скидки\n\n  Структура сценария: Корпоративная скидка\n"
+            "    Дано клиент со скидкой <скидка> руб.\n"
+            "    Когда клиент оформляет заказ на сумму <сумма> руб.\n"
+            "    Тогда итог заказа составляет <итог> руб.\n\n"
+            "    Примеры:\n      | скидка | сумма | итог |\n      | 250    | 2000  | 9999 |\n",
+        )
+        r_fail = self.gradle("acceptanceTest")
+        self.assert_build(r_fail, False)
+        self.assertIn("AssertionFailedError", r_fail.out)
+
 
 class PathLists(GradleCase):
     """A name that holds a separator reaches every tool whole (review of 2c1cd0b)."""

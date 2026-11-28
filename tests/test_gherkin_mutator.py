@@ -108,9 +108,9 @@ def enum_rejected(*glue_frames):
                   frames=("java.base/java.lang.Enum.valueOf(Enum.java:293)",) + glue_frames + (STEP_FRAME,))
 
 
-def step_frame(line):
+def step_frame(line, scenario_id="m1"):
     """The step frame of a step on another line of the generated feature."""
-    return STEP_FRAME.replace(".feature:5)", f".feature:{line})")
+    return STEP_FRAME.replace("/m1.feature:5)", f"/{scenario_id}.feature:{line})")
 
 
 def merged(exc_type=ASSERTION, message="expected: <10> but was: <18>", frames=(GLUE_FRAME, STEP_FRAME),
@@ -145,7 +145,7 @@ def attempts(name, runs, merge):
     return cases
 
 
-def write_results(directory, cases):
+def write_results(directory, cases, file_name=f"TEST-{ENGINE}.xml"):
     """cases: [(testcase name, body)], body = '' for a passed scenario."""
     failures = sum(1 for _, body in cases if "<failure" in body or "<error" in body)
     skipped = sum(1 for _, body in cases if "<skipped" in body)
@@ -156,7 +156,7 @@ def write_results(directory, cases):
         head = f'  <testcase name={quoteattr(name)} classname="{ENGINE}" time="0.004"'
         xml.append(head + "/>\n" if not body else head + ">\n" + body + "  </testcase>\n")
     xml += ["  <system-out><![CDATA[]]></system-out>\n", "  <system-err><![CDATA[]]></system-err>\n", "</testsuite>\n"]
-    write(os.path.join(directory, f"TEST-{ENGINE}.xml"), "".join(xml))
+    write(os.path.join(directory, file_name), "".join(xml))
 
 
 def write_manifest(directory, mutants, controls):
@@ -2023,6 +2023,121 @@ class VerifiedCache(Sandbox):
         self.assertEqual(0, code, out)
         self.assertIn("2 mutant(s) + 4 control(s) already verified on current runtime - OK", out)
         self.assertIn("Gherkin mutation: OK", out)
+
+
+class ShardingAndSlowestReportTests(Sandbox):
+
+    def write_sized_feature(self, name, rows):
+        body = "\n".join(f"      | {10 * (i + 1)} | {20 * (i + 1)} |" for i in range(rows))
+        write(self.path("features", name), f"""Feature: {name}
+  Scenario Outline: Calc {name}
+    When input is <a>
+    Then output is <b>
+    Examples:
+      | a | b |
+{body}
+""")
+
+    def test_generate_shards_distributes_whole_features_greedily_and_keeps_controls_with_mutants(self):
+        # heavy.feature: 2 rows -> 4 mutants + 4 controls = 8 scenarios
+        # m1.feature & m2.feature: 1 row each -> 2 mutants + 2 controls = 4 scenarios each
+        # Greedy LPT across 2 shards balances s1=8 (heavy) and s2=8 (mid1 + mid2), keeping each feature's cN/m*/zN together
+        self.write_sized_feature("heavy.feature", 2)
+        self.write_sized_feature("mid1.feature", 1)
+        self.write_sized_feature("mid2.feature", 1)
+        code, out = tool("generate", "--features", "features", "--out", "mutants", "--shards", "2", cwd=self.dir)
+        self.assertEqual(0, code, out)
+        self.assertIn("8 mutant(s) + 8 control(s) from 3 feature file(s) in scope -> mutants (2 shards: s1=8, s2=8)", out)
+        shards = kit.read(self.path("mutants", "shards.txt")).splitlines()
+        self.assertEqual(["s1", "s2"], shards)
+        s1_files = set(os.listdir(self.path("mutants", "s1")))
+        s2_files = set(os.listdir(self.path("mutants", "s2")))
+        self.assertTrue(s1_files.isdisjoint(s2_files))
+        self.assertEqual(8, len(s1_files))
+        self.assertEqual(8, len(s2_files))
+        # Every row's cN, m*, and zN live in the same shard
+        by_feature = {}
+        for r in self.manifest():
+            fname = r[0] + ".feature"
+            shard = "s1" if fname in s1_files else "s2"
+            by_feature.setdefault(r[1], set()).add(shard)
+        for feat, feat_shards in by_feature.items():
+            self.assertEqual(1, len(feat_shards), f"{feat} split across {feat_shards}")
+        self.assertNotEqual(by_feature["features/heavy.feature"], by_feature["features/mid1.feature"])
+
+        # Single feature in scope falls back to flat directory (no empty shards)
+        shutil.rmtree(self.path("features"))
+        self.write_sized_feature("only.feature", 1)
+        code2, out2 = tool("generate", "--features", "features", "--out", "mutants", "--shards", "3", cwd=self.dir)
+        self.assertEqual(0, code2, out2)
+        self.assertFalse(os.path.exists(self.path("mutants", "shards.txt")))
+        self.assertTrue(os.path.isfile(self.path("mutants", "m1.feature")))
+
+    def test_verdict_judges_multi_shard_streams_and_reports_top_slowest_mutants_and_steps(self):
+        self.write_sized_feature("alpha.feature", 1)
+        self.write_sized_feature("beta.feature", 1)
+        code, out = tool("generate", "--features", "features", "--out", "mutants", "--shards", "2", cwd=self.dir)
+        self.assertEqual(0, code, out)
+        s1_ids = [f[:-8] for f in sorted(os.listdir(self.path("mutants", "s1"))) if f.endswith(".feature")]
+        s2_ids = [f[:-8] for f in sorted(os.listdir(self.path("mutants", "s2"))) if f.endswith(".feature")]
+
+        # Write per-shard JUnit XMLs and per-shard NDJSON streams with step durations (simulating concurrent shards at t=0..)
+        def shard_ndjson(path, ids, step_durations_ms):
+            evs = [{"meta": {"protocolVersion": "27.2.0"}}, {"testRunStarted": {"timestamp": stamp(0)}}]
+            for idx, cid in enumerate(ids):
+                uri = f"file:///work/mutants/{cid}.feature"
+                evs.append({"gherkinDocument": {"uri": uri, "feature": {"location": {"line": 1, "column": 1}, "children": [
+                    {"scenario": {"id": f"sc-{cid}", "location": {"line": 3, "column": 3}, "steps": [
+                        {"id": f"ast-st-{cid}", "location": {"line": 5, "column": 5}}
+                    ]}}
+                ]}}})
+                evs.append({"pickle": {"id": f"pk-{cid}", "uri": uri, "name": f"{cid.upper()} | Calc",
+                                       "astNodeIds": [f"sc-{cid}"],
+                                       "steps": [{"id": f"ps-{cid}", "text": f"output is checked for {cid}",
+                                                  "astNodeIds": [f"ast-st-{cid}"]}]}})
+                evs.append({"testCase": {"id": f"tc-{cid}", "pickleId": f"pk-{cid}",
+                                         "testSteps": [{"id": f"ts-{cid}", "pickleStepId": f"ps-{cid}"}]}})
+            t = 0
+            for cid in ids:
+                dur = step_durations_ms.get(cid, 12)
+                evs.append({"testCaseStarted": {"id": f"run-{cid}", "testCaseId": f"tc-{cid}", "timestamp": stamp(t)}})
+                status = "PASSED" if cid[0] in ("c", "z") else "FAILED"
+                ns = dur * 1_000_000
+                evs.append({"testStepFinished": {
+                    "testCaseStartedId": f"run-{cid}", "testStepId": f"ts-{cid}",
+                    "testStepResult": {"status": status,
+                                       "duration": {"seconds": ns // 1_000_000_000, "nanos": ns % 1_000_000_000}}
+                }})
+                evs.append({"testCaseFinished": {"testCaseStartedId": f"run-{cid}", "timestamp": stamp(t + dur + 2)}})
+                t += dur + 5
+            write(path, "".join(json.dumps(e) + "\n" for e in evs))
+
+        cases_s1 = [(control_name(cid) if cid[0] in ("c", "z") else mutant_name(int(cid[1:])),
+                     PASSED if cid[0] in ("c", "z") else thrown(ASSERTION, "boom", (GLUE_FRAME, step_frame(5, cid))))
+                    for cid in s1_ids]
+        cases_s2 = [(control_name(cid) if cid[0] in ("c", "z") else mutant_name(int(cid[1:])),
+                     PASSED if cid[0] in ("c", "z") else thrown(ASSERTION, "boom", (GLUE_FRAME, step_frame(5, cid))))
+                    for cid in s2_ids]
+        write_results(self.results, cases_s1, file_name="TEST-gherkin-shard-s1.xml")
+        write_results(self.results, cases_s2, file_name="TEST-gherkin-shard-s2.xml")
+        shard_ndjson(self.path("messages", "s1-jvm-1.ndjson"), s1_ids, {"m1": 45200, "m2": 150})
+        shard_ndjson(self.path("messages", "s2-jvm-1.ndjson"), s2_ids, {"m3": 3200, "m4": 80})
+
+        code_v, out_v = tool("verdict", "--mutants", "mutants", "--results", "results",
+                             "--messages", "messages", "--slow-top", "2", cwd=self.dir)
+        self.assertEqual(0, code_v, out_v)
+        self.assertIn("Gherkin mutation: 4 mutant(s) - 4 killed, 0 survived, 0 error(s); 4 control(s) - 4 passed", out_v)
+        self.assertIn("Gherkin mutation slowest scenario(s) (top 2 of 8):", out_v)
+        self.assertIn("45202.0 ms  m1  features/alpha.feature:7 \"Calc alpha.feature\" a: 10 -> ", out_v)
+        self.assertIn("step :5 [FAILED 45200.0 ms] output is checked for m1", out_v)
+        self.assertIn("Gherkin mutation slowest step(s) (top 2 of 8):", out_v)
+        self.assertIn("Gherkin mutation: OK", out_v)
+
+        # --slow-top 0 suppresses timing tables
+        code_z, out_z = tool("verdict", "--mutants", "mutants", "--results", "results",
+                             "--messages", "messages", "--slow-top", "0", cwd=self.dir)
+        self.assertEqual(0, code_z, out_z)
+        self.assertNotIn("slowest", out_z)
 
 
 if __name__ == "__main__":

@@ -3,6 +3,68 @@
 История ревизий метода Gauntlet и бандла эталонного набора. Документы в репозитории версионируются вместе:
 ревизия инструкции `gauntlet-method-universal.md` и ревизия бандла `gauntlet-kit-bundle.md` совпадают.
 
+## Ревизия 4.8.0 — 2026-11-28
+
+Шардирование `gherkinMutantsRun` по целым `.feature`-файлам в независимых параллельных JVM без ослабления проверок порядка и
+контролей, встроенный отчёт о самых медленных сценариях/мутантах и шагах из потока сообщений Cucumber, подавление ожидаемых
+стектрейсов падений мутантов в `gherkinMutantsRun` и параллельная матрица модулей в `.github/workflows/gauntlet.yml` со
+сводным обязательным статус-чеком `gauntlet`.
+
+### Что было до правок (база, ревизия 4.7.2)
+
+- При правке общего класса шагов или трансформеров `gherkinMutantsRun` запускал все сгенерированные сценарии последовательно
+  в одной JVM (`maxParallelForks = 1`), недогружая 4-vCPU раннер GitHub Actions (45–160 минут на крупном модуле).
+- В `TEST-*.xml` фиксируется только общее время сценария: медленный шаг (например, 5-секундный `poll` пустой очереди на
+  штатном сценарии), умножаемый на сотни мутантов, не был виден в выводе `acceptanceCheck` и `gherkinMutation`.
+- Если `build.gradle` модуля настраивал `tasks.withType(Test).configureEach { testLogging { events 'failed'; exceptionFormat =
+  'full'; showStackTraces = true } }`, задача `gherkinMutantsRun` печатала в лог сборки тысячи ожидаемых многострочных
+  стектрейсов убитых мутантов.
+- `.github/workflows/gauntlet.yml` исполнял все охраняемые модули последовательно в одном job и гонял незатронутый второй
+  модуль даже на PR, меняющем только один каталог сервиса.
+
+### Что изменилось
+
+- **Топ самых медленных сценариев, мутантов и шагов (`gauntlet/tools/GherkinMutator.java`, `gauntlet/gauntlet.gradle`,
+  `gauntlet/config/gauntlet.properties`):** добавлен параметр `--slow-top N` (`gherkin.slowTop`, по умолчанию `10`, `0` —
+  выкл.). `acceptanceCheck` (`no-skipped`) и `gherkinMutation` (`verdict`) читают `testStepResult.duration` (с резервом по
+  `testStepStarted`/`testStepFinished`) и `pickle.steps` из существующего потока сообщений Cucumber (Cucumber 7 и 8) и
+  печатают топ самых медленных сценариев/мутантов (включая самый медленный шаг каждого сценария и мутированную колонку
+  `orig -> mut`) и топ самых медленных шагов всего прогона. Длительность сценария защищена от обратного шага стенных часов
+  облачной VM (`Math.max(wall, stepSum)`), чтобы ни один завершённый сценарий не выпадал из выборки.
+- **Тихий лог `gherkinMutantsRun` (`gauntlet/gauntlet.gradle`):** `silenceMutantTestLogging` выставляет на `gherkinMutantsRun`
+  пустой `events` и отключает `showExceptions`, `showCauses`, `showStackTraces` и `showStandardStreams` при регистрации, в
+  `afterEvaluate`, в `doFirst` и перед стартом `executeTests()` (а в пошардовом режиме перехватывает `System.out`/`System.err`
+  внутрь `TEST-gherkin-shard-s<i>.xml`), подавляя ожидаемые стектрейсы убитых мутантов даже при проектном
+  `tasks.withType(Test).configureEach`, но сохраняя полный вывод падений на `acceptanceTest`.
+- **Пошардовый параллелизм `gherkinMutantsRun` по целым фичам (`gauntlet/tools/GherkinMutator.java`,
+  `gauntlet/gauntlet.gradle`, `gauntlet/config/gauntlet.properties`):** `GherkinMutator generate --shards K` раскладывает
+  целые исходные `.feature` со всеми их `cN`, мутантами и `zN` по каталогам `mutants/s1..sK` жадным алгоритмом LPT (`mutants +
+  controls` по убыванию) и пишет `mutants/shards.txt` при числе непустых шардов больше одного. Подкласс `GherkinMutantsTest`
+  запускает шарды параллельно в отдельных дочерних JVM через `GherkinMutator run-shard` (JUnit Platform
+  `LauncherFactory.openSession()` с `EngineFilter.includeEngines("cucumber")` и всеми `allJvmArgs` задачи, включая
+  `-javaagent`), записывая `TEST-gherkin-shard-s<i>.xml` и `messages/s<i>-jvm-1.ndjson`. Внутри каждого шарда поднимается
+  изолированный контекст и собственные контейнеры Testcontainers, а `verdict` рекурсивно читает все потоки шардов и сохраняет
+  строгие проверки `overlaps`, `bracket` и `expectedShardCount`. По умолчанию `gherkin.shards=1` локально и на 2-vCPU
+  облачных VM; в CI передаётся `-Pgauntlet.gherkinShards=2`, если проект не задал `gherkin.shards` явно.
+- **Матричный прогон модулей и сводный статус-чек в CI (`.github/workflows/gauntlet.yml`, `gauntlet/CLAUDE.md`,
+  `gauntlet/README.md`):** workflow разделён на `plan` (разрешение базовой ветки, сборок и версий Java; на PR без изменений в
+  общих путях набора, конфигурации агентов и коде/сборке вне каталогов модулей вроде `shared-lib/` планируются только
+  затронутые модули) → `build` (`strategy.matrix`, `fail-fast: false`, явный `git fetch` базовой ветки, зеркало Maven Central
+  в GCS, проверка `stop_gate.py --verify-ran gauntlet`, артефакт `gauntlet-reports-${{ matrix.artifact }}`) → агрегатор
+  `gauntlet` (`name: gauntlet`, `needs: [plan, build]`, `if: always()`), сохраняющий имя обязательного статус-чека для
+  branch protection.
+
+### Размеры изменившихся файлов манифеста бандла (байты, 4.7.2 → 4.8.0)
+
+| Путь в бандле | 4.7.2 | 4.8.0 |
+|---|---|---|
+| `.github/workflows/gauntlet.yml` | 10322 | 16649 |
+| `gauntlet/CLAUDE.md` | 79188 | 79817 |
+| `gauntlet/README.md` | 157671 | 158363 |
+| `gauntlet/config/gauntlet.properties` | 8765 | 9183 |
+| `gauntlet/gauntlet.gradle` | 102903 | 112399 |
+| `gauntlet/tools/GherkinMutator.java` | 201724 | 232700 |
+
 ## Ревизия 4.7.2 — 2026-11-26
 
 Пофайловый кэш верифицированных `.feature`-файлов в `gherkinMutation` без ослабления проверок, зеркало Maven Central в

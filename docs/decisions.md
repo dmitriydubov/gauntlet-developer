@@ -3131,3 +3131,62 @@ inspect --format '{{.State.Pid}}'` с рекурсивным сбором пот
 проекта, а `GherkinMutator.runOrder` при ошибках порядка на нескольких потоках `*.ndjson` выводит первой строкой явный
 диагноз перезапуска воркера и указание проверить `gherkin.maxHeapSize`.
 
+## Ревизия 4.8.0 (2026-11-28) — пошардовый параллелизм `gherkinMutantsRun` по целым фичам, диагностика медленных сценариев/шагов, тихий вывод ожидаемых падений мутантов и матричный CI
+
+### 1. Пошардовый параллелизм `gherkinMutantsRun` по целым `.feature` (`gherkin.shards`)
+
+**Что случилось.** На модуле с 48 фичами или задаче, затрагивающей общие классы шагов/трансформеров, однопоточный прогон
+всех сгенерированных мутантов и контролей в одной JVM занимает на 4-vCPU раннере GitHub Actions 45–160 минут, недогружая
+три ядра из четырёх. При этом включить `cucumber.execution.parallel.enabled=true` или обычный `maxParallelForks > 1` внутри
+одного каталога `mutants/` нельзя: два сценария разделяли бы один стенд (общая БД/очереди в `ApplicationContext`) и ломали
+бы инвариант «каждый мутант строки `Examples` исполняется строго между своими контролями `cN` и `zN` на том же стенде».
+
+**Почему так исправлено и какие альтернативы отвергнуты.**
+- *Отвергнуто: разбиение отдельных файлов `m*.feature` по шардам независимо от их `.feature`.* Разрывало бы пару контролей
+  `cN` / `zN` и мутантов одной строки по разным JVM, обесценивая `bracket`-проверку `runOrder`.
+- *Отвергнуто: несколько параллельных задач `Test` в графе Gradle.* Фиксировало бы число шардов на этапе конфигурации до
+  того, как `gherkinMutants` вычислит реальное число затронутых `.feature`, и меняло бы набор `> Task` в `stop_gate.py`.
+- *Выбрано:* `GherkinMutator generate --shards K` раскладывает **целые исходные `.feature`** со всеми их `cN`, мутантами и
+  `zN` по подкаталогам `mutants/s1..sK` жадным алгоритмом LPT (`mutants + controls` по убыванию) и пишет `mutants/shards.txt`
+  только когда реальных шардов больше одного (при `K=1` или одной фиче в области остаётся прежняя плоская раскладка).
+  `GherkinMutantsTest` внутри одного `gherkinMutantsRun` поднимает по отдельному дочернему процессу JVM на шард через
+  `LauncherFactory.openSession()` (`EngineFilter.includeEngines("cucumber")`, `cucumber.execution.order=lexical`), передавая
+  каждому все `allJvmArgs` задачи (включая `-javaagent` Mockito) и свой `s<i>-jvm-1.ndjson` + `TEST-gherkin-shard-s<i>.xml`.
+  В каждом шарде поднимается собственный изолированный Spring Context и собственные контейнеры Testcontainers, поэтому
+  `overlaps` и `bracket` в `verdict` остаются столь же строгими внутри каждого потока, а `expectedShardCount` проверяет, что
+  потоков ровно столько, сколько шардов (лишний поток от падения воркера по-прежнему ловится). Локально и на 2-vCPU облачных
+  VM по умолчанию `gherkin.shards=1`, в CI на 4-vCPU раннерах — `-Pgauntlet.gherkinShards=2` (если ключ не переопределён в
+  `gauntlet.properties`).
+
+### 2. Топ самых медленных сценариев, мутантов и шагов из NDJSON (`gherkin.slowTop`) и тихий лог `gherkinMutantsRun`
+
+**Что случилось.** (а) В `TEST-*.xml` есть только суммарное время сценария без разбивки по шагам, поэтому 5-секундный
+таймаут ожидания пустой очереди на штатном happy-path шаге оставался невидимым и умножался на сотни мутантов. (б) Модули,
+включающие `tasks.withType(Test).configureEach { testLogging { events 'failed'; exceptionFormat = 'full'; showStackTraces =
+true } }`, печатали в лог `gherkinMutantsRun` тысячи ожидаемых стектрейсов убитых мутантов (десятки мегабайт вывода).
+
+**Почему так исправлено.**
+- `GherkinMutator` читает `testStepResult.duration` (с резервом по `testStepStarted`/`testStepFinished`) и `pickle.steps` из
+  существующего NDJSON-потока Cucumber (как в Cucumber 7.23, так и в 8.0.1) и печатает в `acceptanceCheck` и `gherkinMutation`
+  топ `gherkin.slowTop` (по умолчанию `10`, `0` — выкл.) самых медленных сценариев/мутантов и шагов; длительность сценария
+  защищена от обратного хода стенных часов VM (`Math.max(wall, stepSum)`), чтобы ни один завершённый сценарий не выпадал из
+  выборки.
+- `silenceMutantTestLogging` принудительно выставляет пустой `events` и выключает `showExceptions`/`showCauses`/
+  `showStackTraces`/`showStandardStreams` на `gherkinMutantsRun` при регистрации, в `afterEvaluate`, в `doFirst` и перед
+  `executeTests()`, а в пошардовом режиме перехватывает `System.out`/`System.err` внутри `TEST-gherkin-shard-s<i>.xml`, не
+  затрагивая подробный вывод падений на `acceptanceTest`.
+
+### 3. Параллельная матрица модулей и сводный статус-чек в `.github/workflows/gauntlet.yml`
+
+**Что случилось.** В монорепозитории последовательный цикл по модулям внутри одного job складывал время прогона всех сервисов
+и гонял незатронутый второй модуль на PR, меняющем только один каталог сервиса. При этом простая замена job `gauntlet` на
+матрицу переименовала бы check run в `gauntlet (module)` и сломала бы обязательный статус-чек `gauntlet` в branch protection.
+
+**Почему так исправлено.** Workflow разделён на `plan` → `build` (`strategy.matrix`, `fail-fast: false`, на PR без правок
+общих путей набора, конфигурации агентов и кода/сборки вне каталогов модулей вроде `shared-lib/` в матрицу включаются
+только модули с изменениями относительно `merge-base`; каждый матричный раннер явно делает `git fetch` базовой ветки, кладёт
+артефакт под уникальным именем `gauntlet-reports-${{ matrix.artifact }}` и проверяет `stop_gate.py --verify-ran gauntlet`) →
+итоговый агрегатор `gauntlet` (`name: gauntlet`, `needs: [plan, build]`, `if: always()`), сохраняющий точное имя обязательной
+проверки для защиты основной ветки.
+
+

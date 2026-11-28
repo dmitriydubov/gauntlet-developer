@@ -3,6 +3,7 @@
 GitHub Actions itself is not available here, so everything the steps take from the runner is stubbed: RUNNER_TEMP,
 GITHUB_OUTPUT, the JAVA_HOME_<major>_<ARCH> variables setup-java exports, and ./gradlew.
 """
+import json
 import os
 import re
 import shutil
@@ -14,7 +15,9 @@ import kit
 
 PLAN = "Resolve the guarded builds and their Java versions"
 BASE = "Resolve the base branch"
+FETCH_BASE = "Fetch the base branch"
 RUN = "Run the gauntlet in every guarded build"
+AGGREGATE = "Verify all guarded builds passed"
 
 
 # a wrapper that records how it was called and, like Gradle, reads whatever stdin offers. `gauntlet` prints a
@@ -107,13 +110,15 @@ class WorkflowText(unittest.TestCase):
 
     def test_scripts_take_runner_values_from_the_environment(self):
         # an expression inside a script is pasted into the shell text; env: keeps the value data
-        for name in (PLAN, BASE, RUN):
+        for name in (PLAN, BASE, FETCH_BASE, RUN, AGGREGATE):
             self.assertNotIn("${{", step_script(name), name)
 
     def test_one_setup_java_step_installs_every_planned_version(self):
         text = workflow()
         self.assertEqual(text.count("actions/setup-java@"), 1)
-        self.assertIn("java-version: ${{ steps.plan.outputs.java }}", text)
+        self.assertIn("java-version: ${{ matrix.java }}", text)
+        self.assertIn("matrix: ${{ fromJson(needs.plan.outputs.matrix) }}", text)
+        self.assertRegex(text, r"(?m)^  gauntlet:\n    name: gauntlet\n    needs: \[plan, build\]\n    if: always\(\)$")
 
     def test_setup_java_is_not_a_deprecated_major(self):
         # v1-v4 are deprecated upstream: v4 warns "setup-java v4 is deprecated ..." on every run
@@ -465,6 +470,103 @@ class PlannedRun(unittest.TestCase):
         ws = Workspace(self.tmp.name, "order service,billing")
         calls = self.run_planned(ws, (17, 21))
         self.assertEqual([c[0] for c in calls], ["order service"] * 3 + ["billing"] * 3)
+
+
+class MatrixAndAggregatorTests(unittest.TestCase):
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    @staticmethod
+    def matrix_of(ws):
+        m = re.search(r"(?m)^matrix=(.+)$", ws.outputs())
+        assert m, f"no matrix output in:\n{ws.outputs()}"
+        return json.loads(m.group(1))["include"]
+
+    def test_plan_emits_matrix_json_with_unique_artifacts_and_java_pairs(self):
+        ws = Workspace(self.tmp.name, "core,adapter")
+        ws.properties("project.java.version=21\ngate.java.version=21\ngherkin.shards=1\n", "adapter")
+        r = ws.step(PLAN)
+        self.assertEqual(r.code, 0, r)
+        include = self.matrix_of(ws)
+        self.assertEqual(include, [
+            {"dir": "core", "project": "17", "gate": "21", "java": "17\n21",
+             "shards": "", "artifact": "1-core"},
+            {"dir": "adapter", "project": "21", "gate": "21", "java": "21",
+             "shards": "1", "artifact": "2-adapter"},
+        ])
+
+    def test_pr_diff_filters_to_touched_module_and_keeps_all_when_shared_lib_or_kit_changes(self):
+        ws = Workspace(self.tmp.name, "core,adapter")
+        origin = os.path.join(self.tmp.name, "origin.git")
+        for cmd in (["git", "init", "-q", "-b", "main", ws.root],
+                    ["git", "-C", ws.root, "add", "."],
+                    ["git", "-C", ws.root, "-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-q", "-m", "init"],
+                    ["git", "clone", "-q", "--bare", ws.root, origin],
+                    ["git", "-C", ws.root, "remote", "add", "origin", origin],
+                    ["git", "-C", ws.root, "fetch", "-q", "origin", "main"]):
+            self.assertEqual(kit.run(cmd).code, 0, cmd)
+
+        # 1. Single-module PR touching only adapter (+ docs outside kit) plans only adapter
+        kit.write(os.path.join(ws.root, "adapter/src/App.java"), "class App {}\n")
+        kit.write(os.path.join(ws.root, "docs/notes.md"), "note\n")
+        for cmd in (["git", "-C", ws.root, "add", "."],
+                    ["git", "-C", ws.root, "-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-q", "-m", "c1"]):
+            self.assertEqual(kit.run(cmd).code, 0, cmd)
+        r = ws.step(PLAN, GAUNTLET_BASE_REF="origin/main")
+        self.assertEqual(r.code, 0, r)
+        self.assertEqual([item["dir"] for item in self.matrix_of(ws)], ["adapter"])
+
+        # 2. Touching shared-lib/ outside guarded module dirs expands matrix to all guarded builds
+        os.remove(ws.output)
+        kit.write(os.path.join(ws.root, "shared-lib/src/Lib.java"), "class Lib {}\n")
+        for cmd in (["git", "-C", ws.root, "add", "."],
+                    ["git", "-C", ws.root, "-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-q", "-m", "lib"]):
+            self.assertEqual(kit.run(cmd).code, 0, cmd)
+        r_lib = ws.step(PLAN, GAUNTLET_BASE_REF="origin/main")
+        self.assertEqual(r_lib.code, 0, r_lib)
+        self.assertEqual([item["dir"] for item in self.matrix_of(ws)], ["core", "adapter"])
+
+        # 3. Touching gauntlet/ also expands matrix to all guarded builds
+        os.remove(ws.output)
+        kit.write(os.path.join(ws.root, "gauntlet/README.md"), "updated kit\n")
+        for cmd in (["git", "-C", ws.root, "add", "."],
+                    ["git", "-C", ws.root, "-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-q", "-m", "kit"]):
+            self.assertEqual(kit.run(cmd).code, 0, cmd)
+        r2 = ws.step(PLAN, GAUNTLET_BASE_REF="origin/main")
+        self.assertEqual(r2.code, 0, r2)
+        self.assertEqual([item["dir"] for item in self.matrix_of(ws)], ["core", "adapter"])
+
+    def test_build_passes_ci_default_gherkin_shards_unless_configured_in_properties(self):
+        ws = Workspace(self.tmp.name, "core,adapter")
+        r = ws.step(RUN, GAUNTLET_BASE_REF="origin/main", GAUNTLET_MATRIX_DIR="core",
+                    GAUNTLET_MATRIX_PROJECT_JAVA="17", GAUNTLET_MATRIX_GATE_JAVA="21",
+                    GAUNTLET_MATRIX_SHARDS="", GAUNTLET_CI_DEFAULT_SHARDS="2")
+        self.assertEqual(r.code, 0, r)
+        calls = ws.called()
+        self.assertEqual(len(calls), 3, calls)
+        self.assertIn("gauntlet --continue --console=plain -Pgauntlet.baseRef=origin/main -Pgauntlet.gherkinShards=2|", calls[2])
+
+        # Explicit gherkin.shards in properties/overlay suppresses the CI default override
+        os.remove(ws.calls)
+        r2 = ws.step(RUN, GAUNTLET_BASE_REF="origin/main", GAUNTLET_MATRIX_DIR="adapter",
+                     GAUNTLET_MATRIX_PROJECT_JAVA="17", GAUNTLET_MATRIX_GATE_JAVA="21",
+                     GAUNTLET_MATRIX_SHARDS="1", GAUNTLET_CI_DEFAULT_SHARDS="2")
+        self.assertEqual(r2.code, 0, r2)
+        calls2 = ws.called()
+        self.assertEqual(len(calls2), 3, calls2)
+        self.assertNotIn("gherkinShards", calls2[2])
+
+    def test_aggregator_gauntlet_job_requires_both_plan_and_build_to_succeed(self):
+        ws = Workspace(self.tmp.name)
+        ok = ws.step(AGGREGATE, PLAN_RESULT="success", BUILD_RESULT="success")
+        self.assertEqual(ok.code, 0, ok)
+        for plan_res, build_res in (("failure", "skipped"), ("success", "failure"), ("success", "cancelled"), ("success", "skipped")):
+            with self.subTest(plan=plan_res, build=build_res):
+                bad = ws.step(AGGREGATE, PLAN_RESULT=plan_res, BUILD_RESULT=build_res)
+                self.assertEqual(bad.code, 1, bad)
+                self.assertIn("::error::gauntlet failed", bad.out)
 
 
 if __name__ == "__main__":

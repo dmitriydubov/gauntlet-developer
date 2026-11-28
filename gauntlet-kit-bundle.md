@@ -1,4 +1,4 @@
-# Бандл эталонного набора gauntlet (ревизия 4.7.2 от 2026-11-26)
+# Бандл эталонного набора gauntlet (ревизия 4.8.0 от 2026-11-28)
 
 Этот файл — самодостаточный источник эталона для протокола `start` из инструкции «Метод Gauntlet». Он
 содержит файлы набора после очистки от имён и примеров эталонного проекта (раздел 8.4 инструкции; ревизия 4 снята с ветки эталона, в которой смержены все правки набора по 2026-10-05): хуки
@@ -769,6 +769,32 @@ Claude Code, роли, настройки, `CLAUDE.md`, CI-workflow, конфи�
   Docker, быстрые условные `@Before`/`@After` и дренирование очередей `basicGet` вместо `queue.purge`, а также формулировка
   шапки отчёта сабагента в IDE без интроспекции модели. Синхронизировано с универсальной инструкцией ревизии 4.7.2.
 
+**Изменения против ревизии 4.7.2 (ревизия 4.8.0, 2026-11-28) — шардирование `gherkinMutantsRun` по целым фичам, диагностика самых медленных сценариев и шагов, подавление ожидаемых стектрейсов мутантов и матричный CI `gauntlet.yml`.**
+- `tools/GherkinMutator.java` (`--slow-top`, по умолчанию `10`, `0` — выкл.), `gauntlet/gauntlet.gradle` и
+  `config/gauntlet.properties` (`gherkin.slowTop`): `acceptanceCheck` (`no-skipped`) и `gherkinMutation` (`verdict`)
+  разбирают тайминги сценариев и Gherkin-шагов прямо из потока сообщений Cucumber (`testCaseStarted`/`testCaseFinished`,
+  `testStepStarted`/`testStepFinished`, `testStepResult.duration`) и выводят топ самых медленных сценариев/мутантов (с
+  самым медленным шагом каждого сценария) и топ самых медленных шагов всего прогона без изменения вердикта.
+- `gauntlet/gauntlet.gradle` (`silenceMutantTestLogging`): в `gherkinMutantsRun` подавлены ожидаемые многострочные
+  стектрейсы падений мутантов (`events = []`, `showExceptions = false`, `showCauses = false`, `showStackTraces = false`,
+  `showStandardStreams = false`), в том числе когда модуль задаёт `tasks.withType(Test).configureEach { testLogging { … } }`
+  позже конфигурации задачи; у `acceptanceTest` полный вывод падений сохранён.
+- `tools/GherkinMutator.java` (`generate --shards K`, `run-shard`), `gauntlet/gauntlet.gradle` (`GherkinMutantsTest`,
+  `runMutantShards`) и `config/gauntlet.properties` (`gherkin.shards`, `-Pgauntlet.gherkinShards=K`): целые `.feature`
+  вместе со всеми их `cN`, мутантами и `zN` жадно (LPT по числу сценариев) раскладываются по каталогам `mutants/s1..sK`
+  (`shards.txt`), и `gherkinMutantsRun` запускает каждый шард в собственном изолированном процессе JVM параллельно через
+  JUnit Platform `LauncherSession` (`cucumber.execution.order=lexical`, `TEST-gherkin-shard-s<i>.xml`,
+  `messages/s<i>-jvm-1.ndjson`), сохраняя строгую по-JVM проверку `overlaps`/`bracket` в `verdict`. Локально и на 2-vCPU
+  облачных VM по умолчанию `gherkin.shards=1`; в GitHub Actions на 4-vCPU раннерах по умолчанию передаётся
+  `-Pgauntlet.gherkinShards=2`, если проект не задал `gherkin.shards` явно.
+- `.github/workflows/gauntlet.yml`: линейный цикл по модулям в одном job заменён тремя заданиями — `plan` (разрешение
+  базовой ветки, модулей и версий Java; на PR без изменений в общих путях набора, конфигурации агентов и коде/сборке вне
+  каталогов модулей вроде `shared-lib/` в матрицу входят только затронутые модули), `build` (`strategy.matrix`,
+  `fail-fast: false`, явный `git fetch` базовой ветки, зеркало Maven Central в GCS, проверка `stop_gate.py --verify-ran
+  gauntlet`, артефакт `gauntlet-reports-${{ matrix.artifact }}`) и сводный статус-чек `gauntlet` (`if: always()`,
+  `needs: [plan, build]`) для защиты ветки. `gauntlet/CLAUDE.md` и `gauntlet/README.md` синхронизированы с универсальной
+  инструкцией ревизии 4.8.0.
+
 ## Как распаковать (Claude выполняет это на шаге 2 протокола `start`)
 
 Каждый файл лежит между строками `===== BEGIN FILE <путь> =====` и `===== END FILE <путь> =====`.
@@ -801,20 +827,20 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md`, `
 - `.claude/agents/specifier.md` (5738 байт)
 - `.claude/settings.json` (2543 байт)
 - `.github/workflows/gauntlet-kit.yml` (10693 байт)
-- `.github/workflows/gauntlet.yml` (10322 байт)
+- `.github/workflows/gauntlet.yml` (16649 байт)
 - `CLAUDE.md` (279 байт)
-- `gauntlet/CLAUDE.md` (79188 байт)
+- `gauntlet/CLAUDE.md` (79817 байт)
 - `gauntlet/INSTALL.md` (24524 байт)
-- `gauntlet/README.md` (157671 байт)
+- `gauntlet/README.md` (158363 байт)
 - `gauntlet/archtest/gauntlet/architecture/ArchitectureTest.java` (7999 байт)
 - `gauntlet/config/architecture.properties` (1420 байт)
 - `gauntlet/config/checkstyle.xml` (4593 байт)
 - `gauntlet/config/crap-allowlist.txt` (924 байт)
-- `gauntlet/config/gauntlet.properties` (8765 байт)
+- `gauntlet/config/gauntlet.properties` (9183 байт)
 - `gauntlet/config/integrity-allowlist.txt` (872 байт)
 - `gauntlet/config/pit-runerror-allowlist.txt` (1485 байт)
 - `gauntlet/config/pmd-ruleset.xml` (11398 байт)
-- `gauntlet/gauntlet.gradle` (102903 байт)
+- `gauntlet/gauntlet.gradle` (112399 байт)
 - `gauntlet/hooks/docker_pause_shim.py` (6023 байт)
 - `gauntlet/hooks/guard.py` (141909 байт)
 - `gauntlet/hooks/selftest.py` (182551 байт)
@@ -826,7 +852,7 @@ gauntlet/hooks/*.py gauntlet/install.sh`. Файлы `.claude/*`, `CLAUDE.md`, `
 - `gauntlet/templates/acceptanceTest/resources/features/example_discount.feature` (1258 байт)
 - `gauntlet/tools/CrapGate.java` (33988 байт)
 - `gauntlet/tools/DryGate.java` (8887 байт)
-- `gauntlet/tools/GherkinMutator.java` (201724 байт)
+- `gauntlet/tools/GherkinMutator.java` (232700 байт)
 - `gauntlet/tools/IntegrityCheck.java` (77690 байт)
 - `gauntlet/tools/PitSummary.java` (12720 байт)
 - `gauntlet/tools/TestCensus.java` (37511 байт)
@@ -1456,9 +1482,10 @@ jobs:
 
 ===== BEGIN FILE .github/workflows/gauntlet.yml =====
 # Gauntlet gate for pull requests. Installed to .github/workflows/gauntlet.yml by gauntlet/install.sh.
-# start records project.* and gate.java.*; CI runs every guarded build's application on ITS project Java and the
-# tools on ITS gate Java (gauntlet/config/<module>/gauntlet.properties overlays the common file, as in Gradle).
-# The agent's hooks run only inside Claude Code; this job is the check nobody can skip.
+# start records project.* and gate.java.*; CI runs every affected guarded build in parallel via strategy.matrix on
+# ITS project Java and the tools on ITS gate Java (gauntlet/config/<module>/gauntlet.properties overlays the common
+# file, as in Gradle), then aggregates their verdicts into a single required status check named `gauntlet`.
+# The agent's hooks run only inside Claude Code; this workflow is the check nobody can skip.
 name: gauntlet
 
 on:
@@ -1470,17 +1497,36 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  gauntlet:
-    name: gauntlet
+  plan:
+    name: plan
     runs-on: ubuntu-latest
-    timeout-minutes: 360                    # sequential gherkinMutantsRun with cN/zN controls across ~50 features can run 3-4h
+    timeout-minutes: 15
+    outputs:
+      base_ref: ${{ steps.base.outputs.ref }}
+      java: ${{ steps.plan.outputs.java }}
+      matrix: ${{ steps.plan.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0                      # scope=changed needs the merge base with the base branch
 
+      - name: Resolve the base branch
+        id: base
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          base="$BASE_REF"
+          if [ -z "$base" ]; then
+            # the key ends where it ends for java.util.Properties in gauntlet.gradle: at `=`, `:` or blanks
+            base=$(sed -En 's#^[[:space:]]*baseRef([[:space:]]*[=:][[:space:]]*|[[:space:]]+)origin/##p' gauntlet/config/gauntlet.properties | tail -1 | tr -d '\r' | sed 's#[[:space:]]*$##')
+          fi
+          echo "ref=origin/${base:-main}" >> "$GITHUB_OUTPUT"
+          git fetch --no-tags origin "${base:-main}"
+
       - name: Resolve the guarded builds and their Java versions
         id: plan
+        env:
+          GAUNTLET_BASE_REF: ${{ steps.base.outputs.ref }}
         run: |
           props=gauntlet/config/gauntlet.properties
           # Where a key ends for java.util.Properties, which reads these files in gauntlet.gradle: `=`, `:` or blanks.
@@ -1528,10 +1574,13 @@ jobs:
           done < <(value module "$props" | tr ',' '\n' | sed 's#^[[:space:]]*##; s#[[:space:]]*$##; s#^/*##; s#/*$##; /^$/d')
           [ "${#builds[@]}" -gt 0 ] || builds=(.)
           plan="$RUNNER_TEMP/gauntlet-plan"
+          shards_map="$RUNNER_TEMP/gauntlet-shards"
           : > "$plan"
+          : > "$shards_map"
           for dir in "${builds[@]}"; do
             project=$(setting 'project\.java\.version' "$dir")
             gate=$(setting 'gate\.java\.version' "$dir")
+            shards=$(setting 'gherkin\.shards' "$dir")
             if [ -z "$project" ]; then
               echo "::error::Set project.java.version for '$dir' in gauntlet/config/gauntlet.properties (or the module's overlay)"
               exit 1
@@ -1541,20 +1590,116 @@ jobs:
             project=$spec
             need_jdk gate.java.version "$dir" "$gate"
             printf '%s\t%s\t%s\n' "$dir" "$project" "$spec" >> "$plan"
+            printf '%s\t%s\n' "$dir" "$shards" >> "$shards_map"
           done
+          # On a pull request in a multi-module repo, run only the modules the diff touches; a change to the shared kit,
+          # workflow, agent configuration or any non-doc path outside the guarded module directories (such as a shared
+          # composite-build library) runs every guarded build.
+          if [ -n "${GAUNTLET_BASE_REF:-}" ] && git rev-parse --verify -q "$GAUNTLET_BASE_REF" >/dev/null 2>&1; then
+            changed=$(git -c core.quotePath=false diff --name-only "$GAUNTLET_BASE_REF...HEAD" || true)
+            if [ -n "$changed" ]; then
+              shared_changed=0
+              while IFS= read -r cpath; do
+                [ -n "$cpath" ] || continue
+                in_mod=0
+                for bdir in "${builds[@]}"; do
+                  bnorm=${bdir#./}
+                  if [ "$bdir" = . ] || [ "${cpath#"$bnorm/"}" != "$cpath" ]; then
+                    in_mod=1
+                    break
+                  fi
+                done
+                [ "$in_mod" -eq 1 ] && continue
+                case "$cpath" in
+                  gauntlet/*|.github/*|.claude/*|.agents/*|.codex/*|.gemini/*|.grok/*|.kimi-code/*|.qwen/*|CLAUDE.md|AGENTS.md|AGENTS.override.md|GEMINI.md|QWEN.md|.mcp.json|CODEOWNERS)
+                    shared_changed=1; break ;;
+                  docs/*|project_files/*|*.md|CHANGELOG*|LICENSE*|.gitignore|.gitattributes|.editorconfig)
+                    ;;
+                  *)
+                    shared_changed=1; break ;;
+                esac
+              done <<< "$changed"
+              if [ "$shared_changed" -eq 0 ]; then
+                filtered=$(mktemp "${RUNNER_TEMP:-/tmp}/gauntlet-plan.XXXXXX")
+                while IFS=$'\t' read -r dir project gate; do
+                  norm=${dir#./}
+                  if [ "$dir" = . ]; then
+                    printf '%s\t%s\t%s\n' "$dir" "$project" "$gate" >> "$filtered"
+                  else
+                    while IFS= read -r cpath; do
+                      if [ -n "$cpath" ] && [ "${cpath#"$norm/"}" != "$cpath" ]; then
+                        printf '%s\t%s\t%s\n' "$dir" "$project" "$gate" >> "$filtered"
+                        break
+                      fi
+                    done <<< "$changed"
+                  fi
+                done < "$plan"
+                [ -s "$filtered" ] && mv "$filtered" "$plan" || rm -f "$filtered"
+              fi
+            fi
+          fi
           cat "$plan"
+          matrix_json=$(python3 -I - "$plan" "$shards_map" <<'PY'
+          import json, re, sys
+          shards_by_dir = {}
+          with open(sys.argv[2], encoding="utf-8") as sf:
+              for raw in sf:
+                  parts = raw.rstrip("\r\n").split("\t", 1)
+                  if len(parts) == 2:
+                      shards_by_dir[parts[0]] = parts[1]
+          include = []
+          with open(sys.argv[1], encoding="utf-8") as pf:
+              for idx, raw in enumerate(pf, 1):
+                  line = raw.rstrip("\r\n")
+                  if not line:
+                      continue
+                  d, proj, gate = line.split("\t")
+                  java = proj if proj == gate else f"{proj}\n{gate}"
+                  slug = "root" if d == "." else (re.sub(r"[^A-Za-z0-9_.-]+", "-", d).strip("-") or "module")
+                  include.append({
+                      "dir": d,
+                      "project": proj,
+                      "gate": gate,
+                      "java": java,
+                      "shards": shards_by_dir.get(d, ""),
+                      "artifact": f"{idx}-{slug}"[:80],
+                  })
+          print(json.dumps({"include": include}, separators=(",", ":")))
+          PY
+          )
           {
             echo 'java<<GAUNTLET_EOF'
             printf '%s\n' "${jdks[@]}"
             echo 'GAUNTLET_EOF'
+            printf 'matrix=%s\n' "$matrix_json"
           } >> "$GITHUB_OUTPUT"
 
-      # Every JDK any guarded build needs, in one step: setup-java exports JAVA_HOME_<major>_<ARCH> for each of
+  build:
+    name: gauntlet (${{ matrix.dir }})
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0                      # scope=changed needs the merge base with the base branch
+
+      - name: Fetch the base branch
+        env:
+          GAUNTLET_BASE_REF: ${{ needs.plan.outputs.base_ref }}
+        run: |
+          base="${GAUNTLET_BASE_REF#origin/}"
+          git fetch --no-tags origin "${base:-main}"
+
+      # Every JDK this guarded build needs, in one step: setup-java exports JAVA_HOME_<major>_<ARCH> for each of
       # them (and puts the last one first on PATH - the run step below sets JAVA_HOME and PATH per build itself).
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: ${{ steps.plan.outputs.java }}
+          java-version: ${{ matrix.java }}
 
       - uses: gradle/actions/setup-gradle@v4
 
@@ -1592,22 +1737,14 @@ jobs:
           }
           EOF
 
-      - name: Resolve the base branch
-        id: base
-        env:
-          BASE_REF: ${{ github.base_ref }}
-        run: |
-          base="$BASE_REF"
-          if [ -z "$base" ]; then
-            # the key ends where it ends for java.util.Properties in gauntlet.gradle: at `=`, `:` or blanks
-            base=$(sed -En 's#^[[:space:]]*baseRef([[:space:]]*[=:][[:space:]]*|[[:space:]]+)origin/##p' gauntlet/config/gauntlet.properties | tail -1 | tr -d '\r' | sed 's#[[:space:]]*$##')
-          fi
-          echo "ref=origin/${base:-main}" >> "$GITHUB_OUTPUT"
-          git fetch --no-tags origin "${base:-main}"
-
       - name: Run the gauntlet in every guarded build
         env:
-          GAUNTLET_BASE_REF: ${{ steps.base.outputs.ref }}
+          GAUNTLET_BASE_REF: ${{ needs.plan.outputs.base_ref }}
+          GAUNTLET_MATRIX_DIR: ${{ matrix.dir }}
+          GAUNTLET_MATRIX_PROJECT_JAVA: ${{ matrix.project }}
+          GAUNTLET_MATRIX_GATE_JAVA: ${{ matrix.gate }}
+          GAUNTLET_MATRIX_SHARDS: ${{ matrix.shards }}
+          GAUNTLET_CI_DEFAULT_SHARDS: "2"
         run: |
           # The JDK setup-java installed for a version, JAVA_HOME_<major>_<ARCH>: the plan step left one version per
           # major and each of them begins with its major. Fails when there is none.
@@ -1615,6 +1752,10 @@ jobs:
             var=$(compgen -v "JAVA_HOME_${1%%[!0-9]*}_" | head -1)
             [ -n "$var" ] && [ -x "${!var}/bin/java" ] && printf '%s' "${!var}"
           }
+          plan_file="$RUNNER_TEMP/gauntlet-plan"
+          if [ -n "${GAUNTLET_MATRIX_DIR:-}" ]; then
+            printf '%s\t%s\t%s\t%s\n' "$GAUNTLET_MATRIX_DIR" "$GAUNTLET_MATRIX_PROJECT_JAVA" "$GAUNTLET_MATRIX_GATE_JAVA" "${GAUNTLET_MATRIX_SHARDS:-}" > "$plan_file"
+          fi
           status=0
           ran=0
           # Gradle's exit code alone believes a build that left the gates out of its task graph (a build script that
@@ -1622,7 +1763,7 @@ jobs:
           # must name every gate task of `gauntlet` as run - the Stop hook's judgement, gauntlet/hooks/stop_gate.py.
           verify="$PWD/gauntlet/hooks/stop_gate.py"
           # fd 3: Gradle must not read the plan from stdin and swallow the remaining builds
-          while IFS=$'\t' read -r dir project gate <&3; do
+          while IFS=$'\t' read -r dir project gate shards <&3; do
             ran=$((ran + 1))
             echo "::group::gauntlet in $dir (application Java $project, gate Java $gate)"
             (
@@ -1633,14 +1774,18 @@ jobs:
               export JAVA_HOME GAUNTLET_GATE_JAVA_HOME
               export PATH="$JAVA_HOME/bin:$PATH"   # a task that runs plain `java` gets the application JVM too
               ./gradlew --version </dev/null && ./gradlew gauntletInfo </dev/null || exit 1
+              extra_args=()
+              if [ -z "${shards:-}" ] && [ -n "${GAUNTLET_CI_DEFAULT_SHARDS:-}" ]; then
+                extra_args+=("-Pgauntlet.gherkinShards=$GAUNTLET_CI_DEFAULT_SHARDS")
+              fi
               output=$(mktemp "${RUNNER_TEMP:-/tmp}/gauntlet-output.XXXXXX")
-              ./gradlew gauntlet --continue --console=plain -Pgauntlet.baseRef="$GAUNTLET_BASE_REF" </dev/null | tee "$output"
+              ./gradlew gauntlet --continue --console=plain -Pgauntlet.baseRef="$GAUNTLET_BASE_REF" "${extra_args[@]}" </dev/null | tee "$output"
               [ "${PIPESTATUS[0]}" -eq 0 ] || exit 1
               python3 "$verify" --verify-ran gauntlet --log "$output" ||
                 { echo "::error::gauntlet in '$dir': Gradle did not run every gate task (the line above names them)"; exit 1; }
             ) || status=1
             echo "::endgroup::"
-          done 3< "$RUNNER_TEMP/gauntlet-plan"
+          done 3< "$plan_file"
           if [ "$ran" -eq 0 ]; then
             echo "::error::no guarded build ran"
             status=1
@@ -1650,11 +1795,32 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: gauntlet-reports
+          name: gauntlet-reports-${{ matrix.artifact }}
           path: |
             **/build/reports
             **/build/gauntlet
+            **/build/gherkin-mutation/results
           if-no-files-found: ignore
+
+  # Required branch-protection status check (`gauntlet`): runs even when `plan` or a `build` matrix leg fails or is
+  # cancelled, succeeding if and only if both `plan` and every planned `build` leg succeeded.
+  gauntlet:
+    name: gauntlet
+    needs: [plan, build]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify all guarded builds passed
+        env:
+          PLAN_RESULT: ${{ needs.plan.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+        run: |
+          if [ "$PLAN_RESULT" != "success" ] || [ "$BUILD_RESULT" != "success" ]; then
+            echo "::error::gauntlet failed (plan=$PLAN_RESULT, build=$BUILD_RESULT)"
+            exit 1
+          fi
+          echo "All guarded builds passed."
 
 ===== END FILE .github/workflows/gauntlet.yml =====
 
@@ -1689,7 +1855,7 @@ jobs:
 |---|---|
 | `./gradlew gauntletFast` | integrity (нет отключённых тестов и подавлений) → Checkstyle (размер, структура, CC ≤ 3) → PMD (антипаттерны) → unit-тесты → архитектура (ArchUnit) → перепись тестов (каждый тестовый класс, который скомпилировали `test` и `archTest`, запущен) → приёмка (Cucumber, ни одного skipped) → CRAP ≤ 8 → дубли |
 | `./gradlew mutationGate` | PIT по изменённым классам: каждый покрытый мутант убит (test strength 100 %), покрытие строк мутируемых классов ≥ 80 %; мутант RUN_ERROR (JVM тестов упала на `redefineClasses`, обычно на record с пользовательскими методами; PIT считает его обнаруженным) убитым не засчитывается — только по строке `gauntlet/config/pit-runerror-allowlist.txt`, которую человек добавил, прочитав тесты |
-| `./gradlew gherkinMutation` | каждое значение из Examples мутируется по очереди; сценарий обязан упасть в шаге (выжил — step игнорирует значение). Контроли — та же строка без изменений до мутантов (`cN`) и после них (`zN`) — обязаны пройти: красный контроль (`MUTANT ERROR cN/zN control …`) значит, что сценарий не исполняется сам по себе (зависит от соседнего сценария, от фикстуры, от своего имени; `zN` — строку нельзя повторить на одном стенде) — чини независимость сценария (`@Before`, сбрасывающий состояние), а не step-определения; если нужна правка самой фичи — это вопрос к человеку. Фичи, все мутанты и контроли которых уже прошли при текущем отпечатке рантайма, запоминаются в `build/gherkin-mutation/verified-features/<envStamp>.tsv` и не гоняются повторно при правке соседней `.feature` |
+| `./gradlew gherkinMutation` | каждое значение из Examples мутируется по очереди; сценарий обязан упасть в шаге (выжил — step игнорирует значение). Контроли — та же строка без изменений до мутантов (`cN`) и после них (`zN`) — обязаны пройти: красный контроль (`MUTANT ERROR cN/zN control …`) значит, что сценарий не исполняется сам по себе (зависит от соседнего сценария, от фикстуры, от своего имени; `zN` — строку нельзя повторить на одном стенде) — чини независимость сценария (`@Before`, сбрасывающий состояние), а не step-определения; если нужна правка самой фичи — это вопрос к человеку. Фичи, все мутанты и контроли которых уже прошли при текущем отпечатке рантайма, запоминаются в `build/gherkin-mutation/verified-features/<envStamp>.tsv` и не гоняются повторно при правке соседней `.feature`. Целые `.feature` со своими `cN`/`zN` можно распараллелить по независимым JVM через `gherkin.shards` или `-Pgauntlet.gherkinShards=K` (по умолчанию `1` локально, `2` в CI); ожидаемые стектрейсы падений мутантов в `gherkinMutantsRun` подавлены (`acceptanceTest` сохраняет полные стектрейсы), а `acceptanceCheck` и `gherkinMutation` печатают топ самых медленных сценариев/мутантов и шагов (`gherkin.slowTop`, по умолчанию `10`) |
 | `./gradlew gauntlet` | всё вместе |
 
 Область проверки — diff относительно базовой ветки плюс незакоммиченные файлы (`baseRef` в
@@ -2389,7 +2555,7 @@ gauntlet/
 | `crapGate` | свой (`CrapGate.java`) по JaCoCo XML, формула crap4java | **8**; порог — конечное число ≥ 0, `NaN` и `Infinity` — ошибка, а не выключенный гейт | `crap.threshold`, `config/crap-allowlist.txt` |
 | `dryGate` | PMD CPD 7.27 | 0 дублей ≥ 60 токенов (имена и литералы игнорируются; `dry.exclude` — пути вне поиска, например каталог JPA-сущностей) | `dry.*` |
 | `mutationGate` | PIT 1.22 + gradle-pitest-plugin 1.19.0, свой `PitSummary.java` | **все покрытые мутанты убиты** (test strength 100 %), покрытие мутируемых классов ≥ 80 %; RUN_ERROR (JVM тестов упала на `redefineClasses`, PIT считает его обнаруженным) **не засчитывается убитым** — только строкой в allowlist, которую человек добавил, прочитав тесты | `pit.*`, `config/pit-runerror-allowlist.txt` |
-| `gherkinMutation` | свой (`GherkinMutator.java`) | 0 выживших мутантов значений Examples; мутант убит, когда сценарий упал **в шаге**; контроль — каждая мутируемая строка без изменений в том же прогоне — обязан пройти | — |
+| `gherkinMutation` | свой (`GherkinMutator.java`) | 0 выживших мутантов значений Examples; мутант убит, когда сценарий упал **в шаге**; контроль — каждая мутируемая строка без изменений в том же прогоне — обязан пройти; шардирование целых фич по JVM (`gherkin.shards`, `-Pgauntlet.gherkinShards`) и топ самых медленных сценариев/шагов (`gherkin.slowTop`) | `gherkin.*` |
 
 Значения Мартина и их источники — в комментариях `config/gauntlet.properties`
 (CRAP > 8 у crap4java, «ни один покрытый мутант не выживает» у mutate4java, DRY 0.82 у dry4java, CC < 4).
@@ -2460,20 +2626,20 @@ JVM, на которой пошла бы, и падает. На JVM проект
 строка статуса SessionStart в начале сессии: `guard: on; stop hook: on`. Имя окружения ничего не гарантирует:
 переменную видно только в его настройках.
 
-**CI и защита ветки.** `.github/workflows/gauntlet.yml` для каждой охраняемой сборки берёт её
-`project.java.version` и `gate.java.version` (оверлей `config/<module>/` перекрывает общий файл, пустая
-gate-версия — проектная), ставит все нужные JDK одним шагом и запускает wrapper сборки с её `JAVA_HOME` и
-`PATH`, а gate JDK передаёт инструментам через `GAUNTLET_GATE_JAVA_HOME`. Поэтому байткод приложения остаётся
-на его Java, и модули монорепо могут жить на разных версиях. Каталог из `module`, которого нет, — красный
-прогон, а не прогон корневой сборки под чужим именем. CI печатает
-`./gradlew --version` и `gauntletInfo`, затем гоняет `./gradlew gauntlet` на каждый PR с
-полной историей (`fetch-depth: 0`) — это проверка, которую агент не может обойти (хуки работают только
-внутри Claude Code). Если репозиторий приватный на бесплатном плане GitHub, правила защиты веток
-недоступны; тогда гейт — это ваше правило не мержить красный PR. Агент мержить не может в любом случае.
-Зелёный код выхода CI, как и Stop-хук, проверяет по выводу Gradle: строка `> Task …` должна быть у каждой
-задачи гейта, иначе прогон красный. Иначе одна строка в `build.gradle`,
-`gradle.startParameter.excludedTaskNames << 'gauntlet'`, выключала все гейты, а Gradle печатал
-`BUILD SUCCESSFUL`.
+**CI и защита ветки.** `.github/workflows/gauntlet.yml` состоит из трёх заданий: `plan` разрешает для каждой
+охраняемой сборки `project.java.version` и `gate.java.version` (оверлей `config/<module>/` перекрывает общий файл,
+пустая gate-версия — проектная; на PR, который не менял общие пути набора, конфигурации агентов и код/сборку вне
+каталогов модулей вроде `shared-lib/`, в матрицу попадают только затронутые модули), параллельный `build`
+(`strategy.matrix`, `fail-fast: false`) запускает каждую сборку на отдельном раннере со своими `JAVA_HOME`, `PATH` и
+`GAUNTLET_GATE_JAVA_HOME` (передавая по умолчанию `-Pgauntlet.gherkinShards=2`, если `gherkin.shards` не задан в конфиге),
+а итоговое задание `gauntlet` (`if: always()`, `needs: [plan, build]`) сводит матрицу в один стабильный статус-чек
+`gauntlet` для защиты ветки. Каталог из `module`, которого нет, — красный прогон, а не прогон корневой сборки под чужим
+именем. CI печатает `./gradlew --version` и `gauntletInfo`, затем гоняет `./gradlew gauntlet` с полной историей
+(`fetch-depth: 0`) — это проверка, которую агент не может обойти (хуки работают только внутри Claude Code). Если
+репозиторий приватный на бесплатном плане GitHub, правила защиты веток недоступны; тогда гейт — это ваше правило не
+мержить красный PR. Агент мержить не может в любом случае. Зелёный код выхода CI, как и Stop-хук, проверяет по выводу
+Gradle: строка `> Task …` должна быть у каждой задачи гейта, иначе прогон красный. Иначе одна строка в `build.gradle`,
+`gradle.startParameter.excludedTaskNames << 'gauntlet'`, выключала все гейты, а Gradle печатал `BUILD SUCCESSFUL`.
 
 Второй workflow, `.github/workflows/gauntlet-kit.yml`, сравнивает каждый PR с его merge base в базовой ветке.
 Он красный, когда PR меняет путь, который guard охраняет как человеческий. Это файлы набора — `gauntlet/`,
@@ -3708,8 +3874,13 @@ acceptance.features=src/acceptanceTest/resources/features
 acceptance.glue=com.example.service.acceptance
 # Adds io.cucumber:cucumber-spring (Spring Boot projects).
 acceptance.spring=true
-# Worker heap for gherkinMutantsRun (forkEvery=0 runs all mutants and cN/zN controls in one JVM; default when unset: 2g).
+# Worker heap for gherkinMutantsRun (forkEvery=0 runs all mutants and cN/zN controls of a shard in one JVM; default when unset: 2g).
 # gherkin.maxHeapSize=2g
+# Parallel feature-level shards for gherkinMutantsRun: whole .feature files with all their cN/m*/zN stay in one shard JVM
+# (default when unset: 1 locally, 2 in CI via -Pgauntlet.gherkinShards=2 unless gherkin.shards is set here or in an overlay).
+# gherkin.shards=1
+# Top-N slowest scenarios, steps and mutants printed from Cucumber's message stream (0 = off; default when unset: 10).
+# gherkin.slowTop=10
 
 # --- Tool versions (pit.version = the default of gradle-pitest-plugin 1.19.0; newer PIT usually works) ----
 # Cucumber must match the JUnit Platform your Spring Boot manages:
@@ -5058,6 +5229,11 @@ tasks.register('acceptanceCheck', Exec) {
             '--features', featuresDir.absolutePath, '--messages', acceptanceMessages.absolutePath,
             '--root', projectDir.absolutePath, '--allowlist', configFile('integrity-allowlist.txt').absolutePath
     doFirst {
+        def slowRaw = (findProperty('gauntlet.gherkinSlowTop')?.toString()?.trim()) ?: setting('gherkin.slowTop', '10')
+        if (!(slowRaw ==~ /\d+/)) {
+            throw new GradleException("gauntlet: gherkin.slowTop '${slowRaw}' must be a non-negative integer (>= 0)")
+        }
+        args '--slow-top', slowRaw
         // The results and the stream on disk are this build's only when acceptanceTest is part of it and ran (or is
         // UP-TO-DATE on these very inputs): left out with -x, they are an earlier run's; skipped (a project's onlyIf,
         // enabled = false), they are gone - then no scenario ran.
@@ -5313,6 +5489,53 @@ def updateDigestWithTree = { java.security.MessageDigest md, File root, boolean 
     }
 }
 
+def resolveGherkinShards = { ->
+    def raw = (findProperty('gauntlet.gherkinShards')?.toString()?.trim()) ?: setting('gherkin.shards', '1')
+    if (!(raw ==~ /[1-9]\d*/)) {
+        throw new GradleException("gauntlet: gherkin.shards '${raw}' must be a positive integer (>= 1)")
+    }
+    return raw as int
+}
+
+def resolveGherkinSlowTop = { ->
+    def raw = (findProperty('gauntlet.gherkinSlowTop')?.toString()?.trim()) ?: setting('gherkin.slowTop', '10')
+    if (!(raw ==~ /\d+/)) {
+        throw new GradleException("gauntlet: gherkin.slowTop '${raw}' must be a non-negative integer (>= 0)")
+    }
+    return raw as int
+}
+
+def silenceMutantTestLogging = { Test task ->
+    task.testLogging {
+        events = [] as Set
+        showExceptions = false
+        showCauses = false
+        showStackTraces = false
+        showStandardStreams = false
+    }
+}
+
+abstract class GherkinMutantsTest extends Test {
+    private Closure preExecuteHook
+    private Closure shardRunner
+
+    void configureMutantHooks(Closure pre, Closure runner) {
+        this.preExecuteHook = pre
+        this.shardRunner = runner
+    }
+
+    @Override
+    void executeTests() {
+        if (preExecuteHook != null) {
+            preExecuteHook.call(this)
+        }
+        if (shardRunner != null && shardRunner.call(this)) {
+            return
+        }
+        super.executeTests()
+    }
+}
+
 def computeMutantEnvStamp = { Test runTask ->
     def md = java.security.MessageDigest.getInstance('SHA-256')
     md.update("TOOL\n".getBytes('UTF-8'))
@@ -5334,7 +5557,7 @@ def computeMutantEnvStamp = { Test runTask ->
             updateDigestWithTree(md, f)
         }
     }
-    md.update("JVM:${gateJavaBin()}|heap:${setting('gherkin.maxHeapSize', '')}\n".getBytes('UTF-8'))
+    md.update("JVM:${gateJavaBin()}|heap:${setting('gherkin.maxHeapSize', '')}|shards:${resolveGherkinShards()}\n".getBytes('UTF-8'))
     gradle.startParameter.projectProperties.sort { it.key }.each { k, v ->
         md.update("P:${k}=${v}\n".getBytes('UTF-8'))
     }
@@ -5356,14 +5579,28 @@ def verifiedMutantRunMatches = { Test runTask ->
     if (gradle.startParameter.rerunTasks || !verifiedMutantsStamp.isFile()) {
         return false
     }
-    def hasXml = mutantResults.isDirectory() && (mutantResults.listFiles()?.any {
-        it.isFile() && it.name.startsWith('TEST-') && it.name.endsWith('.xml')
-    } ?: false)
-    def hasNdjson = mutantMessages.isDirectory() && (mutantMessages.listFiles()?.any {
-        it.isFile() && it.name.endsWith('.ndjson')
-    } ?: false)
-    if (!hasXml || !hasNdjson) {
-        return false
+    def shardsFile = new File(mutantsDir, 'shards.txt')
+    if (shardsFile.isFile()) {
+        def shards = shardsFile.getText('UTF-8').readLines().collect { it.trim() }.findAll { it }
+        if (!shards || !mutantResults.isDirectory() || !mutantMessages.isDirectory()) {
+            return false
+        }
+        if (!shards.every { s ->
+            new File(mutantResults, "TEST-gherkin-shard-${s}.xml").isFile() &&
+                    new File(mutantMessages, "${s}-jvm-1.ndjson").isFile()
+        }) {
+            return false
+        }
+    } else {
+        def hasXml = mutantResults.isDirectory() && (mutantResults.listFiles()?.any {
+            it.isFile() && it.name.startsWith('TEST-') && it.name.endsWith('.xml')
+        } ?: false)
+        def hasNdjson = mutantMessages.isDirectory() && (mutantMessages.listFiles()?.any {
+            it.isFile() && it.name.endsWith('.ndjson')
+        } ?: false)
+        if (!hasXml || !hasNdjson) {
+            return false
+        }
     }
     return verifiedMutantsStamp.getText('UTF-8').trim() == computeMutantRunStamp(runTask)
 }
@@ -5451,6 +5688,7 @@ tasks.register('gherkinMutants', Exec) {
     executable javaBin
     args sourceUtf8, "${tools}/GherkinMutator.java", 'generate', '--features', featuresPath, '--out', mutantsDir.absolutePath
     doFirst {
+        args '--shards', resolveGherkinShards().toString()
         if (gradle.startParameter.rerunTasks) {
             verifiedFeaturesDir.deleteDir()
             verifiedMutantsStamp.delete()
@@ -5496,12 +5734,139 @@ tasks.register('gherkinMutants', Exec) {
     }
 }
 
-tasks.register('gherkinMutantsRun', Test) {
+def runMutantShards = { GherkinMutantsTest task, File defaultStream ->
+    def shardsFile = new File(mutantsDir, 'shards.txt')
+    if (!shardsFile.isFile()) {
+        return false
+    }
+    def shards = shardsFile.getText('UTF-8').readLines().collect { it.trim() }.findAll { it }
+    if (shards.size() <= 1) {
+        return false
+    }
+    if (task.maxParallelForks != 1 || task.forkEvery != 0 || !cucumberInJavaOptions(task).isEmpty()) {
+        return true   // doLast reports the exact tampered setting immediately
+    }
+    def launchArgs = task.allJvmArgs.collect { it.toString() }
+    def lastInLaunch = { String key ->
+        def found = launchArgs.findAll { it.startsWith("-D${key}=") }
+        found ? found[-1].substring(key.length() + 3) : 'unset'
+    }
+    def expectedProps = ['cucumber.execution.parallel.enabled': 'false', 'cucumber.execution.order': 'lexical'] + cucumberRun
+    if (expectedProps.any { key, val -> lastInLaunch(key) != val }) {
+        return true   // a visible argument provider changed the required settings: doLast reports it
+    }
+    def launcher = task.javaLauncher.getOrNull()
+    def javaExec = launcher != null ? launcher.executablePath.asFile.absolutePath : (task.executable ?: gateJavaBin())
+    def runnerClasses = buildDirFile('gherkin-mutation/shard-runner-classes')
+    runnerClasses.deleteDir()
+    runnerClasses.mkdirs()
+    def javacCandidate = new File(new File(javaExec).parentFile, 'javac')
+    def compiledRunner = false
+    if (javacCandidate.isFile() && javacCandidate.canExecute()) {
+        def compileProc = new ProcessBuilder([javacCandidate.absolutePath, '-encoding', 'UTF-8', '--release', '17',
+                                              '-nowarn', '-d', runnerClasses.absolutePath,
+                                              "${tools}/GherkinMutator.java".toString()])
+                .directory(projectDir).redirectErrorStream(true).start()
+        compileProc.outputStream.close()
+        compileProc.inputStream.getText('UTF-8')
+        compiledRunner = compileProc.waitFor() == 0 && new File(runnerClasses, 'GherkinMutator.class').isFile()
+    }
+    def hasLauncher = task.classpath.files.any { File entry ->
+        if (entry.isDirectory()) {
+            return new File(entry, 'org/junit/platform/launcher/core/LauncherFactory.class').isFile()
+        }
+        if (entry.isFile() && entry.name.endsWith('.jar')) {
+            try {
+                return new java.util.zip.ZipFile(entry).withCloseable { zf ->
+                    zf.getEntry('org/junit/platform/launcher/core/LauncherFactory.class') != null
+                }
+            } catch (Exception ignored) {
+                return false
+            }
+        }
+        return false
+    }
+    def extraPlatformJars = []
+    if (!hasLauncher && gradle.gradleHomeDir != null) {
+        def pluginsDir = new File(gradle.gradleHomeDir, 'lib/plugins')
+        if (pluginsDir.isDirectory()) {
+            extraPlatformJars = (pluginsDir.listFiles() ?: []).findAll { File f ->
+                f.isFile() && f.name ==~ /junit-platform-(launcher|engine|commons)-.*\.jar/
+            }
+        }
+    }
+    def cpPaths = ((compiledRunner ? [runnerClasses] : []) + (task.classpath.files as List) + extraPlatformJars)
+            .collect { it.absolutePath }
+    def defaultFeaturesVal = mutantsDir.absolutePath.contains(',') ? relativeTo(projectDir, mutantsDir) : mutantsDir.absolutePath
+    def defaultPluginArg = cucumberPlugins(task, defaultStream)
+    logger.lifecycle("gauntlet: running ${shards.size()} Gherkin mutant shards in parallel (${shards.join(', ')})")
+    def pool = java.util.concurrent.Executors.newFixedThreadPool(shards.size())
+    try {
+        def futures = shards.collect { String shard ->
+            pool.submit({ ->
+                long t0 = System.nanoTime()
+                def shardFeaturesDir = new File(mutantsDir, shard)
+                def shardWorkDir = shardFeaturesDir.absolutePath.contains(',') ? projectDir : task.workingDir
+                def shardFeaturesVal = shardFeaturesDir.absolutePath.contains(',')
+                        ? relativeTo(projectDir, shardFeaturesDir)
+                        : shardFeaturesDir.absolutePath
+                def shardStream = new File(mutantMessages, "${shard}-jvm-1.ndjson")
+                def shardXml = new File(mutantResults, "TEST-gherkin-shard-${shard}.xml")
+                def shardPluginArg = cucumberPlugins(task, shardStream)
+                def shardJvmArgs = launchArgs.collect { String arg ->
+                    if (arg == "-Dcucumber.features=${defaultFeaturesVal}") {
+                        return "-Dcucumber.features=${shardFeaturesVal}".toString()
+                    }
+                    if (arg == defaultPluginArg) {
+                        return shardPluginArg.toString()
+                    }
+                    return arg
+                }
+                def cmd = [javaExec, '-cp', cpPaths.join(File.pathSeparator)] + shardJvmArgs +
+                        (compiledRunner ? ['GherkinMutator'] : [sourceUtf8, "${tools}/GherkinMutator.java".toString()]) +
+                        ['run-shard', '--shard', shard, '--xml', shardXml.absolutePath]
+                def pb = new ProcessBuilder(cmd.collect { it.toString() })
+                        .directory(shardWorkDir)
+                        .redirectErrorStream(true)
+                task.environment.each { k, v ->
+                    if (k != null && v != null) {
+                        pb.environment().put(k.toString(), v.toString())
+                    }
+                }
+                def proc = pb.start()
+                proc.outputStream.close()
+                def output = proc.inputStream.getText('UTF-8')
+                int exit = proc.waitFor()
+                double secs = (System.nanoTime() - t0) / 1e9d
+                return [shard: shard, exit: exit, output: output, xml: shardXml, secs: secs]
+            } as java.util.concurrent.Callable)
+        }
+        def results = futures.collect { it.get() }
+        results.each { res ->
+            logger.lifecycle(String.format(Locale.ROOT,
+                    "gauntlet: gherkinMutantsRun shard %s finished in %.1f s (exit %d)",
+                    res.shard, res.secs, res.exit))
+        }
+        def failedShard = results.find { it.exit != 0 || !it.xml.isFile() }
+        if (failedShard != null) {
+            if (failedShard.output?.trim()) {
+                System.err.println(failedShard.output.trim())
+            }
+            throw new GradleException("gauntlet: gherkinMutantsRun shard ${failedShard.shard} failed with exit code ${failedShard.exit}")
+        }
+    } finally {
+        pool.shutdownNow()
+    }
+    return true
+}
+
+tasks.register('gherkinMutantsRun', GherkinMutantsTest) {
     group = 'gauntlet'
     description = 'Runs the generated mutant scenarios; failures are the expected outcome.'
     dependsOn 'gherkinMutants'
     configureCucumber(it, mutantsDir)
     systemProperty 'cucumber.junit-platform.naming-strategy', 'long'
+    silenceMutantTestLogging(it)
     ignoreFailures = true
     reports.junitXml.outputLocation.set(mutantResults)
     reports.html.required = false
@@ -5515,8 +5880,12 @@ tasks.register('gherkinMutantsRun', Test) {
                         skippedByTheKit(task, 'inputs unchanged since green gherkinMutation'))
     }
     def stream = cucumberMessages(it, mutantMessages)
+    configureMutantHooks(
+            { GherkinMutantsTest task -> silenceMutantTestLogging(task) },
+            { GherkinMutantsTest task -> runMutantShards(task, stream) })
     doFirst { Test task ->
         verifiedMutantsStamp.delete()
+        silenceMutantTestLogging(task)
         // failing scenarios are what this run is for: a project-wide failFast would stop it after the first kill
         failFast = false
         // The controls of a row run before its mutants and after them (GherkinMutator generate): one JVM, one scenario
@@ -5525,7 +5894,7 @@ tasks.register('gherkinMutantsRun', Test) {
         // controls ran first, and a stand that wears out (a quota) failed the mutant instead: a kill.
         maxParallelForks = 1
         forkEvery = 0
-        // Every mutant and control runs in this single worker JVM (forkEvery = 0): Gradle's 512m default heap OOMs on
+        // Every mutant and control of a shard runs in one worker JVM (forkEvery = 0): Gradle's 512m default heap OOMs on
         // a module with thousands of scenarios. gherkin.maxHeapSize overrides when set; else keep a project heap or 2g.
         def configuredHeap = setting('gherkin.maxHeapSize', '')
         if (configuredHeap) {
@@ -5587,6 +5956,7 @@ tasks.register('gherkinMutation', Exec) {
     def glueClasspath = sourceSets.acceptanceTest.runtimeClasspath
     doFirst {
         verifiedMutantsStamp.delete()
+        args '--slow-top', resolveGherkinSlowTop().toString()
         args '--glue-file', pathList('glue-classpath', glueClasspath.files*.absolutePath)
         if (!gradle.startParameter.rerunTasks) {
             def envStamp = computeMutantEnvStamp(tasks.getByName('gherkinMutantsRun') as Test)
@@ -5750,7 +6120,12 @@ def gateJvmOfTasks = { ->
     }
 }
 gateJvmOfTasks()
-afterEvaluate { afterEvaluate { gateJvmOfTasks() } }
+afterEvaluate {
+    afterEvaluate {
+        gateJvmOfTasks()
+        tasks.named('gherkinMutantsRun') { silenceMutantTestLogging(it as Test) }
+    }
+}
 gradle.projectsEvaluated {
     gateTasks.each { tasks.named(it) { gateJava(it) } }
     plugins.withId('info.solidsoft.pitest') {
@@ -13815,12 +14190,20 @@ public class DryGate {
 
 ===== BEGIN FILE gauntlet/tools/GherkinMutator.java =====
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.FileDescriptor;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.PrintStream;
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.lang.reflect.Array;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.net.URI;
@@ -13839,19 +14222,23 @@ import java.time.Period;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.HexFormat;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -13877,13 +14264,14 @@ import org.w3c.dom.NodeList;
  *
  * <pre>
  * java GherkinMutator.java generate --features src/acceptanceTest/resources/features \
- *      --out build/gherkin-mutation/mutants [--only-file changed-features] [--glue-impact glue-impact]
+ *      --out build/gherkin-mutation/mutants [--only-file changed-features] [--glue-impact glue-impact] [--shards K]
  * java GherkinMutator.java verdict --mutants build/gherkin-mutation/mutants \
  *      --results build/gherkin-mutation/results [--glue build/classes/java/acceptanceTest --glue lib.jar ...]
- *      [--glue-file glue-classpath] [--messages build/gherkin-mutation/messages]
+ *      [--glue-file glue-classpath] [--messages build/gherkin-mutation/messages] [--slow-top N]
  * java GherkinMutator.java no-skipped --results build/test-results/acceptanceTest \
  *      --features src/acceptanceTest/resources/features [--messages build/cucumber-messages/acceptanceTest \
- *      --root . --allowlist gauntlet/config/integrity-allowlist.txt]
+ *      --root . --allowlist gauntlet/config/integrity-allowlist.txt] [--slow-top N]
+ * java GherkinMutator.java run-shard --shard s1 --xml build/gherkin-mutation/results/TEST-gherkin-shard-s1.xml
  * </pre>
  * {@code --only-file} limits {@code generate} to the feature files it lists: each path ended by a NUL character, the
  * form {@code git diff --name-only -z} and {@code find -print0} write - a comma, a quote or a line break stays part
@@ -14073,14 +14461,18 @@ public class GherkinMutator {
                 case "generate" -> generate(Path.of(opts.getOrDefault("--features", "src/acceptanceTest/resources/features")),
                         Path.of(opts.getOrDefault("--out", "build/gherkin-mutation/mutants")),
                         opts.containsKey("--only-file") ? pathList(Path.of(opts.get("--only-file"))) : null,
-                        optionalPath(opts, "--glue-impact"), optionalPath(opts, "--verified-cache"), out);
+                        optionalPath(opts, "--glue-impact"), optionalPath(opts, "--verified-cache"),
+                        parseOptionInt(opts, "--shards", 1, 1), out);
                 case "verdict" -> verdict(Path.of(opts.getOrDefault("--mutants", "build/gherkin-mutation/mutants")),
                         Path.of(opts.getOrDefault("--results", "build/gherkin-mutation/results")),
                         glue(glue, opts.get("--glue-file")), optionalPath(opts, "--messages"),
-                        optionalPath(opts, "--verified-cache"), out);
+                        optionalPath(opts, "--verified-cache"), parseOptionInt(opts, "--slow-top", 10, 0), out);
                 case "no-skipped" -> noSkipped(Path.of(opts.getOrDefault("--results", "build/test-results/acceptanceTest")),
                         optionalPath(opts, "--features"), new Census(optionalPath(opts, "--messages"),
-                                Path.of(opts.getOrDefault("--root", ".")), optionalPath(opts, "--allowlist")), out);
+                                Path.of(opts.getOrDefault("--root", ".")), optionalPath(opts, "--allowlist")),
+                        parseOptionInt(opts, "--slow-top", 10, 0), out);
+                case "run-shard" -> runShard(opts.getOrDefault("--shard", "s1"),
+                        Path.of(Objects.requireNonNull(opts.get("--xml"), "--xml is required for run-shard")));
                 default -> {
                     err.println("GherkinMutator: unknown command " + args[0]);
                     yield 2;
@@ -14096,6 +14488,23 @@ public class GherkinMutator {
         return opts.containsKey(option) ? Path.of(opts.get(option)) : null;
     }
 
+    static int parseOptionInt(Map<String, String> opts, String option, int defaultValue, int minValue) {
+        String raw = opts.get(option);
+        if (raw == null || raw.isBlank()) {
+            return defaultValue;
+        }
+        int parsed;
+        try {
+            parsed = Integer.parseInt(raw.trim());
+        } catch (NumberFormatException bad) {
+            throw new IllegalArgumentException(option + " '" + raw + "' must be an integer >= " + minValue, bad);
+        }
+        if (parsed < minValue) {
+            throw new IllegalArgumentException(option + " '" + raw + "' must be >= " + minValue);
+        }
+        return parsed;
+    }
+
     // ---------------------------------------------------------------- generate
 
     record CachedFeature(String sha256, int mutants, int controls) {
@@ -14105,16 +14514,24 @@ public class GherkinMutator {
     }
 
     static int generate(Path featuresDir, Path outDir, List<String> only, PrintStream out) throws IOException {
-        return generate(featuresDir, outDir, only, null, null, out);
+        return generate(featuresDir, outDir, only, null, null, 1, out);
     }
 
     static int generate(Path featuresDir, Path outDir, List<String> only, Path glueImpactFile, PrintStream out)
             throws IOException {
-        return generate(featuresDir, outDir, only, glueImpactFile, null, out);
+        return generate(featuresDir, outDir, only, glueImpactFile, null, 1, out);
     }
 
     static int generate(Path featuresDir, Path outDir, List<String> only, Path glueImpactFile, Path verifiedCacheFile,
                         PrintStream out) throws IOException {
+        return generate(featuresDir, outDir, only, glueImpactFile, verifiedCacheFile, 1, out);
+    }
+
+    static int generate(Path featuresDir, Path outDir, List<String> only, Path glueImpactFile, Path verifiedCacheFile,
+                        int shards, PrintStream out) throws IOException {
+        if (shards < 1) {
+            throw new IllegalArgumentException("--shards must be >= 1, got " + shards);
+        }
         deleteRecursively(outDir);
         Files.createDirectories(outDir);
         if (!Files.isDirectory(featuresDir)) {
@@ -14233,6 +14650,37 @@ public class GherkinMutator {
                     + cachedControls + " control(s) already verified on current runtime) - mutating "
                     + emitPlans.size() + " remaining");
         }
+        int effectiveShards = emitPlans.isEmpty() ? 1 : Math.min(shards, emitPlans.size());
+        Map<FeatureDoc, Path> shardDirOfDoc = new IdentityHashMap<>();
+        int[] shardLoads = new int[effectiveShards];
+        if (effectiveShards > 1) {
+            List<FeaturePlan> byWeight = new ArrayList<>(emitPlans);
+            byWeight.sort((a, b) -> {
+                int cmp = Integer.compare(b.mutants() + b.controls(), a.mutants() + a.controls());
+                return cmp != 0 ? cmp : a.key().compareTo(b.key());
+            });
+            List<String> shardNames = new ArrayList<>();
+            for (int i = 0; i < effectiveShards; i++) {
+                String shardName = "s" + (i + 1);
+                shardNames.add(shardName);
+                Files.createDirectories(outDir.resolve(shardName));
+            }
+            for (FeaturePlan plan : byWeight) {
+                int lightest = 0;
+                for (int i = 1; i < effectiveShards; i++) {
+                    if (shardLoads[i] < shardLoads[lightest]) {
+                        lightest = i;
+                    }
+                }
+                shardLoads[lightest] += plan.mutants() + plan.controls();
+                shardDirOfDoc.put(plan.doc(), outDir.resolve("s" + (lightest + 1)));
+            }
+            Files.write(outDir.resolve("shards.txt"), shardNames, StandardCharsets.UTF_8);
+        } else {
+            for (FeaturePlan plan : emitPlans) {
+                shardDirOfDoc.put(plan.doc(), outDir);
+            }
+        }
         List<Mutant> mutants = new ArrayList<>();
         List<Control> controls = new ArrayList<>();
         List<String> featureDigests = new ArrayList<>();
@@ -14245,13 +14693,15 @@ public class GherkinMutator {
         manifest.add("id\tfeature\tline\tscenario\tkey\toriginal\tmutated\tuses");
         for (Mutant m : mutants) {
             List<String> text = render(m);
-            Files.write(outDir.resolve(m.id() + ".feature"), text, StandardCharsets.UTF_8);
+            Files.write(shardDirOfDoc.getOrDefault(m.feature(), outDir).resolve(m.id() + ".feature"),
+                    text, StandardCharsets.UTF_8);
             manifest.add(String.join("\t", m.id(), tsv(m.feature().path), String.valueOf(m.examples().rowLines.get(m.row())),
                     tsv(m.scenario().name), tsv(m.key()), tsv(m.original()), tsv(m.mutated()),
                     String.valueOf(firstUse(m, text))));
         }
         for (Control c : controls) {
-            Files.write(outDir.resolve(c.id() + ".feature"), render(c), StandardCharsets.UTF_8);
+            Files.write(shardDirOfDoc.getOrDefault(c.feature(), outDir).resolve(c.id() + ".feature"),
+                    render(c), StandardCharsets.UTF_8);
             manifest.add(String.join("\t", c.id(), tsv(c.feature().path), String.valueOf(c.examples().rowLines.get(c.row())),
                     tsv(c.scenario().name), CONTROL_KEY, "", "", ""));
         }
@@ -14267,8 +14717,16 @@ public class GherkinMutator {
                 Files.write(pending, featureDigests, StandardCharsets.UTF_8);
             }
         }
+        String shardNote = "";
+        if (effectiveShards > 1) {
+            List<String> parts = new ArrayList<>();
+            for (int i = 0; i < effectiveShards; i++) {
+                parts.add("s" + (i + 1) + "=" + shardLoads[i]);
+            }
+            shardNote = " (" + effectiveShards + " shards: " + String.join(", ", parts) + ")";
+        }
         out.println("Gherkin mutation: " + mutants.size() + " mutant(s) + " + controls.size() + " control(s) from "
-                + (cachedPlans.isEmpty() ? inScope : emitPlans.size()) + " feature file(s) in scope -> " + outDir);
+                + (cachedPlans.isEmpty() ? inScope : emitPlans.size()) + " feature file(s) in scope -> " + outDir + shardNote);
         if (vacuous > 0) {
             out.println("  Every value a scenario depends on must be an Examples parameter (Scenario Outline), so that");
             out.println("  a hollow step definition shows up as a surviving mutant. The specifier rewrites the feature;");
@@ -14793,11 +15251,16 @@ public class GherkinMutator {
     // ---------------------------------------------------------------- verdict
 
     static int verdict(Path mutantsDir, Path resultsDir, Glue glue, Path messages, PrintStream out) throws IOException {
-        return verdict(mutantsDir, resultsDir, glue, messages, null, out);
+        return verdict(mutantsDir, resultsDir, glue, messages, null, 10, out);
     }
 
     static int verdict(Path mutantsDir, Path resultsDir, Glue glue, Path messages, Path verifiedCacheFile,
                        PrintStream out) throws IOException {
+        return verdict(mutantsDir, resultsDir, glue, messages, verifiedCacheFile, 10, out);
+    }
+
+    static int verdict(Path mutantsDir, Path resultsDir, Glue glue, Path messages, Path verifiedCacheFile,
+                       int slowTop, PrintStream out) throws IOException {
         Path manifestFile = mutantsDir.resolve("manifest.tsv");
         if (!Files.isRegularFile(manifestFile)) {
             out.println("Gherkin mutation: no manifest at " + manifestFile + " - nothing to judge.");
@@ -14895,7 +15358,7 @@ public class GherkinMutator {
             }
         }
         if (messages != null) {
-            order.addAll(runOrder(streams, manifest, controls, attempts));
+            order.addAll(runOrder(streams, manifest, controls, attempts, expectedShardCount(mutantsDir)));
         }
         if (verifiedCacheFile != null && order.isEmpty()) {
             updateVerifiedCache(verifiedCacheFile, Path.of(verifiedCacheFile + ".pending"), failedFeatures);
@@ -14905,6 +15368,7 @@ public class GherkinMutator {
                 + (byOtherException > 0 ? " (" + byOtherException + " by a non-assertion exception thrown in a step)" : "")
                 + ", " + survived.size() + " survived, " + errors.size() + " error(s)"
                 + (controls.isEmpty() ? "" : "; " + controls.size() + " control(s) - " + controlsPassed + " passed"));
+        formatSlowMutants(streams, manifest, controls, slowTop).forEach(out::println);
         survived.forEach(out::println);
         errors.forEach(out::println);
         brokenControls.forEach(out::println);
@@ -14943,6 +15407,20 @@ public class GherkinMutator {
             out.println("  file, a JVM argument provider, a doFirst or doLast of the project. Keep them off gherkinMutantsRun.");
         }
         return 1;
+    }
+
+    static int expectedShardCount(Path mutantsDir) throws IOException {
+        Path shardsFile = mutantsDir.resolve("shards.txt");
+        if (!Files.isRegularFile(shardsFile)) {
+            return 1;
+        }
+        int count = 0;
+        for (String line : Files.readAllLines(shardsFile, StandardCharsets.UTF_8)) {
+            if (!line.isBlank()) {
+                count++;
+            }
+        }
+        return Math.max(1, count);
     }
 
     static String sha256Hex(byte[] bytes) {
@@ -15016,6 +15494,11 @@ public class GherkinMutator {
      */
     static List<String> runOrder(List<MessageStream> streams, Map<String, String[]> mutants, Map<String, String[]> controls,
                                  Map<String, List<Outcome>> attempts) {
+        return runOrder(streams, mutants, controls, attempts, 1);
+    }
+
+    static List<String> runOrder(List<MessageStream> streams, Map<String, String[]> mutants, Map<String, String[]> controls,
+                                 Map<String, List<Outcome>> attempts, int expectedShards) {
         List<String> errors = new ArrayList<>();
         Map<String, Integer> records = new HashMap<>();
         for (MessageStream stream : streams) {
@@ -15052,7 +15535,7 @@ public class GherkinMutator {
                         ? "the order of an attempt is unknown" : "the stream is not of the run the XML reports"));
             }
         }
-        if (streams.size() > 1 && !errors.isEmpty()) {
+        if (streams.size() > Math.max(1, expectedShards) && !errors.isEmpty()) {
             List<String> streamNames = streams.stream().map(s -> s.name).toList();
             errors.add(0, "MUTANT ERROR    run order: worker JVM restarted or split scenarios across "
                     + streams.size() + " Cucumber message streams (" + String.join(", ", streamNames)
@@ -15147,16 +15630,29 @@ public class GherkinMutator {
         return String.format(Locale.ROOT, "%.3f", nanos / 1e6);
     }
 
+    static String slowMillis(long nanos) {
+        return String.format(Locale.ROOT, "%.1f", nanos / 1e6);
+    }
+
     /** What Cucumber's message stream recorded for a failed testCaseStarted: either a hook failed ({@code inHook}),
      *  or a Gherkin step ({@code pickleStepId}) failed at {@code line} with {@code trace}. */
     record StepFailure(int line, boolean inHook, String trace) {
     }
 
+    /** One executed Gherkin step recorded in Cucumber's message stream, with its AST line, interpolated text,
+     *  status and duration in nanoseconds. */
+    record StepRun(int line, String text, String status, long durationNanos) {
+    }
+
     /** One test case a stream records: the pickle (scenario) it ran - the uri of its feature file, the line of the
      *  scenario or of its Examples row (-1 when the stream does not say), its name -, when it started and finished,
-     *  in nanoseconds since the epoch (finished = -1: the stream holds no TestCaseFinished for it), and any step
-     *  failure recorded by testStepFinished. */
-    record CaseRun(String uri, int line, String name, long started, long finished, StepFailure stepFailure) {
+     *  in nanoseconds since the epoch (finished = -1: the stream holds no TestCaseFinished for it), any step
+     *  failure recorded by testStepFinished, and timed Gherkin step executions. */
+    record CaseRun(String uri, int line, String name, long started, long finished, StepFailure stepFailure,
+                   List<StepRun> steps) {
+        CaseRun(String uri, int line, String name, long started, long finished, StepFailure stepFailure) {
+            this(uri, line, name, started, finished, stepFailure, List.of());
+        }
     }
 
     /** One message stream: one Cucumber run, in one test JVM. */
@@ -15171,12 +15667,12 @@ public class GherkinMutator {
         }
     }
 
-    /** The streams under {@code messages}: the file itself, or every *.ndjson in the directory. A missing or unreadable
-     *  stream is a problem ({@code prefix} + what is wrong): what is not in a stream cannot be judged. */
+    /** The streams under {@code messages}: the file itself, or every *.ndjson under the directory. A missing or
+     *  unreadable stream is a problem ({@code prefix} + what is wrong): what is not in a stream cannot be judged. */
     static List<MessageStream> readStreams(Path messages, String prefix, List<String> problems) throws IOException {
         List<Path> files = new ArrayList<>();
         if (Files.isDirectory(messages)) {
-            try (Stream<Path> s = Files.list(messages)) {
+            try (Stream<Path> s = Files.walk(messages)) {
                 files.addAll(s.filter(p -> p.toString().endsWith(".ndjson") && Files.isRegularFile(p)).sorted().toList());
             }
         } else if (Files.isRegularFile(messages)) {
@@ -15189,8 +15685,11 @@ public class GherkinMutator {
         }
         List<MessageStream> streams = new ArrayList<>();
         for (Path file : files) {
+            String streamName = Files.isDirectory(messages)
+                    ? messages.relativize(file).toString().replace('\\', '/')
+                    : file.getFileName().toString();
             try {
-                streams.add(readStream(file));
+                streams.add(readStream(file, streamName));
             } catch (IOException | IllegalArgumentException | IllegalStateException | ArithmeticException e) {
                 problems.add(prefix + "cannot read the message stream " + file + ": " + e.getMessage());
             }
@@ -15198,26 +15697,37 @@ public class GherkinMutator {
         return streams;
     }
 
+    static MessageStream readStream(Path file) throws IOException {
+        return readStream(file, file.getFileName().toString());
+    }
+
     /**
      * One NDJSON stream of Cucumber messages (cucumber.plugin message:FILE). The envelopes this reads are those of the
      * protocol Cucumber 7 and 8 write: gherkinDocument (the AST: every node's id and line), pickle (id, uri, name,
      * steps, astNodeIds - the scenario, then the Examples row), testCase (id, pickleId, testSteps), testCaseStarted
-     * (id, testCaseId, timestamp), testStepFinished (testCaseStartedId, testStepId, testStepResult), testCaseFinished
-     * (testCaseStartedId, timestamp). Anything malformed or a reference to nothing throws: a stream that does not hold
-     * together is no evidence of an order.
+     * (id, testCaseId, timestamp), testStepStarted (testCaseStartedId, testStepId, timestamp), testStepFinished
+     * (testCaseStartedId, testStepId, testStepResult), testCaseFinished (testCaseStartedId, timestamp). Anything
+     * malformed or a reference to nothing throws: a stream that does not hold together is no evidence of an order.
      */
-    static MessageStream readStream(Path file) throws IOException {
-        MessageStream stream = new MessageStream(file.getFileName().toString());
+    static MessageStream readStream(Path file, String streamName) throws IOException {
+        MessageStream stream = new MessageStream(streamName);
         Map<String, Integer> lines = new HashMap<>();                    // AST node id -> line, of every document
         Map<String, Map<String, Object>> pickles = new HashMap<>();
         Map<String, Object> pickleStepAstIds = new HashMap<>();          // pickleStepId -> astNodeIds
+        Map<String, String> pickleStepText = new HashMap<>();            // pickleStepId -> step text
         Map<String, String> testCases = new HashMap<>();                 // test case id -> pickle id
         Map<String, String> testStepToPickleStep = new HashMap<>();      // testStepId -> pickleStepId (null for a hook)
         Map<String, Map<String, Object>> started = new LinkedHashMap<>();
+        Map<String, Long> stepStarted = new HashMap<>();                 // runId + "\0" + stepId -> started nanos
+        Map<String, List<StepRun>> stepRuns = new HashMap<>();           // runId -> timed Gherkin steps
         Map<String, String> firstFailedPickleStep = new HashMap<>();
         Map<String, String> firstFailedTrace = new HashMap<>();
         Set<String> hookFailed = new HashSet<>();
         Map<String, Long> finished = new HashMap<>();
+        Set<String> activeCases = new HashSet<>();
+        Map<String, Integer> startSeqIfIdle = new HashMap<>();
+        Set<String> isolatedCases = new HashSet<>();
+        int totalStarts = 0;
         int number = 0;
         int envelopes = 0;
         for (String text : Files.readAllLines(file, StandardCharsets.UTF_8)) {
@@ -15244,6 +15754,7 @@ public class GherkinMutator {
                                 Map<String, Object> ps = Json.object(stepObj, "pickle.steps");
                                 if (ps.get("id") instanceof String psId) {
                                     pickleStepAstIds.put(psId, ps.get("astNodeIds"));
+                                    pickleStepText.put(psId, ps.get("text") instanceof String st ? st : "");
                                 }
                             }
                         }
@@ -15262,15 +15773,41 @@ public class GherkinMutator {
                     }
                     case "testCaseStarted" -> {
                         Map<String, Object> start = Json.object(e.getValue(), "testCaseStarted");
-                        started.put(Json.text(start, "id"), start);
+                        String runId = Json.text(start, "id");
+                        if (activeCases.isEmpty()) {
+                            startSeqIfIdle.put(runId, totalStarts);
+                        }
+                        totalStarts++;
+                        activeCases.add(runId);
+                        started.put(runId, start);
+                    }
+                    case "testStepStarted" -> {
+                        Map<String, Object> ss = Json.object(e.getValue(), "testStepStarted");
+                        if (ss.get("testCaseStartedId") instanceof String rId && ss.get("testStepId") instanceof String sId
+                                && ss.get("timestamp") instanceof Map<?, ?>) {
+                            stepStarted.put(rId + "\0" + sId, Json.nanos(ss, "timestamp"));
+                        }
                     }
                     case "testStepFinished" -> {
                         Map<String, Object> sf = Json.object(e.getValue(), "testStepFinished");
                         String runId = Json.text(sf, "testCaseStartedId");
                         String stepId = Json.text(sf, "testStepId");
                         Map<String, Object> res = Json.object(sf.get("testStepResult"), "testStepResult");
+                        String psId = testStepToPickleStep.get(stepId);
+                        long stepDur = -1L;
+                        if (res.get("duration") instanceof Map<?, ?>) {
+                            stepDur = Math.max(0L, Json.nanos(res, "duration"));
+                        } else if (sf.get("timestamp") instanceof Map<?, ?> && stepStarted.containsKey(runId + "\0" + stepId)) {
+                            stepDur = Math.max(0L, Json.nanos(sf, "timestamp") - stepStarted.get(runId + "\0" + stepId));
+                        }
+                        if (psId != null && stepDur >= 0) {
+                            stepRuns.computeIfAbsent(runId, k -> new ArrayList<>()).add(new StepRun(
+                                    stepAstLine(pickleStepAstIds.get(psId), lines),
+                                    pickleStepText.getOrDefault(psId, ""),
+                                    res.get("status") instanceof String st ? st : "",
+                                    stepDur));
+                        }
                         if ("FAILED".equals(res.get("status"))) {
-                            String psId = testStepToPickleStep.get(stepId);
                             if (psId == null) {
                                 hookFailed.add(runId);
                             } else if (!hookFailed.contains(runId) && !firstFailedPickleStep.containsKey(runId)) {
@@ -15284,7 +15821,12 @@ public class GherkinMutator {
                     }
                     case "testCaseFinished" -> {
                         Map<String, Object> finish = Json.object(e.getValue(), "testCaseFinished");
-                        finished.put(Json.text(finish, "testCaseStartedId"), Json.nanos(finish, "timestamp"));
+                        String runId = Json.text(finish, "testCaseStartedId");
+                        activeCases.remove(runId);
+                        if (activeCases.isEmpty() && startSeqIfIdle.getOrDefault(runId, -1) == totalStarts - 1) {
+                            isolatedCases.add(runId);
+                        }
+                        finished.put(runId, Json.nanos(finish, "timestamp"));
                     }
                     default -> {
                     }
@@ -15301,6 +15843,9 @@ public class GherkinMutator {
             stream.pickles.computeIfAbsent(Json.text(pickle, "uri"), k -> new TreeMap<>())
                     .put(pickleLine(pickle, lines), Json.text(pickle, "name"));
         }
+        boolean absorbWallClockSteps = !testStepToPickleStep.isEmpty();
+        long clockFloor = Long.MIN_VALUE;
+        long clockShift = 0L;
         for (Map.Entry<String, Map<String, Object>> e : started.entrySet()) {
             String runId = e.getKey();
             String pickleId = testCases.get(Json.text(e.getValue(), "testCaseId"));
@@ -15314,8 +15859,29 @@ public class GherkinMutator {
                     ? new StepFailure(stepAstLine(pickleStepAstIds.get(firstFailedPickleStep.get(runId)), lines),
                             false, firstFailedTrace.getOrDefault(runId, ""))
                     : null;
+            long st = Json.nanos(e.getValue(), "timestamp");
+            long fin = finished.getOrDefault(runId, -1L);
+            if (absorbWallClockSteps) {
+                st = Math.addExact(st, clockShift);
+                if (isolatedCases.contains(runId) && st < clockFloor) {
+                    long delta = Math.subtractExact(clockFloor, st);
+                    clockShift = Math.addExact(clockShift, delta);
+                    st = clockFloor;
+                }
+                if (fin >= 0) {
+                    fin = Math.addExact(fin, clockShift);
+                    if (isolatedCases.contains(runId) && fin < st) {
+                        long delta = Math.subtractExact(st, fin);
+                        clockShift = Math.addExact(clockShift, delta);
+                        fin = st;
+                    }
+                    if (isolatedCases.contains(runId) && fin > clockFloor) {
+                        clockFloor = fin;
+                    }
+                }
+            }
             stream.runs.add(new CaseRun(Json.text(pickle, "uri"), pickleLine(pickle, lines), Json.text(pickle, "name"),
-                    Json.nanos(e.getValue(), "timestamp"), finished.getOrDefault(runId, -1L), sf));
+                    st, fin, sf, List.copyOf(stepRuns.getOrDefault(runId, List.of()))));
         }
         return stream;
     }
@@ -15553,6 +16119,10 @@ public class GherkinMutator {
 
     /** Cucumber reports undefined steps as aborted, which Gradle shows as skipped - not as failed. */
     static int noSkipped(Path resultsDir, Path featuresDir, Census census, PrintStream out) throws IOException {
+        return noSkipped(resultsDir, featuresDir, census, 10, out);
+    }
+
+    static int noSkipped(Path resultsDir, Path featuresDir, Census census, int slowTop, PrintStream out) throws IOException {
         if (featuresDir != null) {
             if (!Files.isDirectory(featuresDir)) {
                 out.println("Acceptance: FAILED - features directory " + featuresDir + " does not exist - acceptance.features"
@@ -15580,12 +16150,20 @@ public class GherkinMutator {
             return 1;
         }
         List<String> notRun = new ArrayList<>();
-        String counted = census.messages() == null || featuresDir == null ? null : census(featuresDir, census, notRun);
+        List<MessageStream> streams = new ArrayList<>();
+        String counted = census.messages() == null || featuresDir == null
+                ? null
+                : census(featuresDir, census, notRun, streams);
+        if (counted == null && slowTop > 0 && census.messages() != null && Files.exists(census.messages()) && notRun.isEmpty()) {
+            List<String> ignored = new ArrayList<>();
+            streams.addAll(readStreams(census.messages(), "", ignored));
+        }
         skipped.forEach(out::println);
         notRun.forEach(out::println);
         if (counted != null) {
             out.println(counted);
         }
+        formatSlowAcceptance(streams, census.root(), slowTop).forEach(out::println);
         if (skipped.isEmpty() && notRun.isEmpty()) {
             out.println("Acceptance: " + total + " scenario(s), none skipped - OK");
             return 0;
@@ -15614,6 +16192,10 @@ public class GherkinMutator {
     record Census(Path messages, Path root, Path allowlist) {
     }
 
+    static String census(Path featuresDir, Census census, List<String> notRun) throws IOException {
+        return census(featuresDir, census, notRun, new ArrayList<>());
+    }
+
     /**
      * The census of an acceptance run: every scenario the feature files define must have run. Defined is what Cucumber
      * compiles a feature file into - a Scenario is one, a Scenario Outline one per Examples row (none without rows), in
@@ -15624,13 +16206,14 @@ public class GherkinMutator {
      * finding F2 of its feature file, unless the allowlist accepts that file for F2. Adds the findings - or, when a
      * stream is missing or cannot be read, that problem - to {@code notRun}; returns the census line (null without one).
      */
-    static String census(Path featuresDir, Census census, List<String> notRun) throws IOException {
+    static String census(Path featuresDir, Census census, List<String> notRun, List<MessageStream> streamsOut) throws IOException {
         List<String> problems = new ArrayList<>();
         List<MessageStream> streams = readStreams(census.messages(), "ACCEPTANCE ERROR ", problems);
         if (!problems.isEmpty()) {
             notRun.addAll(problems);
             return null;
         }
+        streamsOut.addAll(streams);
         Map<Path, Map<Integer, String>> compiled = new HashMap<>();      // feature file -> line -> name, by Cucumber
         Map<Path, Set<Integer>> ran = new HashMap<>();
         for (MessageStream stream : streams) {
@@ -15695,6 +16278,400 @@ public class GherkinMutator {
         }
         return "Acceptance census: " + done + " of " + defined + " scenario(s) in " + counted + " feature file(s) ran"
                 + (accepted > 0 ? "; " + accepted + " did not run, accepted by the integrity allowlist (F2)" : "");
+    }
+
+    // ---------------------------------------------------------------- slowest top-N from Cucumber NDJSON
+
+    record TimedStepEntry(String feature, int stepLine, String status, String text, String context, long durationNanos) {
+    }
+
+    static String displayUri(Path root, String uri) {
+        Path file = featureFile(uri);
+        if (file != null && root != null) {
+            return relative(root, file);
+        }
+        return uri == null ? "" : tsv(uri);
+    }
+
+    static long caseDurationNanos(CaseRun run) {
+        long wall = Math.max(0L, run.finished() - run.started());
+        long stepSum = 0L;
+        for (StepRun st : run.steps()) {
+            stepSum += Math.max(0L, st.durationNanos());
+        }
+        return Math.max(wall, stepSum);
+    }
+
+    static List<String> formatSlowAcceptance(List<MessageStream> streams, Path root, int slowTop) {
+        if (slowTop <= 0 || streams.isEmpty()) {
+            return List.of();
+        }
+        List<CaseRun> completed = new ArrayList<>();
+        List<TimedStepEntry> steps = new ArrayList<>();
+        for (MessageStream stream : streams) {
+            for (CaseRun run : stream.runs) {
+                if (run.finished() >= 0 && run.started() >= 0) {
+                    completed.add(run);
+                    String feat = displayUri(root, run.uri());
+                    String ctx = "\"" + tsv(run.name()) + "\"" + (run.line() > 0 ? ":" + run.line() : "");
+                    for (StepRun st : run.steps()) {
+                        steps.add(new TimedStepEntry(feat, st.line(), st.status(), st.text(), ctx, st.durationNanos()));
+                    }
+                }
+            }
+        }
+        if (completed.isEmpty()) {
+            return List.of();
+        }
+        completed.sort((a, b) -> {
+            int cmp = Long.compare(caseDurationNanos(b), caseDurationNanos(a));
+            return cmp != 0 ? cmp : Integer.compare(a.line(), b.line());
+        });
+        List<String> out = new ArrayList<>();
+        int scLimit = Math.min(slowTop, completed.size());
+        out.add("Acceptance slowest scenario(s) (top " + scLimit + " of " + completed.size() + "):");
+        for (int i = 0; i < scLimit; i++) {
+            CaseRun run = completed.get(i);
+            String feat = displayUri(root, run.uri());
+            String loc = feat + (run.line() > 0 ? ":" + run.line() : "");
+            StepRun slowest = slowestStepOf(run.steps());
+            String stepSuffix = slowest == null ? ""
+                    : " | step" + (slowest.line() > 0 ? " :" + slowest.line() : "")
+                    + " [" + slowest.status() + " " + slowMillis(slowest.durationNanos()) + " ms] " + tsv(slowest.text());
+            out.add("  " + slowMillis(caseDurationNanos(run)) + " ms  " + loc + " \"" + tsv(run.name()) + "\"" + stepSuffix);
+        }
+        if (!steps.isEmpty()) {
+            steps.sort((a, b) -> Long.compare(b.durationNanos(), a.durationNanos()));
+            int stLimit = Math.min(slowTop, steps.size());
+            out.add("Acceptance slowest step(s) (top " + stLimit + " of " + steps.size() + "):");
+            for (int i = 0; i < stLimit; i++) {
+                TimedStepEntry s = steps.get(i);
+                String loc = s.feature() + (s.stepLine() > 0 ? ":" + s.stepLine() : "");
+                out.add("  " + slowMillis(s.durationNanos()) + " ms  " + loc + " [" + s.status() + "] "
+                        + tsv(s.text()) + " (" + s.context() + ")");
+            }
+        }
+        return out;
+    }
+
+    static List<String> formatSlowMutants(List<MessageStream> streams, Map<String, String[]> manifest,
+                                          Map<String, String[]> controls, int slowTop) {
+        if (slowTop <= 0 || streams.isEmpty()) {
+            return List.of();
+        }
+        List<CaseRun> completed = new ArrayList<>();
+        List<TimedStepEntry> steps = new ArrayList<>();
+        for (MessageStream stream : streams) {
+            for (CaseRun run : stream.runs) {
+                String id = generatedId(run.uri());
+                if (id == null || run.finished() < 0 || run.started() < 0) {
+                    continue;
+                }
+                String[] row = manifest.getOrDefault(id, controls.get(id));
+                if (row == null) {
+                    continue;
+                }
+                completed.add(run);
+                String mutInfo = manifest.containsKey(id)
+                        ? id + " " + row[4] + ": " + row[5] + " -> " + row[6]
+                        : id + " (control)";
+                for (StepRun st : run.steps()) {
+                    steps.add(new TimedStepEntry(row[1], st.line(), st.status(), st.text(),
+                            "\"" + row[3] + "\":" + row[2] + " | " + mutInfo, st.durationNanos()));
+                }
+            }
+        }
+        if (completed.isEmpty()) {
+            return List.of();
+        }
+        completed.sort((a, b) -> Long.compare(caseDurationNanos(b), caseDurationNanos(a)));
+        List<String> out = new ArrayList<>();
+        int scLimit = Math.min(slowTop, completed.size());
+        out.add("Gherkin mutation slowest scenario(s) (top " + scLimit + " of " + completed.size() + "):");
+        for (int i = 0; i < scLimit; i++) {
+            CaseRun run = completed.get(i);
+            String id = generatedId(run.uri());
+            String[] row = manifest.getOrDefault(id, controls.get(id));
+            String desc = manifest.containsKey(id)
+                    ? row[1] + ":" + row[2] + " \"" + row[3] + "\" " + row[4] + ": " + row[5] + " -> " + row[6]
+                    : row[1] + ":" + row[2] + " \"" + row[3] + "\" (control)";
+            StepRun slowest = slowestStepOf(run.steps());
+            String stepSuffix = slowest != null
+                    ? " | step" + (slowest.line() > 0 ? " :" + slowest.line() : "")
+                    + " [" + slowest.status() + " " + slowMillis(slowest.durationNanos()) + " ms] " + tsv(slowest.text())
+                    : run.stepFailure() != null && run.stepFailure().line() > 0
+                    ? " | failed at line " + run.stepFailure().line()
+                    : "";
+            out.add("  " + slowMillis(caseDurationNanos(run)) + " ms  " + id + "  " + desc + stepSuffix);
+        }
+        if (!steps.isEmpty()) {
+            steps.sort((a, b) -> Long.compare(b.durationNanos(), a.durationNanos()));
+            int stLimit = Math.min(slowTop, steps.size());
+            out.add("Gherkin mutation slowest step(s) (top " + stLimit + " of " + steps.size() + "):");
+            for (int i = 0; i < stLimit; i++) {
+                TimedStepEntry s = steps.get(i);
+                String loc = s.feature() + (s.stepLine() > 0 ? ":" + s.stepLine() : "");
+                out.add("  " + slowMillis(s.durationNanos()) + " ms  " + loc + " [" + s.status() + "] "
+                        + tsv(s.text()) + " (" + s.context() + ")");
+            }
+        }
+        return out;
+    }
+
+    static StepRun slowestStepOf(List<StepRun> steps) {
+        StepRun best = null;
+        for (StepRun st : steps) {
+            if (best == null || st.durationNanos() > best.durationNanos()) {
+                best = st;
+            }
+        }
+        return best;
+    }
+
+    // ---------------------------------------------------------------- JUnit Platform shard runner
+
+    record XmlCase(String name, String className, long durationNanos, String kind, String failureType,
+                   String failureMessage, String stackTrace) {
+    }
+
+    static final class BoundedBufferStream extends OutputStream {
+        private final ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        private final int maxBytes;
+
+        BoundedBufferStream(int maxBytes) {
+            this.maxBytes = maxBytes;
+        }
+
+        @Override
+        public synchronized void write(int b) {
+            if (buffer.size() < maxBytes) {
+                buffer.write(b);
+            }
+        }
+
+        @Override
+        public synchronized void write(byte[] b, int off, int len) {
+            int room = maxBytes - buffer.size();
+            if (room > 0) {
+                buffer.write(b, off, Math.min(len, room));
+            }
+        }
+
+        synchronized String text() {
+            return buffer.toString(StandardCharsets.UTF_8);
+        }
+    }
+
+    /**
+     * Executes one Gherkin mutant shard via JUnit Platform's {@code LauncherFactory} on the current JVM's classpath
+     * (Cucumber engine, sequential execution in lexical order) and writes a Gradle-compatible JUnit XML report without
+     * printing expected mutant failure stack traces to the build console.
+     */
+    static int runShard(String shardName, Path xmlFile) throws IOException {
+        ClassLoader cl = Thread.currentThread().getContextClassLoader();
+        if (cl == null) {
+            cl = GherkinMutator.class.getClassLoader();
+        }
+        PrintStream origOut = System.out;
+        PrintStream origErr = System.err;
+        BoundedBufferStream capturedOut = new BoundedBufferStream(2 * 1024 * 1024);
+        BoundedBufferStream capturedErr = new BoundedBufferStream(2 * 1024 * 1024);
+        List<XmlCase> cases = Collections.synchronizedList(new ArrayList<>());
+        long suiteStart = System.nanoTime();
+        try {
+            Class<?> launcherFactoryCls = Class.forName("org.junit.platform.launcher.core.LauncherFactory", true, cl);
+            Class<?> launcherSessionCls = Class.forName("org.junit.platform.launcher.LauncherSession", true, cl);
+            Class<?> launcherCls = Class.forName("org.junit.platform.launcher.Launcher", true, cl);
+            Class<?> reqBuilderCls = Class.forName("org.junit.platform.launcher.core.LauncherDiscoveryRequestBuilder", true, cl);
+            Class<?> reqCls = Class.forName("org.junit.platform.launcher.LauncherDiscoveryRequest", true, cl);
+            Class<?> engineFilterCls = Class.forName("org.junit.platform.launcher.EngineFilter", true, cl);
+            Class<?> filterCls = Class.forName("org.junit.platform.engine.Filter", true, cl);
+            Class<?> listenerCls = Class.forName("org.junit.platform.launcher.TestExecutionListener", true, cl);
+            Class<?> planCls = Class.forName("org.junit.platform.launcher.TestPlan", true, cl);
+            Class<?> idCls = Class.forName("org.junit.platform.launcher.TestIdentifier", true, cl);
+            Class<?> resCls = Class.forName("org.junit.platform.engine.TestExecutionResult", true, cl);
+
+            Method getParent = planCls.getMethod("getParent", idCls);
+            Method getUniqueId = idCls.getMethod("getUniqueId");
+            Method getDisplayName = idCls.getMethod("getDisplayName");
+            Method isTest = idCls.getMethod("isTest");
+            Method getStatus = resCls.getMethod("getStatus");
+            Method getThrowable = resCls.getMethod("getThrowable");
+
+            AtomicReference<Object> planRef = new AtomicReference<>();
+            Map<String, Long> startedAt = Collections.synchronizedMap(new HashMap<>());
+
+            Object listener = Proxy.newProxyInstance(cl, new Class<?>[]{listenerCls}, (proxy, method, mArgs) -> {
+                String mName = method.getName();
+                return switch (mName) {
+                    case "equals" -> proxy == mArgs[0];
+                    case "hashCode" -> System.identityHashCode(proxy);
+                    case "toString" -> "GherkinShardListener(" + shardName + ")";
+                    case "testPlanExecutionStarted" -> {
+                        planRef.set(mArgs[0]);
+                        yield null;
+                    }
+                    case "executionStarted" -> {
+                        startedAt.put((String) getUniqueId.invoke(mArgs[0]), System.nanoTime());
+                        yield null;
+                    }
+                    case "executionSkipped" -> {
+                        Object id = mArgs[0];
+                        if (Boolean.TRUE.equals(isTest.invoke(id))) {
+                            cases.add(new XmlCase((String) getDisplayName.invoke(id),
+                                    suiteDisplayName(planRef.get(), id, getParent, getDisplayName),
+                                    0L, "skipped", "", "", ""));
+                        }
+                        yield null;
+                    }
+                    case "executionFinished" -> {
+                        Object id = mArgs[0];
+                        Object res = mArgs[1];
+                        String uid = (String) getUniqueId.invoke(id);
+                        long started = startedAt.getOrDefault(uid, System.nanoTime());
+                        long elapsed = Math.max(0L, System.nanoTime() - started);
+                        String status = ((Enum<?>) getStatus.invoke(res)).name();
+                        boolean leaf = Boolean.TRUE.equals(isTest.invoke(id));
+                        String display = (String) getDisplayName.invoke(id);
+                        String clsName = suiteDisplayName(planRef.get(), id, getParent, getDisplayName);
+                        if ("ABORTED".equals(status) && leaf) {
+                            cases.add(new XmlCase(display, clsName, elapsed, "skipped", "", "", ""));
+                        } else if ("FAILED".equals(status)) {
+                            Optional<?> opt = (Optional<?>) getThrowable.invoke(res);
+                            Throwable t = opt.isPresent() && opt.get() instanceof Throwable th
+                                    ? th
+                                    : new AssertionError("test failed without reporting an exception");
+                            StringWriter sw = new StringWriter();
+                            t.printStackTrace(new PrintWriter(sw));
+                            cases.add(new XmlCase(display, clsName, elapsed, "failed",
+                                    t.getClass().getName(), t.getMessage() == null ? "" : t.getMessage(), sw.toString()));
+                        } else if (leaf) {
+                            cases.add(new XmlCase(display, clsName, elapsed, "passed", "", "", ""));
+                        }
+                        yield null;
+                    }
+                    default -> null;
+                };
+            });
+
+            Object builder = reqBuilderCls.getMethod("request").invoke(null);
+            Object cucumberFilter = engineFilterCls.getMethod("includeEngines", List.class)
+                    .invoke(null, List.of("cucumber"));
+            Object filterArr = Array.newInstance(filterCls, 1);
+            Array.set(filterArr, 0, cucumberFilter);
+            reqBuilderCls.getMethod("filters", filterArr.getClass()).invoke(builder, filterArr);
+            Object discoveryReq = reqBuilderCls.getMethod("build").invoke(builder);
+
+            Object listenerArr = Array.newInstance(listenerCls, 1);
+            Array.set(listenerArr, 0, listener);
+
+            System.setOut(new PrintStream(capturedOut, true, StandardCharsets.UTF_8));
+            System.setErr(new PrintStream(capturedErr, true, StandardCharsets.UTF_8));
+            try (AutoCloseable session = (AutoCloseable) launcherFactoryCls.getMethod("openSession").invoke(null)) {
+                Object launcher = launcherSessionCls.getMethod("getLauncher").invoke(session);
+                launcherCls.getMethod("execute", reqCls, listenerArr.getClass()).invoke(launcher, discoveryReq, listenerArr);
+            }
+        } catch (InvocationTargetException wrapped) {
+            Throwable cause = wrapped.getCause() != null ? wrapped.getCause() : wrapped;
+            throw new IOException("shard " + shardName + " failed: " + cause, cause);
+        } catch (ReflectiveOperationException | IOException e) {
+            throw new IOException("shard " + shardName + " could not launch JUnit Platform: " + e, e);
+        } catch (Exception sessionClose) {
+            throw new IOException("shard " + shardName + " failed on close: " + sessionClose, sessionClose);
+        } finally {
+            System.setOut(origOut);
+            System.setErr(origErr);
+        }
+        long suiteElapsed = Math.max(0L, System.nanoTime() - suiteStart);
+        writeShardXml(xmlFile, shardName, cases, suiteElapsed, capturedOut.text(), capturedErr.text());
+        return 0;
+    }
+
+    static String suiteDisplayName(Object plan, Object id, Method getParent, Method getDisplayName)
+            throws ReflectiveOperationException {
+        if (plan == null) {
+            return (String) getDisplayName.invoke(id);
+        }
+        Object cur = id;
+        while (true) {
+            Optional<?> parent = (Optional<?>) getParent.invoke(plan, cur);
+            if (parent.isEmpty()) {
+                return (String) getDisplayName.invoke(cur);
+            }
+            Optional<?> grandParent = (Optional<?>) getParent.invoke(plan, parent.get());
+            if (grandParent.isEmpty()) {
+                return (String) getDisplayName.invoke(cur);
+            }
+            cur = parent.get();
+        }
+    }
+
+    static void writeShardXml(Path xmlFile, String shardName, List<XmlCase> cases, long suiteElapsedNanos,
+                              String sysOut, String sysErr) throws IOException {
+        if (xmlFile.getParent() != null) {
+            Files.createDirectories(xmlFile.getParent());
+        }
+        int skipped = 0;
+        int failures = 0;
+        for (XmlCase c : cases) {
+            if ("skipped".equals(c.kind())) {
+                skipped++;
+            } else if ("failed".equals(c.kind())) {
+                failures++;
+            }
+        }
+        StringBuilder sb = new StringBuilder(Math.max(1024, cases.size() * 256));
+        sb.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+        sb.append("<testsuite name=\"gherkin-shard-").append(xmlAttr(shardName))
+                .append("\" tests=\"").append(cases.size())
+                .append("\" skipped=\"").append(skipped)
+                .append("\" failures=\"").append(failures)
+                .append("\" errors=\"0\" time=\"").append(String.format(Locale.ROOT, "%.3f", suiteElapsedNanos / 1e9))
+                .append("\">\n");
+        for (XmlCase c : cases) {
+            sb.append("  <testcase name=\"").append(xmlAttr(c.name()))
+                    .append("\" classname=\"").append(xmlAttr(c.className()))
+                    .append("\" time=\"").append(String.format(Locale.ROOT, "%.3f", c.durationNanos() / 1e9))
+                    .append("\"");
+            if ("skipped".equals(c.kind())) {
+                sb.append("><skipped/></testcase>\n");
+            } else if ("failed".equals(c.kind())) {
+                sb.append(">\n    <failure message=\"").append(xmlAttr(c.failureMessage()))
+                        .append("\" type=\"").append(xmlAttr(c.failureType()))
+                        .append("\">").append(xmlText(c.stackTrace()))
+                        .append("</failure>\n  </testcase>\n");
+            } else {
+                sb.append("/>\n");
+            }
+        }
+        sb.append("  <system-out>").append(xmlText(sysOut)).append("</system-out>\n");
+        sb.append("  <system-err>").append(xmlText(sysErr)).append("</system-err>\n");
+        sb.append("</testsuite>\n");
+        Files.writeString(xmlFile, sb.toString(), StandardCharsets.UTF_8);
+    }
+
+    static String xmlClean(String s) {
+        if (s == null || s.isEmpty()) {
+            return "";
+        }
+        StringBuilder out = new StringBuilder(s.length());
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == '\t' || c == '\n' || c == '\r' || (c >= 0x20 && c <= 0xD7FF) || (c >= 0xE000 && c <= 0xFFFD)) {
+                out.append(c);
+            }
+        }
+        return out.toString();
+    }
+
+    static String xmlText(String raw) {
+        String s = xmlClean(raw);
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+    }
+
+    static String xmlAttr(String raw) {
+        return xmlText(raw).replace("\"", "&quot;").replace("'", "&apos;")
+                .replace("\n", "&#10;").replace("\r", "&#13;").replace("\t", "&#9;");
     }
 
     /** The scenarios a feature file defines, by this tool's reading: the line of each Scenario, or of each Examples row
